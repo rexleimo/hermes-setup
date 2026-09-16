@@ -311,41 +311,74 @@
 })();
 
   // ------------------------------------------------------------------
-  // 文件工作台（OS 风格）：选择 / 双击打开 / 右键菜单 / 筛选 / 排序 / 上传即传
+  // 文件工作台（Windows 11 资源管理器风格）
+  // 选择 / 详细信息面板 / 状态栏 / 双击 / 右键菜单 / 搜索 / 上传即传
   // 事件全部委托在 document 上，hx-boost 换 body 后依然有效。
   // ------------------------------------------------------------------
   (function () {
   "use strict";
-  var sel = null;
+  var sel = null, wbDefault = null;
 
+  function $id(x) { return document.getElementById(x); }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function wbItem(ev) { return ev.target.closest(".osfm-card-item"); }
   function wbClearSel() {
     var old = document.querySelectorAll(".osfm-card-item.selected");
     for (var i = 0; i < old.length; i++) old[i].classList.remove("selected");
   }
-  function wbSelbar(item) {
-    var bar = document.getElementById("osfm-selbar");
-    if (!bar) return;
-    if (!item) { bar.hidden = true; return; }
-    bar.hidden = false;
-    var rel = item.dataset.rel;
-    var isDir = item.dataset.dir === "1";
-    document.getElementById("osfm-selname").textContent = rel;
-    var dl = document.getElementById("osfm-act-dl");
-    var zip = document.getElementById("osfm-act-zip");
-    var arc = document.getElementById("osfm-act-archive");
-    if (dl) { dl.style.display = isDir ? "none" : ""; dl.href = "/files/raw?path=" + encodeURIComponent(rel) + "&dl=1"; }
-    if (zip) { zip.style.display = isDir ? "" : "none"; zip.href = "/files/zip?path=" + encodeURIComponent(rel); }
-    if (arc) arc.style.display = item.dataset.bucket === "1" ? "none" : "";
+  function wbStatus() {
+    var c = $id("e-status-count"), s = $id("e-status-sel");
+    if (c) c.textContent = document.querySelectorAll("#osfm-items .osfm-card-item").length + " 个项目";
+    if (s) s.textContent = sel ? "选中 1 个项目  " + sel.dataset.size : "";
   }
-  function wbPreview(rel) {
-    if (!window.htmx) return;
-    htmx.ajax("GET", "/files/preview?path=" + encodeURIComponent(rel),
-              { target: "#wb-preview", swap: "innerHTML" });
+  function wbCmdbar(item) {
+    var op = $id("osfm-act-open"), arc = $id("osfm-act-archive");
+    var dl = $id("osfm-act-dl"), zip = $id("osfm-act-zip");
+    if (op) op.disabled = !item;
+    if (arc) arc.disabled = !(item && item.dataset.bucket !== "1");
+    var isDir = item && item.dataset.dir === "1";
+    if (dl) { dl.style.display = item && !isDir ? "" : "none";
+      if (item) dl.href = "/files/raw?path=" + encodeURIComponent(item.dataset.rel) + "&dl=1"; }
+    if (zip) { zip.style.display = item && isDir ? "" : "none";
+      if (item) zip.href = "/files/zip?path=" + encodeURIComponent(item.dataset.rel); }
+  }
+  function wbDetails(item) {
+    var pane = $id("wb-preview");
+    if (!pane) return;
+    if (wbDefault === null) wbDefault = pane.innerHTML;
+    if (!item) { pane.innerHTML = wbDefault; wbStatus(); return; }
+    var d = item.dataset, root = $id("osfm-root");
+    var thumb;
+    if (d.dir === "1") thumb = '<span class="e-dbig">📁</span>';
+    else if (d.cat === "images") thumb = '<img src="/files/raw?path=' + encodeURIComponent(d.rel) + '" alt="">';
+    else if (d.cat === "videos") thumb = '<video src="/files/raw?path=' + encodeURIComponent(d.rel) + '#t=0.5" preload="metadata" muted playsinline></video>';
+    else thumb = '<span class="e-dbig">' + (d.emoji || "📎") + "</span>";
+    var acts = '<div class="e-dacts"><button type="button" class="e-dbtn" data-wb="open">打开</button>'
+      + (d.dir === "0"
+          ? '<a class="e-dbtn" href="/files/raw?path=' + encodeURIComponent(d.rel) + '&dl=1">下载</a>'
+          : '<a class="e-dbtn" href="/files/zip?path=' + encodeURIComponent(d.rel) + '">打包</a>')
+      + (root && root.dataset.admin === "1" && d.bucket !== "1"
+          ? '<button type="button" class="e-dbtn" data-wb="archive">归档</button>' : "")
+      + "</div>";
+    pane.innerHTML = '<div class="e-dthumb">' + thumb + "</div>"
+      + '<div class="e-dname">' + esc(d.name0) + "</div>" + acts
+      + '<div class="e-dtitle">详细信息</div><dl class="e-dl">'
+      + "<div><dt>类型</dt><dd>" + esc(d.type) + "</dd></div>"
+      + "<div><dt>大小</dt><dd>" + esc(d.size) + "</dd></div>"
+      + "<div><dt>文件位置</dt><dd>" + esc(d.parent) + "</dd></div>"
+      + "<div><dt>修改日期</dt><dd>" + esc(d.mtime) + "</dd></div></dl>";
+    wbStatus();
+  }
+  function wbPreviewContent(rel) {
+    if (window.htmx) {
+      htmx.ajax("GET", "/files/preview?path=" + encodeURIComponent(rel),
+                { target: "#wb-preview", swap: "innerHTML" });
+    }
   }
   function wbOpen(item) {
     if (item.dataset.dir === "1") window.location.href = item.dataset.href;
-    else wbPreview(item.dataset.rel);
+    else wbPreviewContent(item.dataset.rel);
   }
   function wbArchive(rel) {
     if (!window.confirm("归档 " + rel + " → archive/？（移动，不留副本）")) return;
@@ -357,7 +390,35 @@
       .then(function (r) { if (!r.ok) throw new Error(r.status); window.location.reload(); })
       .catch(function () { window.alert("归档失败"); });
   }
-  // 右键菜单
+  function wbSelect(item) {
+    wbClearSel(); sel = item;
+    if (item) { item.classList.add("selected"); item.focus({ preventScroll: true }); }
+    wbCmdbar(item); wbDetails(item);
+  }
+
+  document.addEventListener("click", function (ev) {
+    if (wbMenu && !ev.target.closest(".osfm-menu")) wbHideMenu();
+    var act = ev.target.closest && ev.target.closest("[id^='osfm-act-'],[data-wb]");
+    if (act) {
+      if ((act.id === "osfm-act-open" || act.dataset.wb === "open") && sel) { wbOpen(sel); return; }
+      if ((act.id === "osfm-act-archive" || act.dataset.wb === "archive") && sel) { wbArchive(sel.dataset.rel); return; }
+    }
+    if (ev.target.closest && ev.target.closest("#e-back")) { history.back(); return; }
+    if (ev.target.closest && ev.target.closest("#e-fwd")) { history.forward(); return; }
+    if (ev.target.closest && ev.target.closest("#e-details-toggle")) {
+      var root = $id("osfm-root"); if (root) root.classList.toggle("e-nodetails"); return;
+    }
+    var item = wbItem(ev);
+    if (!item) { if (ev.target.closest && !ev.target.closest(".e-side,.e-menu,.osfm-upload,input")) wbSelect(null); return; }
+    wbSelect(item);
+  });
+  document.addEventListener("dblclick", function (ev) {
+    var item = wbItem(ev);
+    if (!item) return;
+    wbOpen(item);
+  });
+
+  // 右键上下文菜单
   var wbMenu = null;
   function wbHideMenu() { if (wbMenu) wbMenu.style.display = "none"; }
   function wbMenuAdd(label, fn) {
@@ -370,53 +431,34 @@
     var item = wbItem(ev);
     if (!item) return;
     ev.preventDefault();
-    wbClearSel(); item.classList.add("selected"); sel = item; wbSelbar(item);
-    var root = document.getElementById("osfm-root");
-    if (!wbMenu) {
-      wbMenu = document.createElement("div");
-      wbMenu.className = "osfm-menu";
-      document.body.appendChild(wbMenu);
-    }
+    wbSelect(item);
+    if (!wbMenu) { wbMenu = document.createElement("div"); wbMenu.className = "osfm-menu"; document.body.appendChild(wbMenu); }
     wbMenu.innerHTML = "";
     wbMenuAdd("打开", function () { wbOpen(item); });
     if (item.dataset.dir === "0")
       wbMenuAdd("下载", function () { location.href = "/files/raw?path=" + encodeURIComponent(item.dataset.rel) + "&dl=1"; });
     if (item.dataset.dir === "1")
       wbMenuAdd("打包下载（zip）", function () { location.href = "/files/zip?path=" + encodeURIComponent(item.dataset.rel); });
+    var root = $id("osfm-root");
     if (root && root.dataset.admin === "1" && item.dataset.bucket !== "1")
       wbMenuAdd("归档到 archive/", function () { wbArchive(item.dataset.rel); });
     wbMenu.style.display = "block";
-    var mw = wbMenu.offsetWidth, mh = wbMenu.offsetHeight;
-    wbMenu.style.left = Math.min(ev.clientX, window.innerWidth - mw - 8) + "px";
-    wbMenu.style.top = Math.min(ev.clientY, window.innerHeight - mh - 8) + "px";
+    wbMenu.style.left = Math.min(ev.clientX, window.innerWidth - wbMenu.offsetWidth - 8) + "px";
+    wbMenu.style.top = Math.min(ev.clientY, window.innerHeight - wbMenu.offsetHeight - 8) + "px";
   });
-  // 选择与双击
-  document.addEventListener("click", function (ev) {
-    if (wbMenu && !ev.target.closest(".osfm-menu")) wbHideMenu();
-    var act = ev.target.closest("#osfm-selbar [id^='osfm-act-']");
-    if (act && act.id === "osfm-act-open" && sel) { wbOpen(sel); return; }
-    if (act && act.id === "osfm-act-archive" && sel) { wbArchive(sel.dataset.rel); return; }
-    var item = wbItem(ev);
-    if (!item) { wbClearSel(); sel = null; wbSelbar(null); return; }
-    wbClearSel(); item.classList.add("selected"); sel = item; wbSelbar(item);
-  });
-  document.addEventListener("dblclick", function (ev) {
-    var item = wbItem(ev);
-    if (!item || ev.target.closest(".table-actions")) return;
-    wbOpen(item);
-  });
+
   // 键盘：Esc 取消 / Enter 打开 / Backspace 上一级
   document.addEventListener("keydown", function (ev) {
-    if (ev.key === "Escape") { wbHideMenu(); wbClearSel(); sel = null; wbSelbar(null); return; }
+    if (ev.key === "Escape") { wbHideMenu(); wbSelect(null); return; }
     var tag = (document.activeElement || {}).tagName || "";
     if (/INPUT|TEXTAREA|SELECT/i.test(tag)) return;
     if (ev.key === "Enter" && sel) { wbOpen(sel); return; }
     if (ev.key === "Backspace") {
-      var up = document.querySelector(".osfm-crumbs a");
+      var up = document.querySelector(".e-nav a.e-navbtn");
       if (up) { ev.preventDefault(); window.location.href = up.getAttribute("href"); }
     }
   });
-  // 筛选当前视图
+  // 搜索：即时过滤当前视图
   document.addEventListener("input", function (ev) {
     if (!ev.target || ev.target.id !== "osfm-search") return;
     var q = ev.target.value.toLowerCase();
@@ -425,16 +467,12 @@
       items[i].style.display = items[i].dataset.name.indexOf(q) >= 0 ? "" : "none";
     }
   });
-  // 排序
-  document.addEventListener("change", function (ev) {
-    if (!ev.target || ev.target.id !== "osfm-sort") return;
-    var url = new URL(window.location.href);
-    url.searchParams.set("sort", ev.target.value);
-    window.location.href = url.toString();
-  });
-  // 选完文件即上传（downloads/，永不覆盖）
+  // 选完文件即上传
   document.addEventListener("change", function (ev) {
     if (!ev.target || !ev.target.matches || !ev.target.matches(".osfm-upload input[type=file]")) return;
     if (ev.target.files && ev.target.files.length) ev.target.closest("form").submit();
   });
-})();
+  // 初次渲染：状态栏
+  document.addEventListener("DOMContentLoaded", wbStatus);
+  if (document.readyState !== "loading") wbStatus();
+  })();

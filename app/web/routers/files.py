@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import mimetypes
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -60,6 +61,7 @@ def files_page(request: Request, user: User, path: str = "", cat: str = "",
         "crumbs": [], "entries": [], "inspect": None,
         "counts": [], "locs": [],
         "is_admin": user["role"] == "admin",
+        "ws_root_name": Path(status.get("root", "") or "hermes-workspace").name,
     }
     if status.get("error") or not status.get("exists"):
         return render(request, "files.html", ctx)
@@ -79,12 +81,12 @@ def files_page(request: Request, user: User, path: str = "", cat: str = "",
 def _listing(request: Request, path: str, cat: str, sort: str):
     """三种视图模式：目录 / 智能集合 / 最近。返回 (entries, crumbs)。"""
     if cat == "recent":
-        return ws.list_recent(), [("🕘 最近使用", "?cat=recent")]
+        return ws.list_recent(), [("最近使用", "?cat=recent")]
     if cat:
         if cat not in ws.CATEGORY_MAP:
             raise ws.WorkspaceError(f"未知集合：{cat}")
-        label, emoji = ws.CATEGORY_MAP[cat][0], ws.CATEGORY_MAP[cat][1]
-        return ws.list_collection(cat), [(f"{emoji} {label}（智能集合）", f"?cat={cat}")]
+        label = ws.CATEGORY_MAP[cat][0]
+        return ws.list_collection(cat), [(f"{label}（智能集合）", f"?cat={cat}")]
     return ws.list_dir(path, sort), ws.breadcrumbs(path)
 
 
@@ -101,6 +103,7 @@ def list_fragment(request: Request, user: User, path: str = "", cat: str = "",
         "entries": entries, "path": path, "cat": cat, "sort": sort,
         "view": view, "crumbs": crumbs,
         "is_admin": user["role"] == "admin",
+        "ws_root_name": Path(ws.root()).name,
     })
 
 
@@ -172,6 +175,7 @@ def move(request: Request, admin: Admin, path: str = Form(...)):
     resp = render_partial(request, "files/_content.html", {
         "entries": entries, "path": parent, "cat": "", "sort": "name", "view": "grid",
         "crumbs": ws.breadcrumbs(parent), "is_admin": True,
+        "ws_root_name": Path(ws.root()).name,
     })
     toast(resp, f"已归档：{rel}")
     return resp

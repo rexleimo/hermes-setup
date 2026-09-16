@@ -4,27 +4,8 @@
 {% block topbar_title %}产出 / <strong>文件工作台</strong>{% endblock %}
 {% block content %}
 
-<div class="page-header">
-  <div>
-    <h2>文件工作台</h2>
-    <p class="page-desc">
-      <code>{{ ws_status.root if ws_status.root else '未配置' }}</code>
-      · 侧栏「智能集合」按类型聚合全部文件，不复制、不搬家
-    </p>
-    {% if inspect and inspect.available %}
-    <div class="chip-line">
-      {% if not inspect.stray %}{{ tag('根部无散乱文件', 'ok') }}
-      {% else %}{{ tag('散乱文件 ' ~ (inspect.stray|length) ~ ' 项: ' ~ inspect.stray|join('、'), 'warn') }}{% endif %}
-      {% if inspect.stale_scratch %}{{ tag('scratch 超期 ' ~ inspect.stale_scratch, 'info') }}{% endif %}
-      {% if inspect.projects_without_requirements %}
-        {{ tag('缺需求清单的项目: ' ~ inspect.projects_without_requirements|join('、'), 'warn') }}
-      {% endif %}
-    </div>
-    {% endif %}
-  </div>
-</div>
-
 {% if ws_status.error or not ws_status.exists or not ws_status.initialized %}
+<div class="page-header"><div><h2>文件工作台</h2></div></div>
 <div class="card"><div class="card-body">
   {% if ws_status.error %}
     <div class="alert alert-danger">{{ ws_status.error }}</div>
@@ -45,45 +26,120 @@
 </div></div>
 {% else %}
 
-{%- set qs = '&sort=' ~ sort ~ '&view=' ~ view -%}
-<div class="osfm" id="osfm-root" data-admin="{{ '1' if is_admin else '0' }}" hx-boost="true">
-  {# ---------------- 侧栏：位置 + 智能集合 ---------------- #}
-  <aside class="osfm-side">
-    <div class="osfm-side-title">位置</div>
-    <a class="osfm-loc {% if not cat and not path %}active{% endif %}"
-       href="/files?{{ qs[1:] }}">{{ icon('grid') }} <span>工作区根</span></a>
-    {% for name, n in locs %}
-    <a class="osfm-loc {% if not cat and path == name %}active{% endif %}"
-       href="/files?path={{ name }}{{ qs }}">
-      {% if name == 'projects' %}{{ icon('folder') }}
-      {% elif name == 'downloads' %}{{ icon('download') }}
-      {% elif name == 'scratch' %}{{ icon('branch') }}
-      {% elif name == 'archive' %}{{ icon('box') }}
-      {% else %}{{ icon('file') }}{% endif %}
-      <span>{{ {'projects':'项目 projects','downloads':'下载 downloads','documents':'文档 documents','pictures':'图片 pictures','videos':'视频 videos','scratch':'草稿 scratch','archive':'归档 archive'}.get(name, name) }}</span><em class="osfm-n">{{ n }}</em></a>
-    {% endfor %}
+{%- set baseq = ('cat=' ~ cat if cat else 'path=' ~ path) -%}
+{%- set ns = baseq ~ '&view=' ~ view -%}
+{%- set here = request.path ~ '?' ~ (baseq ~ '&sort=' ~ sort ~ '&view=' ~ view if baseq else 'sort=' ~ sort ~ '&view=' ~ view) -%}
+{# ============ Windows 11 资源管理器风格窗口 ============ #}
+<div class="win11" id="osfm-root" data-admin="{{ '1' if is_admin else '0' }}"
+     data-here="{{ here }}" hx-boost="true">
 
-    <div class="osfm-side-title">媒体与类型</div>
-    <a class="osfm-loc {% if cat == 'recent' %}active{% endif %}" href="/files?cat=recent{{ qs }}">
-      {{ icon('rotate') }} <span>最近使用</span></a>
-    {% for key, label, emoji, n in counts %}
-    <a class="osfm-loc {% if cat == key %}active{% endif %}" href="/files?cat={{ key }}{{ qs }}">
-      <span class="osfm-emoji">{{ emoji }}</span> <span>{{ label }}</span><em class="osfm-n">{{ n }}</em></a>
-    {% endfor %}
-  </aside>
+  <div class="e-titlebar">
+    <span class="e-tbicon">📁</span>
+    <span class="e-tbtitle">文件工作台 — {{ ws_root_name }}</span>
+    {% if inspect and inspect.available and (inspect.stray or inspect.projects_without_requirements) %}
+    <span class="e-tbwarn" title="{{ '散乱: ' ~ inspect.stray|join('、') if inspect.stray else '' }}">{{ icon('alert') }}</span>
+    {% endif %}
+  </div>
 
-  {# ---------------- 中栏：工具条 + 内容 ---------------- #}
-  <section class="osfm-main">
-    <div id="osfm-content">{% include "files/_content.html" %}</div>
-  </section>
-
-  {# ---------------- 右栏：预览（Quick Look） ---------------- #}
-  <aside class="card osfm-preview">
-    <div class="card-header"><h3>{{ icon('search') }} 预览</h3></div>
-    <div class="card-body wb-preview-body" id="wb-preview">
-      <div class="empty-state"><p class="text-muted">单击选中，双击打开预览<br>图片 / 视频 / 音频 / 文本 / pdf 内联显示</p></div>
+  <div class="e-nav">
+    <button class="e-navbtn" id="e-back" type="button" title="后退">←</button>
+    <button class="e-navbtn" id="e-fwd" type="button" title="前进">→</button>
+    {% if path %}
+    <a class="e-navbtn" title="上一级"
+       href="/files?path={{ path.rsplit('/', 1)[0] if '/' in path else '' }}&sort={{ sort }}&view={{ view }}">↑</a>
+    {% else %}<span class="e-navbtn dis">↑</span>{% endif %}
+    <button class="e-navbtn" type="button" title="刷新" onclick="location.reload()">⟳</button>
+    <div class="e-address">
+      <span class="e-addr-ico">💻</span>
+      {% for name, p in crumbs %}
+        {% if not loop.first %}<span class="e-crumb-sep">›</span>{% endif %}
+        {% if not loop.last %}
+          <a href="/files?{% if p.startswith('?') %}{{ p[1:] }}{% else %}path={{ p }}{% endif %}&sort={{ sort }}&view={{ view }}">{{ name }}</a>
+        {% else %}<strong>{{ name }}</strong>{% endif %}
+      {% endfor %}
     </div>
-  </aside>
+    <input class="e-search" id="osfm-search" type="search"
+           placeholder="在「{{ crumbs[-1][0] if crumbs else '此文件夹' }}」中搜索" autocomplete="off">
+  </div>
+
+  <div class="e-cmdbar">
+    {% if is_admin %}
+    <form method="post" action="/files/upload" enctype="multipart/form-data" class="osfm-upload">
+      {{ csrf() }}
+      <label class="e-cmd" title="上传到 downloads/（同名自动加后缀）"><span class="e-cmd-plus">＋</span> 上传<input type="file" name="file" hidden required></label>
+    </form>
+    {% endif %}
+    <span class="e-sep"></span>
+    <button class="e-cmd" id="osfm-act-open" type="button" disabled>打开</button>
+    <a class="e-cmd" id="osfm-act-dl" style="display:none">下载</a>
+    <a class="e-cmd" id="osfm-act-zip" style="display:none">打包</a>
+    {% if is_admin %}
+    <button class="e-cmd" id="osfm-act-archive" type="button" disabled>归档</button>
+    {% endif %}
+    <span class="e-sep"></span>
+    <details class="e-menu">
+      <summary class="e-cmd">↕ 排序</summary>
+      <div class="e-menu-pop">
+        {% for k, l in [('name','名称'), ('time','修改日期'), ('size','大小')] %}
+        <a {% if sort == k %}class="on"{% endif %} href="/files?{% if baseq %}{{ baseq }}&{% endif %}sort={{ k }}&view={{ view }}">{{ l }}</a>
+        {% endfor %}
+      </div>
+    </details>
+    <details class="e-menu">
+      <summary class="e-cmd">▦ 查看</summary>
+      <div class="e-menu-pop">
+        <a {% if view != 'list' %}class="on"{% endif %} href="/files?{% if baseq %}{{ baseq }}&{% endif %}sort={{ sort }}&view=grid">图标</a>
+        <a {% if view == 'list' %}class="on"{% endif %} href="/files?{% if baseq %}{{ baseq }}&{% endif %}sort={{ sort }}&view=list">详细信息</a>
+      </div>
+    </details>
+    <span class="e-flex"></span>
+    <button class="e-cmd" id="e-details-toggle" type="button">ℹ 详细信息</button>
+  </div>
+
+  <div class="e-body">
+    <aside class="e-side">
+      <a class="e-loc {% if not cat and not path %}active{% endif %}"
+         href="/files?sort={{ sort }}&view={{ view }}"><span>🏠</span><em>主文件夹</em></a>
+      <div class="e-side-sep"></div>
+      {% for name, n in locs %}
+      <a class="e-loc {% if not cat and path == name %}active{% endif %}"
+         href="/files?path={{ name }}&sort={{ sort }}&view={{ view }}">
+        {% if name == 'projects' %}<span>📁</span>
+        {% elif name == 'downloads' %}<span>⬇️</span>
+        {% elif name == 'documents' %}<span>📄</span>
+        {% elif name == 'pictures' %}<span>🖼️</span>
+        {% elif name == 'videos' %}<span>🎬</span>
+        {% elif name == 'scratch' %}<span>🧪</span>
+        {% else %}<span>🗃️</span>{% endif %}
+        <em>{{ {'projects':'项目 projects','downloads':'下载 downloads','documents':'文档 documents','pictures':'图片 pictures','videos':'视频 videos','scratch':'草稿 scratch','archive':'归档 archive'}.get(name, name) }}</em>
+        <i class="e-n">{{ n }}</i></a>
+      {% endfor %}
+      <div class="e-side-sep"></div>
+      <div class="e-side-title">智能集合</div>
+      <a class="e-loc {% if cat == 'recent' %}active{% endif %}"
+         href="/files?cat=recent&sort={{ sort }}&view={{ view }}"><span>🕘</span><em>最近使用</em></a>
+      {% for key, label, emoji, n in counts %}
+      <a class="e-loc {% if cat == key %}active{% endif %}"
+         href="/files?cat={{ key }}&sort={{ sort }}&view={{ view }}">
+        <span>{{ emoji }}</span><em>{{ label }}</em><i class="e-n">{{ n }}</i></a>
+      {% endfor %}
+    </aside>
+
+    <main class="e-content" id="osfm-content">{% include "files/_content.html" %}</main>
+
+    <aside class="e-details" id="wb-preview">
+      <div class="e-dfolder">
+        <span class="e-dbig">📁</span>
+        <div class="e-dname">{{ crumbs[-1][0] if crumbs else '工作区' }}</div>
+        <div class="e-dhint">选择单个文件以获取详细信息。<br>双击文件打开预览。</div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="e-status">
+    <span id="e-status-count"></span>
+    <span id="e-status-sel"></span>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

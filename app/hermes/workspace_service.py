@@ -232,7 +232,7 @@ def list_dir(rel: str = "", sort: str = "name") -> list[Entry]:
 def breadcrumbs(rel: str = "") -> list[tuple[str, str]]:
     """[(显示名, 路径)]，含根。"""
     parts = [p for p in (rel or "").split("/") if p]
-    out = [("(工作区根)", "")]
+    out = [("工作区", "")]
     for i in range(len(parts)):
         out.append((parts[i], "/".join(parts[: i + 1])))
     return out
