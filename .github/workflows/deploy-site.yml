@@ -29,7 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # enablement: true —— 站点不存在时由 action 自动创建 Pages site，
+      # 否则 GET /pages 返回 404 会让本步骤直接失败（默认值 auto 不会启用）
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
