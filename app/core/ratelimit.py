@@ -28,14 +28,14 @@ def record(ip: str, username: str, success: bool) -> None:
         (ip, username, int(success)),
     )
     db.execute(
-        "DELETE FROM login_attempts WHERE ts < datetime('now','localtime','-2 days')"
+        "DELETE FROM login_attempts WHERE ts < datetime('now','-2 days')"
     )
 
 
 def check(ip: str, username: str) -> ThrottleVerdict:
     row = db.query_one(
         """SELECT COUNT(*) AS n FROM login_attempts
-           WHERE ip = ? AND success = 0 AND ts > datetime('now','localtime', ?)""",
+           WHERE ip = ? AND success = 0 AND ts > datetime('now', ?)""",
         (ip, f"-{WINDOW_MINUTES} minutes"),
     )
     if row and row["n"] >= IP_MAX_ATTEMPTS:
@@ -45,7 +45,7 @@ def check(ip: str, username: str) -> ThrottleVerdict:
         """SELECT MAX(ts) AS last_fail, SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS fails
            FROM login_attempts
            WHERE username = ? AND success = 0
-             AND ts > datetime('now','localtime', ?)""",
+             AND ts > datetime('now', ?)""",
         (username, f"-{LOCK_MINUTES} minutes"),
     )
     if row and (row["fails"] or 0) >= FAILS_BEFORE_LOCK:

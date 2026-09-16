@@ -88,3 +88,80 @@ def test_username_validation(clean_db):
     for name in ("bad name", "bad$name", "名字"):
         with pytest.raises(UserError):
             create_user(name, "ValidPass123", "operator")
+
+
+def test_at_rest_encryption_roundtrip():
+    from app.core.security import decrypt_text, encrypt_text
+
+    secret = new_totp_secret()
+    stored = encrypt_text(secret)
+    assert stored.startswith("enc:v1:") and stored != secret
+    assert decrypt_text(stored) == secret
+    # 明文透传 & 篡改 fail-closed
+    assert encrypt_text("") == ""
+    assert decrypt_text("plain-base32") == "plain-base32"
+    assert decrypt_text(stored[:-4] + "AAAA") == ""
+
+
+def test_totp_stored_encrypted_and_read_plain():
+    from app.core import db
+    from app.core.appsettings import create_user, get, set_totp
+
+    uid = create_user("secuser", "ValidPass123", "operator")
+    secret = new_totp_secret()
+    set_totp(uid, secret, enabled=True)
+    raw = db.query_one("SELECT totp_secret FROM users WHERE id = ?", (uid,))["totp_secret"]
+    assert raw.startswith("enc:v1:")
+    row = get(uid)
+    assert row["totp_secret"] == secret and row["totp_enabled"] == 1
+
+
+def test_session_times_are_utc():
+    from datetime import datetime, timedelta, timezone
+
+    from app.core import db
+
+    s = session_store.create(1, ip="1.2.3.4")
+    row = db.query_one("SELECT expires_at, last_seen_at FROM sessions WHERE id = ?", (s.id,))
+    exp = datetime.strptime(row["expires_at"], "%Y-%m-%d %H:%M:%S")
+    utc_now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # conftest 里 TTL=60 分钟：UTC 基准下误差只应有秒级；若混入本地时区会偏差小时级
+    assert timedelta(0) < exp - utc_now < timedelta(minutes=61)
+    session_store.destroy(s.id)
+
+
+def test_healthz_no_session_row(client):
+    from app.core import db
+
+    before = db.query_one("SELECT COUNT(*) AS n FROM sessions")["n"]
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    after = db.query_one("SELECT COUNT(*) AS n FROM sessions")["n"]
+    assert after == before  # 探针不注水 sessions 表
+
+
+def test_backup_keeps_last_five(tmp_path, monkeypatch):
+    from app.core import backup
+
+    monkeypatch.setattr(backup, "backups_dir", lambda: tmp_path)
+    for _ in range(7):
+        assert backup.create_backup() is not None
+    files = sorted(tmp_path.glob("console-*.db"))
+    assert len(files) <= 5
+
+
+def test_login_rotates_session_id(admin):
+    from app.core import db
+    from tests.conftest import csrf_of
+
+    token = csrf_of(admin)  # 先 GET /login，获得匿名会话 cookie
+    sid_before = admin.cookies.get("hermes_console_session", "")
+    assert sid_before
+    resp = admin.post("/login", data={"username": "admin",
+                                      "password": "Sup3rSecure!x", "_csrf": token},
+                      follow_redirects=False)
+    assert resp.status_code == 303
+    sid_after = admin.cookies.get("hermes_console_session", "")
+    assert sid_after and sid_after != sid_before
+    assert db.query_one("SELECT id FROM sessions WHERE id = ?", (sid_before,)) is None

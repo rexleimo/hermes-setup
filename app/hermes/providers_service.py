@@ -188,7 +188,7 @@ def update_provider(pid: str, *, name: str, base_url: str, env_key: str,
         base_url, env_key = meta["base_url"], meta["env_key"]
     db.execute(
         "UPDATE provider_meta SET name = ?, base_url = ?, env_key = ?, default_model = ?,"
-        " note = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+        " note = ?, updated_at = datetime('now') WHERE id = ?",
         (name.strip() or pid, base_url.strip(), env_key.strip(), default_model.strip(),
          note.strip(), pid),
     )
@@ -264,7 +264,7 @@ def set_main_model(pid: str, model_id: str, context_length: int | None = None) -
         model_node.pop("context_length", None)
     save_config(config)
     db.execute(
-        "UPDATE provider_meta SET default_model = ?, updated_at = datetime('now','localtime')"
+        "UPDATE provider_meta SET default_model = ?, updated_at = datetime('now')"
         " WHERE id = ?", (model_id.strip(), pid))
 
 
@@ -279,7 +279,7 @@ def upsert_model(pid: str, model_id: str, display_name: str = "",
         " VALUES (?,?,?,?,?)"
         " ON CONFLICT(provider_id, model_id) DO UPDATE SET"
         " display_name = excluded.display_name, context_length = excluded.context_length,"
-        " note = excluded.note, updated_at = datetime('now','localtime')",
+        " note = excluded.note, updated_at = datetime('now')",
         (pid, model_id, display_name, context_length, note),
     )
 

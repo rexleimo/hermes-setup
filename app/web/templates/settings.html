@@ -52,7 +52,26 @@
           <dt>IP 白名单</dt><dd>{{ ip_allowlist or '未配置（不限来源）' }}</dd>
           <dt>会话绝对过期</dt><dd>{{ session_ttl }} 分钟</dd>
           <dt>会话空闲过期</dt><dd>{{ idle_ttl }} 分钟</dd>
+          <dt>签名密钥</dt><dd>
+            {% if secret_persistent %}已从环境变量设置（TOTP 种子静态加密已启用）
+            {% else %}<span class="alert alert-warn" style="display:inline-block;padding:2px 8px;">未设置 HERMES_CONSOLE_SECRET：重启后令牌失效，2FA 种子不会加密</span>{% endif %}
+          </dd>
         </dl>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>数据快照</h3></div>
+      <div class="card-body">
+        <p class="form-help">平台数据库每日自动快照（保留最近 5 份，存于 data/backups/）。
+          表中时间均为 UTC。</p>
+        <ul style="margin:8px 0; padding-left:18px; font-size:13px;">
+          {% for b in backups %}<li><code>{{ b.name }}</code></li>{% else %}<li>暂无快照</li>{% endfor %}
+        </ul>
+        <form method="post" action="/settings/backup">
+          {{ csrf() }}
+          <button class="btn btn-secondary btn-sm" type="submit">立即备份</button>
+        </form>
       </div>
     </div>
 

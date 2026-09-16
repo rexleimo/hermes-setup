@@ -5,7 +5,7 @@ Cookie 仅存放 session id；真实状态在服务端，可随时吊销。
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core import db
 from app.core.security import new_session_id
@@ -28,7 +28,8 @@ class Session:
 
 
 def _now() -> datetime:
-    return datetime.now()
+    """naive UTC：与库内 datetime('now')（UTC）同基准，避免时区/夏令时跳变。"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def create(user_id: int | None, ip: str = "", user_agent: str = "") -> Session:
@@ -60,7 +61,7 @@ def get(sid: str) -> Session | None:
 
     if row["user_id"] is not None:
         db.execute(
-            "UPDATE sessions SET last_seen_at = datetime('now','localtime') WHERE id = ?",
+            "UPDATE sessions SET last_seen_at = datetime('now') WHERE id = ?",
             (sid,),
         )
         # 绝对过期时间随活跃顺延（不超过 session_ttl 的语义由 expires_at 兜底）
@@ -101,4 +102,4 @@ def destroy_user_sessions(user_id: int) -> None:
 
 
 def purge_expired() -> None:
-    db.execute("DELETE FROM sessions WHERE expires_at < datetime('now','localtime')")
+    db.execute("DELETE FROM sessions WHERE expires_at < datetime('now')")

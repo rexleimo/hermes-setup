@@ -81,7 +81,7 @@ def submit(kind: str, command: str, *, shell: bool = True) -> int:
             with open(log_path, "a", encoding="utf-8") as fh:
                 fh.write(f"\n[console] 启动失败：{exc}\n")
         db.execute(
-            "UPDATE job_runs SET status = ?, exit_code = ?, finished_at = datetime('now','localtime') "
+            "UPDATE job_runs SET status = ?, exit_code = ?, finished_at = datetime('now') "
             "WHERE id = ?",
             ("ok" if code == 0 else "failed", code, job_id),
         )

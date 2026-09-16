@@ -25,15 +25,15 @@ CREATE TABLE IF NOT EXISTS users (
     totp_secret   TEXT,
     totp_enabled  INTEGER NOT NULL DEFAULT 0,
     must_change   INTEGER NOT NULL DEFAULT 0,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     last_login_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
     id           TEXT PRIMARY KEY,
     user_id      INTEGER,                -- NULL = 匿名会话（登录页）
-    created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-    last_seen_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at   TEXT NOT NULL,
     ip           TEXT,
     user_agent   TEXT,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    ts       TEXT NOT NULL DEFAULT (datetime('now')),
     username TEXT,
     action   TEXT NOT NULL,
     target   TEXT,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE TABLE IF NOT EXISTS login_attempts (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    ts       TEXT NOT NULL DEFAULT (datetime('now')),
     ip       TEXT,
     username TEXT,
     success  INTEGER NOT NULL
@@ -74,8 +74,8 @@ CREATE TABLE IF NOT EXISTS provider_meta (
     base_url      TEXT DEFAULT '',
     default_model TEXT DEFAULT '',
     note          TEXT DEFAULT '',
-    created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-    updated_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS provider_models (
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS provider_models (
     context_length INTEGER,
     enabled        INTEGER NOT NULL DEFAULT 1,
     note           TEXT,
-    updated_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (provider_id, model_id)
 );
 
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS job_runs (
     kind       TEXT NOT NULL,            -- install | update | gateway_*
     command    TEXT,
     status     TEXT NOT NULL DEFAULT 'running',  -- running | ok | failed
-    started_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
     finished_at TEXT,
     exit_code  INTEGER,
     log_path   TEXT

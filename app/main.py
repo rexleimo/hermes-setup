@@ -4,18 +4,21 @@
 """
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from app.core import db, sessions as session_store
+from app import __version__
+from app.core import backup, db, maintenance, sessions as session_store
 from app.core.settings import settings
 from app.web.templating import render
 
@@ -23,13 +26,24 @@ log = logging.getLogger("hermes_console")
 
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 
+# 不创建会话行的路径：静态资源与健康探针（否则爬虫/监控会把 sessions 表注水）
+SESSIONLESS_PREFIXES = ("/static", "/healthz", "/favicon")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
     session_store.purge_expired()
-    log.info("Hermes Console %s 启动于 %s:%s", "0.1.0", settings.host, settings.port)
+    backup.run_due_backup()
+    if not settings.secret_key_persistent:
+        log.warning(
+            "HERMES_CONSOLE_SECRET 未设置：每次启动随机生成签名密钥，"
+            "重启后 CSRF 令牌全部失效，TOTP 种子也不会加密落库。生产部署请务必设置。"
+        )
+    task = asyncio.create_task(maintenance.maintenance_loop())
+    log.info("Hermes Console %s 启动于 %s:%s", __version__, settings.host, settings.port)
     yield
+    task.cancel()
 
 
 def create_app() -> FastAPI:
@@ -68,6 +82,9 @@ def create_app() -> FastAPI:
 
     class SessionMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
+            if request.url.path.startswith(SESSIONLESS_PREFIXES):
+                request.state.session = None
+                return await call_next(request)
             sid = request.cookies.get(session_store.COOKIE_NAME, "")
             sess = session_store.get(sid)
             created = False
@@ -129,6 +146,19 @@ def create_app() -> FastAPI:
     app.add_middleware(SessionMiddleware)
     app.add_middleware(IpAllowlistMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
+
+    # ------------------------------------------------------------------
+    # 健康探针：免认证、不建会话行。服务挂没挂，由外部定时探测判断（探测无响应即告警）
+    # ------------------------------------------------------------------
+    _started = time.monotonic()
+
+    @app.get("/healthz")
+    def healthz():
+        return JSONResponse({
+            "status": "ok",
+            "version": __version__,
+            "uptime_seconds": round(time.monotonic() - _started),
+        })
 
     # ------------------------------------------------------------------
     # 认证 / CSRF 异常 → 跳转 / 403

@@ -1,10 +1,10 @@
 """平台账户与运行时设置（DB 可编辑部分）。"""
 from __future__ import annotations
 
-import sqlite3
-
 from app.core import db
-from app.core.security import hash_password, password_issues
+from app.core.security import (
+    decrypt_text, encrypt_text, hash_password, password_issues,
+)
 from app.core.settings import settings
 
 # ---------------------------------------------------------------------------
@@ -51,20 +51,30 @@ class UserError(Exception):
     pass
 
 
+def _unwrap_user(row):
+    """sqlite3.Row → dict，并解密 totp_secret。调用方一律用本模块接口拿用户。"""
+    if row is None:
+        return None
+    data = dict(row)
+    if data.get("totp_secret"):
+        data["totp_secret"] = decrypt_text(data["totp_secret"])
+    return data
+
+
 def count_users() -> int:
     return db.query_one("SELECT COUNT(*) AS n FROM users")["n"]
 
 
-def get_by_username(username: str) -> sqlite3.Row | None:
-    return db.query_one("SELECT * FROM users WHERE username = ?", (username,))
+def get_by_username(username: str):
+    return _unwrap_user(db.query_one("SELECT * FROM users WHERE username = ?", (username,)))
 
 
-def get(user_id: int) -> sqlite3.Row | None:
-    return db.query_one("SELECT * FROM users WHERE id = ?", (user_id,))
+def get(user_id: int):
+    return _unwrap_user(db.query_one("SELECT * FROM users WHERE id = ?", (user_id,)))
 
 
-def list_users() -> list[sqlite3.Row]:
-    return db.query("SELECT * FROM users ORDER BY id")
+def list_users() -> list:
+    return [_unwrap_user(r) for r in db.query("SELECT * FROM users ORDER BY id")]
 
 
 def create_user(username: str, password: str, role: str = "operator") -> int:
@@ -108,12 +118,12 @@ def set_active(user_id: int, active: bool) -> None:
 def set_totp(user_id: int, secret: str | None, enabled: bool) -> None:
     db.execute(
         "UPDATE users SET totp_secret = ?, totp_enabled = ? WHERE id = ?",
-        (secret, int(enabled), user_id),
+        (encrypt_text(secret) if secret else None, int(enabled), user_id),
     )
 
 
 def touch_last_login(user_id: int) -> None:
-    db.execute("UPDATE users SET last_login_at = datetime('now','localtime') WHERE id = ?",
+    db.execute("UPDATE users SET last_login_at = datetime('now') WHERE id = ?",
                (user_id,))
 
 

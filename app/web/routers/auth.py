@@ -105,7 +105,11 @@ def login_submit(request: Request, username: str = Form(""), password: str = For
 
     ratelimit.record(ip, username, success=True)
 
-    sess = get_session_required(request) or session_store.create(
+    # 防会话固定：登录成功后丢弃登录前的（匿名）会话，另发全新 session id
+    old = get_session_required(request)
+    if old is not None:
+        session_store.destroy(old.id)
+    sess = session_store.create(
         user_id=None, ip=ip, user_agent=request.headers.get("user-agent", ""))
     two_fa_needed = bool(user["totp_enabled"])
     session_store.mark_authenticated(sess.id, user["id"], two_fa_ok=not two_fa_needed)

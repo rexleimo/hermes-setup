@@ -10,7 +10,8 @@
 ├──────────────────────────────────────────────────────────┤
 │  core/ （平台自身：与 Hermes 无关的基础设施）                 │
 │    settings / db / security / sessions / csrf /            │
-│    ratelimit / audit / appsettings                         │
+│    ratelimit / audit / appsettings / filelock /           │
+│    backup / maintenance                                   │
 ├──────────────────────────────────────────────────────────┤
 │  hermes/ （Hermes 适配层 —— 对底层操作的全部收敛点）          │
 │    paths → schema → config_store → *_service               │

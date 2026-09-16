@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, Request
 
-from app.core import audit, sessions as session_store
+from app.core import audit, backup, sessions as session_store
 from app.core.appsettings import UserError, get_by_username, set_password, set_setting
 from app.core.security import verify_password
 from app.hermes.paths import detect
@@ -28,6 +28,8 @@ def settings_page(request: Request, admin: Admin):
         "ip_allowlist": env_settings.allowed_ips,
         "session_ttl": env_settings.session_ttl_minutes,
         "idle_ttl": env_settings.idle_ttl_minutes,
+        "secret_persistent": env_settings.secret_key_persistent,
+        "backups": backup.list_backups()[:5],
     })
 
 
@@ -52,6 +54,17 @@ def settings_save(request: Request, admin: Admin,
 def probe_fragment(request: Request, admin: Admin):
     paths = detect()
     return render_partial(request, "settings/_probe.html", {"paths": paths})
+
+
+@router.post("/backup")
+def backup_now(request: Request, admin: Admin):
+    made = backup.create_backup()
+    audit.record("db_backup", username=admin["username"],
+                 detail=str(made) if made else "无 DB 文件", ip=client_ip(request))
+    resp = redirect(request, "/settings")
+    toast(resp, "已生成 DB 快照" if made else "暂无可备份的数据库",
+          level="success" if made else "error")
+    return resp
 
 
 # ---------------------------------------------------------------------------

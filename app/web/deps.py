@@ -54,7 +54,10 @@ def current_user(request: Request):
     sess = get_session_required(request)
     if sess is None or not sess.is_authenticated:
         return None
-    user = db.query_one("SELECT * FROM users WHERE id = ?", (sess.user_id,))
+    # 统一走 appsettings.get：返回 dict 并解密 totp_secret（而非裸 Row）
+    from app.core import appsettings
+
+    user = appsettings.get(sess.user_id)
     if user is None or not user["active"]:
         return None
     request.state.user = user
