@@ -953,3 +953,14 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 }
 .catalog-foot { margin-top:auto; display:flex; align-items:center; gap:8px; }
 .mcp-target { word-break:break-all; }
+
+/* 技能库类目折叠 */
+.catalog-category { border-bottom:1px solid var(--border); padding:6px 0; }
+.catalog-category:last-child { border-bottom:none; }
+.catalog-category summary {
+  cursor:pointer; font-weight:600; font-size:13.5px; padding:6px 0;
+  list-style:none; display:flex; align-items:center; gap:6px;
+}
+.catalog-category summary::before { content:"▸"; transition:transform .15s; font-size:11px; }
+.catalog-category[open] summary::before { transform:rotate(90deg); }
+.inline-form { display:inline; }

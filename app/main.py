@@ -61,7 +61,8 @@ def create_app() -> FastAPI:
         dashboard as dashboard_router, engineering as engineering_router,
         files as files_router,
         mcp as mcp_router, memory as memory_router, providers as providers_router,
-        service as service_router, settings as settings_router, users as users_router,
+        service as service_router, settings as settings_router,
+        skills as skills_router, users as users_router,
     )
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(memory_router.router)
     app.include_router(engineering_router.router)
     app.include_router(mcp_router.router)
+    app.include_router(skills_router.router)
     app.include_router(files_router.router)
     app.include_router(audit_router.router)
     app.include_router(users_router.router)
