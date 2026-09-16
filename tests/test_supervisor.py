@@ -4,8 +4,13 @@ from __future__ import annotations
 import os
 import stat
 
+import pytest
+
 from app.hermes import supervisor
 from app.hermes.paths import HermesPaths
+
+# 桩 hermes 是 /bin/sh 脚本，只能 POSIX 下执行
+posix_only = pytest.mark.skipif(os.name != "posix", reason="需要 POSIX shebang 脚本执行")
 
 
 def make_stub_bin(tmp_path, status_output="gateway is running (pid 42424)",
@@ -30,6 +35,7 @@ def _paths(tmp_path, bin_path) -> HermesPaths:
     return HermesPaths(home=home, bin=bin_path)
 
 
+@posix_only
 def test_status_running_via_cli(tmp_path):
     paths = _paths(tmp_path, make_stub_bin(tmp_path))
     st = supervisor.status(paths)
@@ -38,12 +44,14 @@ def test_status_running_via_cli(tmp_path):
     assert supervisor.version(paths) == "hermes 2026.9.1-test"
 
 
+@posix_only
 def test_status_stopped(tmp_path):
     paths = _paths(tmp_path, make_stub_bin(tmp_path, "gateway is not running"))
     st = supervisor.status(paths)
     assert st.running is False
 
 
+@posix_only
 def test_start_stop_restart(tmp_path):
     paths = _paths(tmp_path, make_stub_bin(tmp_path))
     assert "started" in supervisor.start(paths)

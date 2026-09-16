@@ -2,12 +2,11 @@
 
 安全工程约束：
 - 所有写入先「校验 → 备份 → 临时文件 → os.replace 原子替换」，任何一步失败都不落盘；
-- 并发写通过同目录 `.config.lock`（fcntl）串行化；
+- 并发写通过同目录 `.config.lock`（跨平台文件锁，见 core/filelock.py）串行化；
 - 备份保留最近 N 份（默认 10），文件名 config.yaml.bak-<timestamp>。
 """
 from __future__ import annotations
 
-import fcntl
 import os
 import re
 import shutil
@@ -20,6 +19,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
 from app.core import appsettings
+from app.core.filelock import exclusive_lock
 from app.hermes.paths import HermesPaths, detect
 
 MAX_BACKUPS = 10
@@ -41,12 +41,8 @@ class ConfigError(Exception):
 def _config_lock(paths: HermesPaths):
     lock_path = paths.home / ".config.lock"
     paths.home.mkdir(parents=True, exist_ok=True)
-    with open(lock_path, "w") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(fh, fcntl.LOCK_UN)
+    with exclusive_lock(lock_path):
+        yield
 
 
 # ---------------------------------------------------------------------------

@@ -233,7 +233,11 @@ def test_deps_commands(hermes_home):
     assert "hindsight-client" in mem.deps_command("hindsight", {"mode": "cloud"})
     # 无依赖的方案返回空
     assert mem.deps_command("holographic") == ""
+    import os
     import subprocess
+
+    if os.name != "posix":
+        return  # bash 语法检查仅限 POSIX；命令拼接正确性已由上方断言覆盖
 
     for pid, values in [("honcho", {}), ("hindsight", {"mode": "local"}),
                         ("mem0", {"mode": "platform"})]:
