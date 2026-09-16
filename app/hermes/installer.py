@@ -60,6 +60,7 @@ JOB_KIND_LABELS = {
     "update": "检查并更新",
     "install_messaging": "安装微信依赖",
     "weixin_qr_login": "微信扫码接入",
+    "plugin_install": "安装插件",
 }
 
 

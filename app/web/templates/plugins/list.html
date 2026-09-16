@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag with context %}
+{% block title %}插件与 Hook{% endblock %}
+{% block topbar_title %}扩展生态 / <strong>插件与 Hook</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>插件与 Hook</h2>
+    <p class="page-desc">Python 插件（~/.hermes/plugins/，白名单信任模型）与 shell hooks（config.yaml 的 hooks 域，无需写 Python）</p>
+  </div>
+</div>
+
+{% if not auto_accept %}
+<div class="alert alert-info">{{ icon('shield') }}
+  插件默认禁用，须加入 <code>plugins.enabled</code> 白名单才会加载；shell hook 首次触发也需逐条确认。
+  这是 Hermes 的安全模型：第三方代码未经同意不执行。</div>
+{% else %}
+<div class="alert alert-warning">{{ icon('alert') }}
+  <strong>hooks_auto_accept 已开启</strong>：新增的 shell hook 将跳过首次确认直接执行。</div>
+{% endif %}
+
+{# ------------------------------------------------------------- 插件列表 #}
+<div class="card">
+  <div class="card-header">
+    <h3>已安装插件</h3>
+    <span class="card-extra">
+      <form method="post" action="/plugins/settings/timeout" class="inline-form flex" style="gap:6px; align-items:center;">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <label class="text-muted" style="font-size:12px;">hook 回调超时（秒）</label>
+        <input class="form-input" type="number" name="timeout" value="{{ hook_timeout }}"
+               style="width:80px; height:30px;">
+        <button class="btn btn-ghost btn-sm">保存</button>
+      </form>
+    </span>
+  </div>
+  <div class="card-body flush">
+    {% if plugins %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr>
+        <th>插件</th><th>Hook</th><th>状态</th><th style="text-align:right;">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for p in plugins %}
+      <tr id="plugin-{{ p.name }}">
+        <td>
+          <div class="cell-main">{{ p.name }}{% if p.version %} <span class="text-muted">v{{ p.version }}</span>{% endif %}</div>
+          <div class="cell-sub">{{ p.description or p.author or '—' }}</div>
+        </td>
+        <td>
+          {% for h in p.hooks %}{{ tag(h, 'info') }}{% else %}<span class="text-muted">—</span>{% endfor %}
+        </td>
+        <td>
+          {% if p.broken %}{{ tag('目录缺失', 'warn') }}
+          {% elif p.enabled %}{{ tag('已启用', 'ok') }}
+          {% else %}{{ tag('未加入白名单', 'muted') }}{% endif %}
+        </td>
+        <td>
+          <div class="table-actions">
+            {% if not p.broken %}
+            <form method="post" action="/plugins/{{ p.name }}/toggle" class="inline-form">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="enable" value="{{ '0' if p.enabled else '1' }}">
+              <button class="btn btn-ghost btn-sm">{{ icon('zap') }} {{ '禁用' if p.enabled else '启用' }}</button>
+            </form>
+            <form method="post" action="/plugins/{{ p.name }}/delete" class="inline-form"
+                  data-confirm="删除插件目录 ~/.hermes/plugins/{{ p.name }}，不可恢复。" data-confirm-word="{{ p.name }}">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="confirm" value="" data-confirm-field>
+              <button class="btn btn-ghost btn-sm" title="删除">{{ icon('trash') }}</button>
+            </form>
+            {% else %}
+            <form method="post" action="/plugins/{{ p.name }}/toggle" class="inline-form">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="enable" value="0">
+              <button class="btn btn-ghost btn-sm" title="从白名单移除残留条目">{{ icon('x') }} 清理白名单</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    <div class="empty-state">
+      {{ icon('zap') }}
+      <h4>还没有已安装插件</h4>
+      <p>可从下方官方策展目录一键安装，或参考官方文档手写插件</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ------------------------------------------------------------- 官方策展目录 #}
+<div class="card" style="margin-top:18px;">
+  <div class="card-header">
+    <h3>官方策展目录</h3>
+    <span class="card-extra text-muted">plugin-catalog（repo + sha 锁定，社区评审）；安装走官方 CLI，进度见「服务管理 → 后台任务」</span>
+  </div>
+  <div class="card-body">
+    {% if catalog %}
+    <div class="catalog-grid">
+      {% for e in catalog %}
+      <div class="catalog-card {% if e.name in installed_names %}done{% endif %}" id="pcat-{{ e.name }}">
+        <div class="catalog-head">
+          <span class="cell-main">{{ e.name }}</span>
+          {% if e.tier %}{{ tag(e.tier, 'ok' if e.tier in ('official', 'core') else 'info') }}{% endif %}
+          {% if e.name in installed_names %}{{ tag('已安装', 'ok') }}{% endif %}
+        </div>
+        <p class="catalog-desc">{{ e.description or '—' }}</p>
+        <div class="flex" style="gap:6px; flex-wrap:wrap;">
+          {% if e.provides_tools %}{{ tag(e.provides_tools ~ ' 工具', 'muted') }}{% endif %}
+          {% if e.provides_hooks %}{{ tag(e.provides_hooks ~ ' hook', 'muted') }}{% endif %}
+          {% for env in e.requires_env %}{{ tag('需 ' ~ env, 'warn') }}{% endfor %}
+        </div>
+        <div class="catalog-foot">
+          {% if e.name in installed_names %}
+          <span class="text-muted" style="font-size:12px;">更新请用「服务管理 → 检查并更新」</span>
+          {% else %}
+          <form method="post" action="/plugins/catalog/install" class="inline-form"
+                data-confirm="安装第三方插件 = 在本机执行其代码。安装后默认禁用，需手动启用。继续吗？">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="name" value="{{ e.name }}">
+            <button class="btn btn-secondary btn-sm">{{ icon('download') }} 安装</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      {{ icon('info') }}
+      <h4>官方策展目录不可用</h4>
+      <p>未找到本机 Hermes Agent 源码目录（agent_repo/plugin-catalog）。请先在「服务管理」安装 Hermes Agent。</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ------------------------------------------------------------- Shell Hooks #}
+<div class="card" style="margin-top:18px;">
+  <div class="card-header">
+    <h3>Shell Hooks</h3>
+    <span class="card-extra">
+      <form method="post" action="/plugins/hooks/auto-accept" class="inline-form flex" style="gap:6px; align-items:center;">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="enable" value="{{ '0' if auto_accept else '1' }}">
+        <span class="text-muted" style="font-size:12px;">自动接受新 hook</span>
+        <label class="switch" title="开启后新 hook 首次触发不再询问（降低安全性）">
+          <input type="checkbox" {% if auto_accept %}checked{% endif %}
+                 onchange="this.closest('form').requestSubmit()">
+          <span class="switch-slider"></span>
+        </label>
+      </form>
+    </span>
+  </div>
+  <div class="card-body flush">
+    {% if hooks %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr>
+        <th>事件</th><th>命令</th><th>匹配器</th><th>超时</th><th>信任</th><th style="text-align:right;">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for h in hooks %}
+      <tr>
+        <td>{{ tag(h.event, 'warn' if h.can_block else 'info') }}
+          {% if h.can_block %}{% if h.fail_closed %}{{ tag('fail_closed', 'warn') }}{% endif %}{% endif %}</td>
+        <td><code style="font-size:12px; word-break:break-all;">{{ h.command }}</code></td>
+        <td>{% if h.matcher %}<code style="font-size:12px;">{{ h.matcher }}</code>{% else %}—{% endif %}</td>
+        <td>{{ h.timeout or '默认 60' }}s</td>
+        <td>{{ tag(h.allowlist_label, 'ok' if h.allowlisted else 'warn') }}</td>
+        <td>
+          <form method="post" action="/plugins/hooks/delete" class="inline-form">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="event" value="{{ h.event }}">
+            <input type="hidden" name="command" value="{{ h.command }}">
+            <button class="btn btn-ghost btn-sm" title="删除">{{ icon('trash') }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    <div class="card-body"><p class="text-muted" style="margin:0;">
+      尚未配置 shell hook。典型用法：用 <code>pre_tool_call</code> 拦截危险命令、
+      <code>post_tool_call</code> 自动格式化、<code>pre_llm_call</code> 注入上下文。</p></div>
+    {% endif %}
+  </div>
+  <div class="card-body" style="border-top:1px solid var(--border);">
+    <form method="post" action="/plugins/hooks/create">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="form-row">
+        <div class="form-item">
+          <label class="form-label">事件 <span class="required">*</span></label>
+          <select class="form-select" name="event" required>
+            {% for e in valid_hooks %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-item">
+          <label class="form-label">命令 <span class="required">*</span></label>
+          <input class="form-input" name="command" required placeholder="/path/to/script.sh 或 python check.py">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-item">
+          <label class="form-label">匹配器（正则）</label>
+          <input class="form-input" name="matcher" placeholder="terminal|write_file">
+          <p class="form-help">仅 pre_tool_call / post_tool_call 有效：按工具名过滤</p>
+        </div>
+        <div class="form-item">
+          <label class="form-label">超时（秒，默认 60，上限 300）</label>
+          <input class="form-input" type="number" name="timeout" placeholder="60">
+        </div>
+      </div>
+      <div class="form-item">
+        <label class="form-label">fail_closed（仅 pre_tool_call：hook 失败视为拦截）</label>
+        <label class="switch"><input type="checkbox" name="fail_closed" value="1">
+          <span class="switch-slider"></span></label>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">{{ icon('plus') }} 添加 Hook</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ------------------------------------------------------------- 只读盘点 #}
+<div class="card" style="margin-top:18px;">
+  <div class="card-header">
+    <h3>信任白名单与 Gateway Hooks</h3>
+    <span class="card-extra text-muted">只读盘点：hook 同意记录、gateway 生命周期 hook、outbound webhooks</span>
+  </div>
+  <div class="card-body">
+    <h3 style="margin:0 0 6px;">Shell hook 信任记录（shell-hooks-allowlist.json）</h3>
+    {% if allowlist %}
+    {% for e in allowlist %}
+    <div class="flex" style="justify-content:space-between; align-items:center; padding:5px 0; gap:10px;">
+      <div>
+        <code style="font-size:12px;">{{ e.command }}</code>
+        <span class="text-muted" style="font-size:12px;">· {{ e.event or '所有事件' }}{% if e.approved_at %} · {{ e.approved_at[:10] }}{% endif %}</span>
+      </div>
+      <form method="post" action="/plugins/hooks/revoke" class="inline-form"
+            data-confirm="撤销后该脚本下次触发会被跳过，直到重新确认。">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="command" value="{{ e.command }}">
+        <button class="btn btn-ghost btn-sm">撤销信任</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-muted" style="margin:0 0 14px; font-size:13px;">暂无记录 —— 尚有 shell hook 通过首次确认获得信任。</p>
+    {% endif %}
+
+    <h3 style="margin:14px 0 6px;">Gateway Hooks（~/.hermes/hooks/）</h3>
+    {% if gateway_hooks %}
+    {% for g in gateway_hooks %}
+    <div style="padding:5px 0;">
+      <strong style="font-size:13px;">{{ g.name }}</strong>
+      <span class="text-muted" style="font-size:12px;">{{ g.description }}</span>
+      {% for ev in g.events %}{{ tag(ev, 'info') }}{% endfor %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-muted" style="margin:0 0 14px; font-size:13px;">暂无 gateway hook 目录（gateway 生命周期钩子，HOOK.yaml + handler.py）。</p>
+    {% endif %}
+
+    <h3 style="margin:14px 0 6px;">Outbound Webhooks（hooks.outbound）</h3>
+    {% if outbound %}
+    {% for w in outbound %}
+    <div style="padding:5px 0;">
+      <code style="font-size:12px;">{{ w.url }}</code>
+      {% if w.name %}<span class="text-muted" style="font-size:12px;">· {{ w.name }}</span>{% endif %}
+      {% for ev in w.get('events', []) %}{{ tag(ev, 'muted') }}{% endfor %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-muted" style="margin:0; font-size:13px;">暂未配置 outbound webhook（把生命周期事件签名推送到外部 HTTP 端点）。</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="alert alert-info" style="margin-top:18px;">{{ icon('info') }}
+  插件启停与 shell hooks 写入 <code>config.yaml</code>（<code>plugins.enabled</code> / <code>hooks.*</code> / <code>hooks_auto_accept</code>）；
+  变更后重启 Gateway 或新会话生效。第三方插件 = 在本机执行其代码，请只安装可信来源。</div>
+{% endblock %}
