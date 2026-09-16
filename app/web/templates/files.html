@@ -2,6 +2,7 @@
 {% from "macros.html" import icon, tag, csrf with context %}
 {% block title %}文件工作台{% endblock %}
 {% block topbar_title %}产出 / <strong>文件工作台</strong>{% endblock %}
+{% block content_class %}content-full{% endblock %}
 {% block content %}
 
 {% if ws_status.error or not ws_status.exists or not ws_status.initialized %}
@@ -29,17 +30,9 @@
 {%- set baseq = ('cat=' ~ cat if cat else 'path=' ~ path) -%}
 {%- set ns = baseq ~ '&view=' ~ view -%}
 {%- set here = request.path ~ '?' ~ (baseq ~ '&sort=' ~ sort ~ '&view=' ~ view if baseq else 'sort=' ~ sort ~ '&view=' ~ view) -%}
-{# ============ Windows 11 资源管理器风格窗口 ============ #}
+{# ============ Windows 11 资源管理器风格（铺满内容区，无窗框） ============ #}
 <div class="win11" id="osfm-root" data-admin="{{ '1' if is_admin else '0' }}"
      data-here="{{ here }}" hx-boost="true">
-
-  <div class="e-titlebar">
-    <span class="e-tbicon">📁</span>
-    <span class="e-tbtitle">文件工作台 — {{ ws_root_name }}</span>
-    {% if inspect and inspect.available and (inspect.stray or inspect.projects_without_requirements) %}
-    <span class="e-tbwarn" title="{{ '散乱: ' ~ inspect.stray|join('、') if inspect.stray else '' }}">{{ icon('alert') }}</span>
-    {% endif %}
-  </div>
 
   <div class="e-nav">
     <button class="e-navbtn" id="e-back" type="button" title="后退">←</button>
@@ -93,6 +86,9 @@
       </div>
     </details>
     <span class="e-flex"></span>
+    {% if inspect and inspect.available and (inspect.stray or inspect.projects_without_requirements) %}
+    <span class="e-tbwarn" title="散乱文件: {{ inspect.stray|join('、') }}{% if inspect.projects_without_requirements %}；缺需求清单: {{ inspect.projects_without_requirements|join('、') }}{% endif %}">{{ icon('alert') }}</span>
+    {% endif %}
     <button class="e-cmd" id="e-details-toggle" type="button">ℹ 详细信息</button>
   </div>
 
