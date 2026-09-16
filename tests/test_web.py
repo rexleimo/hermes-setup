@@ -197,3 +197,15 @@ def test_fallback_chain_via_web(admin):
         "provider": "anthropic", "model": "claude-opus-4-6", "_csrf": token})
     assert "claude-opus-4-6" in admin.get("/chains").text
     admin.post("/chains/fallback/remove", data={"position": "1", "_csrf": token})
+
+
+def test_css_button_specificity_guard():
+    """回归防护：按钮基态不得用 a.btn（特异性会压过 .btn-primary 变体，
+    导致链接型主按钮白底白字）；empty-state 大图标不得用后代选择器
+    污染按钮内的小图标。"""
+    import pathlib
+
+    css = (pathlib.Path(__file__).resolve().parents[1]
+           / "app/web/static/css/admin.css").read_text(encoding="utf-8")
+    assert "\na.btn {" not in css and not css.startswith("a.btn {")
+    assert ".empty-state .icon" not in css

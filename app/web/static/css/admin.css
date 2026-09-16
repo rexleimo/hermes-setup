@@ -254,11 +254,12 @@ a.stat-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-pop); 
 
   /* ------------------------------------------------------------
      6. 按钮
-     规则：变体的 hover 必须完整覆写 背景/边框/文字色，
-     且覆盖全局 a 链接样式（否则 a.btn hover 时文字会被抢成蓝色）
+     规则：基态选择器只用 .btn（0,1,0）。禁止写成 a.btn（0,1,1）——
+     其特异性会压过 .btn-primary/.btn-danger 等变体（0,1,0），叠加
+     :visited 后链接型主按钮变白底白字（隐形）。变体 hover 必须完整
+     覆写 背景/边框/文字色。
      ------------------------------------------------------------ */
-.btn,
-a.btn {
+.btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   height: 34px; padding: 0 15px;
   border-radius: 8px; border: 1px solid var(--border-strong);
@@ -404,7 +405,9 @@ input[type="checkbox"].check {
 
 /* 空状态 */
 .empty-state { text-align: center; padding: 46px 20px; color: var(--text-3); }
-.empty-state .icon { width: 40px; height: 40px; color: var(--border-strong); }
+.empty-state > .icon { width: 40px; height: 40px; color: var(--border-strong); }
+/* 修复：只放大容器直属装饰图标，按钮内的小图标（如 empty-state 里的
+   「添加第一个供应商」plus）保持 .icon 的 17px，否则被撑爆。 */
 .empty-state h4 { color: var(--text-2); margin: 12px 0 4px; font-size: 15px; }
 .empty-state p { margin: 0 0 16px; font-size: 13px; }
 
