@@ -343,6 +343,21 @@
     if (zip) { zip.style.display = item && isDir ? "" : "none";
       if (item) zip.href = "/files/zip?path=" + encodeURIComponent(item.dataset.rel); }
   }
+  // 与 macros.html wbicon 同源的内联 SVG（跨平台一致，不用 emoji 字体）
+  var WB_SVG = {
+    folder: '<path fill="#e3a92f" d="M2.5 5.5c0-1.1.9-2 2-2h4.6c.6 0 1.2.3 1.5.8l1 1.4h6.9c1.1 0 2 .9 2 2v1.3H2.5z"/><path fill="#f7cf6a" d="M2.5 8.5h19V18c0 1.1-.9 2-2 2H4.5c-1.1 0-2-.9-2-2z"/>',
+    image: '<rect x="3" y="5" width="18" height="14" rx="2" fill="#c7e5f8"/><circle cx="8.5" cy="10" r="1.8" fill="#f0a92e"/><path d="M4.5 17.5 10 12l3.3 3.3L16 12.5l3.5 5z" fill="#3aa061"/>',
+    video: '<rect x="3" y="5" width="18" height="14" rx="2" fill="#ddd0f5"/><path d="M10 9v6l5-3z" fill="#6d3fc0"/>',
+    audio: '<path d="M9.2 17.5V6.8L18.5 5v10.7" fill="none" stroke="#d6538f" stroke-width="1.8" stroke-linejoin="round"/><circle cx="6.7" cy="17.5" r="2.6" fill="#f2a6c8"/><circle cx="16" cy="15.7" r="2.6" fill="#f2a6c8"/>',
+    document: '<path fill="#d3e3f8" d="M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path fill="#9dbde3" d="M14 2l5 5h-5z"/><rect x="7" y="11" width="9.5" height="1.6" rx=".8" fill="#3b6fb5"/><rect x="7" y="14.4" width="9.5" height="1.6" rx=".8" fill="#3b6fb5"/><rect x="7" y="17.8" width="6" height="1.6" rx=".8" fill="#3b6fb5"/>',
+    code: '<path fill="#f9e7c4" d="M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path fill="#e3bd7d" d="M14 2l5 5h-5z"/><path d="m10.2 12-2.2 2.2 2.2 2.2M13.8 12l2.2 2.2-2.2 2.2" fill="none" stroke="#b57d2a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+    archive: '<rect x="3" y="8" width="18" height="12" rx="2" fill="#eccf98"/><rect x="3" y="4.5" width="18" height="4.5" rx="1.5" fill="#b5854a"/><rect x="10.4" y="8.5" width="3.2" height="5.5" rx=".8" fill="#7d5a2e"/>',
+    file: '<path fill="#e3e6ea" d="M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path fill="#c3c9d1" d="M14 2l5 5h-5z"/>'
+  };
+  function wbSvg(kind, cls) {
+    return '<svg class="wb-i ' + (cls || "") + '" viewBox="0 0 24 24" aria-hidden="true">'
+      + (WB_SVG[kind] || WB_SVG.file) + "</svg>";
+  }
   function wbDetails(item) {
     var pane = $id("wb-preview");
     if (!pane) return;
@@ -350,10 +365,10 @@
     if (!item) { pane.innerHTML = wbDefault; wbStatus(); return; }
     var d = item.dataset, root = $id("osfm-root");
     var thumb;
-    if (d.dir === "1") thumb = '<span class="e-dbig">📁</span>';
+    if (d.dir === "1") thumb = wbSvg("folder", "is-file");
     else if (d.cat === "images") thumb = '<img src="/files/raw?path=' + encodeURIComponent(d.rel) + '" alt="">';
     else if (d.cat === "videos") thumb = '<video src="/files/raw?path=' + encodeURIComponent(d.rel) + '#t=0.5" preload="metadata" muted playsinline></video>';
-    else thumb = '<span class="e-dbig">' + (d.emoji || "📎") + "</span>";
+    else thumb = wbSvg(d.cat || "file", "is-file");
     var acts = '<div class="e-dacts"><button type="button" class="e-dbtn" data-wb="open">打开</button>'
       + (d.dir === "0"
           ? '<a class="e-dbtn" href="/files/raw?path=' + encodeURIComponent(d.rel) + '&dl=1">下载</a>'

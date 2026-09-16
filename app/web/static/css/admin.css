@@ -804,6 +804,14 @@ input[type="checkbox"].check {
 .e-address a:hover { background:var(--e-hover); }
 .e-address strong { padding:2px 6px; font-weight:400; }
 .e-crumb-sep { color:#aaa; }
+/* 内联 SVG 文件类型图标（跨平台一致，不用 emoji 字体） */
+.wb-i { width:16px; height:16px; flex:none; vertical-align:-3px; }
+.wb-i.is-big { width:64px; height:64px; }
+.e-navbtn svg { width:16px; height:16px; }
+.e-cmd svg { width:14px; height:14px; }
+.e-addr-ico { display:inline-flex; margin-right:4px; }
+.e-addr-ico .wb-i { width:15px; height:15px; }
+
 .e-search { width:220px; height:30px; border:1px solid #dcdcdc; border-radius:4px; padding:0 10px;
   font-size:13px; background:#fff; color:var(--e-text); }
 .e-search:focus { outline:2px solid var(--e-accent); outline-offset:-1px; }
@@ -853,7 +861,7 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 .osfm-card-item:focus-visible { outline:2px solid var(--e-accent); }
 .e-thumb { position:relative; width:100%; height:92px; display:flex; align-items:center; justify-content:center; }
 .e-thumb img, .e-thumb video { width:100%; height:92px; object-fit:cover; border-radius:4px; background:#000; }
-.e-femoji { font-size:52px; line-height:92px; }
+.e-thumb .wb-i { width:52px; height:52px; }
 .e-badge { position:absolute; top:2px; right:4px; font-style:normal; font-size:10.5px;
   background:#fff; border:1px solid #ddd; border-radius:999px; padding:0 6px; color:#444; }
 .e-badge-play { background:rgba(0,0,0,.55); color:#fff; border-color:transparent; }
@@ -868,16 +876,17 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 .e-tdnum { text-align:right; font-variant-numeric:tabular-nums; }
 .e-table tbody tr:hover { background:var(--e-hover); }
 .e-table tbody tr.selected { background:var(--e-sel); }
-.e-temoji { margin-right:8px; }
+.e-temoji { display:inline-flex; margin-right:8px; vertical-align:-4px; }
+.e-temoji .wb-i { width:18px; height:18px; }
 .e-tchip { margin-left:8px; font-size:11px; background:#eef2ff; border-radius:999px; padding:1px 8px; color:#3556c9; }
 
 .e-details { border-left:1px solid var(--e-line); padding:14px; overflow:auto; background:var(--e-panel); }
 .e-dfolder { display:flex; flex-direction:column; align-items:center; text-align:center;
   padding-top:24px; gap:8px; }
-.e-dbig { font-size:64px; line-height:1; }
 .e-dthumb { height:150px; display:flex; align-items:center; justify-content:center;
   background:#f5f5f5; border-radius:6px; overflow:hidden; margin-bottom:10px; }
 .e-dthumb img, .e-dthumb video { width:100%; height:150px; object-fit:contain; background:#000; }
+.e-dthumb .wb-i { width:72px; height:72px; }
 .e-dname { font-size:14px; font-weight:600; word-break:break-all; text-align:center;
   margin-bottom:10px; color:var(--e-text); }
 .e-dacts { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin-bottom:14px; }

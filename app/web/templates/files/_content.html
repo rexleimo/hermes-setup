@@ -1,4 +1,15 @@
-{% from "macros.html" import icon, tag, csrf with context %}
+{% from "macros.html" import icon, tag, csrf, wbicon with context %}
+{%- macro typeicon(e) -%}
+  {%- if e.is_dir -%}{{ wbicon('folder') }}
+  {%- elif e.category == 'images' -%}{{ wbicon('image') }}
+  {%- elif e.category == 'videos' -%}{{ wbicon('video') }}
+  {%- elif e.category == 'audio' -%}{{ wbicon('audio') }}
+  {%- elif e.category == 'documents' -%}{{ wbicon('document') }}
+  {%- elif e.category == 'code' -%}{{ wbicon('code') }}
+  {%- elif e.category == 'archives' -%}{{ wbicon('archive') }}
+  {%- else -%}{{ wbicon('file') }}
+  {%- endif -%}
+{%- endmacro -%}
 {# 内容区（网格/详细列表），页面与 /files/list 片段共用。工具条在 files.html 窗口壳里。 #}
 {% if view != 'list' %}
 <div class="e-grid" id="osfm-items">
@@ -6,19 +17,18 @@
   <div class="osfm-card-item" tabindex="0"
        data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}" data-name0="{{ e.name }}"
        data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
+       data-cat="{{ e.category or 'file' }}"
        data-type="{{ '文件夹' if e.is_dir else (e.category or '文件') }}{{ ' · ' ~ e.ext[1:]|upper if not e.is_dir and e.ext else '' }}"
        data-size="{{ e.size_text }}" data-mtime="{{ e.mtime_text }}"
-       data-emoji="{{ '📁' if e.is_dir else (e.category_emoji or '📎') }}" data-cat="{{ e.category or '' }}"
        data-parent="{{ ws_root_name ~ '/' ~ (e.rel.rsplit('/', 1)[0] if '/' in e.rel else '') }}"
        data-href="/files?path={{ e.rel }}&sort={{ sort }}&view={{ view }}"
        title="{{ e.rel }}">
     <div class="e-thumb">
-      {% if e.is_dir %}<span class="e-femoji">📁</span>
+      {% if e.is_dir %}{{ typeicon(e) }}
         {% if e.count is not none %}<em class="e-badge">{{ e.count }}</em>{% endif %}
       {% elif e.category == 'images' %}<img src="/files/raw?path={{ e.rel }}" loading="lazy" alt="">
       {% elif e.category == 'videos' %}<video src="/files/raw?path={{ e.rel }}#t=0.5" preload="metadata" muted playsinline></video><em class="e-badge e-badge-play">▶</em>
-      {% else %}<span class="e-femoji">{{ e.category_emoji or '📎' }}</span>
-      {% endif %}
+      {% else %}{{ typeicon(e) }}{% endif %}
     </div>
     <div class="e-fname">{{ e.name }}</div>
   </div>
@@ -35,13 +45,13 @@
     <tr class="osfm-card-item" tabindex="0"
         data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}" data-name0="{{ e.name }}"
         data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
+        data-cat="{{ e.category or 'file' }}"
         data-type="{{ '文件夹' if e.is_dir else (e.category or '文件') }}{{ ' · ' ~ e.ext[1:]|upper if not e.is_dir and e.ext else '' }}"
         data-size="{{ e.size_text }}" data-mtime="{{ e.mtime_text }}"
-        data-emoji="{{ '📁' if e.is_dir else (e.category_emoji or '📎') }}" data-cat="{{ e.category or '' }}"
         data-parent="{{ ws_root_name ~ '/' ~ (e.rel.rsplit('/', 1)[0] if '/' in e.rel else '') }}"
         data-href="/files?path={{ e.rel }}&sort={{ sort }}&view={{ view }}"
         title="{{ e.rel }}">
-      <td><span class="e-temoji">{{ '📁' if e.is_dir else (e.category_emoji or '📎') }}</span>
+      <td><span class="e-temoji">{{ typeicon(e) }}</span>
         <span class="e-tname">{{ e.name }}</span>
         {% if e.is_bucket %}<span class="e-tchip">规范目录</span>{% endif %}</td>
       <td class="e-tdnum">{{ e.mtime_text }}</td>

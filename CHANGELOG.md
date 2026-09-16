@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 — 2026-09-16（更名 + 图标体系）
+
+### Changed
+- **文件工作台 → 文件管理器**（导航、页面标题、顶栏同步更名；路由 /files 不变）。
+- **弃用 emoji 图标**（跨系统渲染不一致）：新增内联 SVG 彩色文件类型图标宏 `wbicon`
+  （folder/image/video/audio/document/code/archive/file/home/clock/drive/flask/archivebox，
+  造型参考 Win11 Fluent，零依赖零构建）；侧栏、网格、列表、详细信息面板、
+  导航箭头（chevron/arrow/rotate/sort/grid 线框图标）全部 SVG 化。
+
 ## 0.5.0 — 2026-09-16（文件工作台 OS 风格重构）
 
 ### Changed

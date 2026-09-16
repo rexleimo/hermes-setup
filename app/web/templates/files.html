@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% from "macros.html" import icon, tag, csrf with context %}
-{% block title %}文件工作台{% endblock %}
-{% block topbar_title %}产出 / <strong>文件工作台</strong>{% endblock %}
+{% from "macros.html" import icon, tag, csrf, wbicon with context %}
+{% block title %}文件管理器{% endblock %}
+{% block topbar_title %}产出 / <strong>文件管理器</strong>{% endblock %}
 {% block content_class %}content-full{% endblock %}
 {% block content %}
 
 {% if ws_status.error or not ws_status.exists or not ws_status.initialized %}
-<div class="page-header"><div><h2>文件工作台</h2></div></div>
+<div class="page-header"><div><h2>文件管理器</h2></div></div>
 <div class="card"><div class="card-body">
   {% if ws_status.error %}
     <div class="alert alert-danger">{{ ws_status.error }}</div>
@@ -35,15 +35,15 @@
      data-here="{{ here }}" hx-boost="true">
 
   <div class="e-nav">
-    <button class="e-navbtn" id="e-back" type="button" title="后退">←</button>
-    <button class="e-navbtn" id="e-fwd" type="button" title="前进">→</button>
+    <button class="e-navbtn" id="e-back" type="button" title="后退">{{ icon('chevron-left') }}</button>
+    <button class="e-navbtn" id="e-fwd" type="button" title="前进">{{ icon('chevron-right') }}</button>
     {% if path %}
     <a class="e-navbtn" title="上一级"
-       href="/files?path={{ path.rsplit('/', 1)[0] if '/' in path else '' }}&sort={{ sort }}&view={{ view }}">↑</a>
-    {% else %}<span class="e-navbtn dis">↑</span>{% endif %}
-    <button class="e-navbtn" type="button" title="刷新" onclick="location.reload()">⟳</button>
+       href="/files?path={{ path.rsplit('/', 1)[0] if '/' in path else '' }}&sort={{ sort }}&view={{ view }}">{{ icon('arrow-up') }}</a>
+    {% else %}<span class="e-navbtn dis">{{ icon('arrow-up') }}</span>{% endif %}
+    <button class="e-navbtn" type="button" title="刷新" onclick="location.reload()">{{ icon('rotate') }}</button>
     <div class="e-address">
-      <span class="e-addr-ico">💻</span>
+      <span class="e-addr-ico">{{ wbicon('drive') }}</span>
       {% for name, p in crumbs %}
         {% if not loop.first %}<span class="e-crumb-sep">›</span>{% endif %}
         {% if not loop.last %}
@@ -59,7 +59,7 @@
     {% if is_admin %}
     <form method="post" action="/files/upload" enctype="multipart/form-data" class="osfm-upload">
       {{ csrf() }}
-      <label class="e-cmd" title="上传到 downloads/（同名自动加后缀）"><span class="e-cmd-plus">＋</span> 上传<input type="file" name="file" hidden required></label>
+      <label class="e-cmd" title="上传到 downloads/（同名自动加后缀）">{{ icon('plus') }} 上传<input type="file" name="file" hidden required></label>
     </form>
     {% endif %}
     <span class="e-sep"></span>
@@ -71,7 +71,7 @@
     {% endif %}
     <span class="e-sep"></span>
     <details class="e-menu">
-      <summary class="e-cmd">↕ 排序</summary>
+      <summary class="e-cmd">{{ icon('sort') }} 排序</summary>
       <div class="e-menu-pop">
         {% for k, l in [('name','名称'), ('time','修改日期'), ('size','大小')] %}
         <a {% if sort == k %}class="on"{% endif %} href="/files?{% if baseq %}{{ baseq }}&{% endif %}sort={{ k }}&view={{ view }}">{{ l }}</a>
@@ -79,7 +79,7 @@
       </div>
     </details>
     <details class="e-menu">
-      <summary class="e-cmd">▦ 查看</summary>
+      <summary class="e-cmd">{{ icon('grid') }} 查看</summary>
       <div class="e-menu-pop">
         <a {% if view != 'list' %}class="on"{% endif %} href="/files?{% if baseq %}{{ baseq }}&{% endif %}sort={{ sort }}&view=grid">图标</a>
         <a {% if view == 'list' %}class="on"{% endif %} href="/files?{% if baseq %}{{ baseq }}&{% endif %}sort={{ sort }}&view=list">详细信息</a>
@@ -89,35 +89,35 @@
     {% if inspect and inspect.available and (inspect.stray or inspect.projects_without_requirements) %}
     <span class="e-tbwarn" title="散乱文件: {{ inspect.stray|join('、') }}{% if inspect.projects_without_requirements %}；缺需求清单: {{ inspect.projects_without_requirements|join('、') }}{% endif %}">{{ icon('alert') }}</span>
     {% endif %}
-    <button class="e-cmd" id="e-details-toggle" type="button">ℹ 详细信息</button>
+    <button class="e-cmd" id="e-details-toggle" type="button">{{ icon('info') }} 详细信息</button>
   </div>
 
   <div class="e-body">
     <aside class="e-side">
       <a class="e-loc {% if not cat and not path %}active{% endif %}"
-         href="/files?sort={{ sort }}&view={{ view }}"><span>🏠</span><em>主文件夹</em></a>
+         href="/files?sort={{ sort }}&view={{ view }}">{{ wbicon('home') }}<em>主文件夹</em></a>
       <div class="e-side-sep"></div>
       {% for name, n in locs %}
       <a class="e-loc {% if not cat and path == name %}active{% endif %}"
          href="/files?path={{ name }}&sort={{ sort }}&view={{ view }}">
-        {% if name == 'projects' %}<span>📁</span>
-        {% elif name == 'downloads' %}<span>⬇️</span>
-        {% elif name == 'documents' %}<span>📄</span>
-        {% elif name == 'pictures' %}<span>🖼️</span>
-        {% elif name == 'videos' %}<span>🎬</span>
-        {% elif name == 'scratch' %}<span>🧪</span>
-        {% else %}<span>🗃️</span>{% endif %}
+        {% if name == 'projects' %}{{ wbicon('folder') }}
+        {% elif name == 'downloads' %}{{ icon('download') }}
+        {% elif name == 'documents' %}{{ wbicon('document') }}
+        {% elif name == 'pictures' %}{{ wbicon('image') }}
+        {% elif name == 'videos' %}{{ wbicon('video') }}
+        {% elif name == 'scratch' %}{{ wbicon('flask') }}
+        {% else %}{{ wbicon('archivebox') }}{% endif %}
         <em>{{ {'projects':'项目 projects','downloads':'下载 downloads','documents':'文档 documents','pictures':'图片 pictures','videos':'视频 videos','scratch':'草稿 scratch','archive':'归档 archive'}.get(name, name) }}</em>
         <i class="e-n">{{ n }}</i></a>
       {% endfor %}
       <div class="e-side-sep"></div>
       <div class="e-side-title">智能集合</div>
       <a class="e-loc {% if cat == 'recent' %}active{% endif %}"
-         href="/files?cat=recent&sort={{ sort }}&view={{ view }}"><span>🕘</span><em>最近使用</em></a>
+         href="/files?cat=recent&sort={{ sort }}&view={{ view }}">{{ wbicon('clock') }}<em>最近使用</em></a>
       {% for key, label, emoji, n in counts %}
       <a class="e-loc {% if cat == key %}active{% endif %}"
          href="/files?cat={{ key }}&sort={{ sort }}&view={{ view }}">
-        <span>{{ emoji }}</span><em>{{ label }}</em><i class="e-n">{{ n }}</i></a>
+        {{ wbicon({'images':'image','videos':'video','audio':'audio','documents':'document','code':'code','archives':'archive'}.get(key,'file')) }}<em>{{ label }}</em><i class="e-n">{{ n }}</i></a>
       {% endfor %}
     </aside>
 
@@ -125,7 +125,7 @@
 
     <aside class="e-details" id="wb-preview">
       <div class="e-dfolder">
-        <span class="e-dbig">📁</span>
+        {{ wbicon('folder','is-big') }}
         <div class="e-dname">{{ crumbs[-1][0] if crumbs else '工作区' }}</div>
         <div class="e-dhint">选择单个文件以获取详细信息。<br>双击文件打开预览。</div>
       </div>
