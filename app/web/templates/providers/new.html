@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, field with context %}
+{% block title %}添加供应商{% endblock %}
+{% block topbar_title %}模型供应商 / <strong>添加</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>添加模型供应商</h2>
+    <p class="page-desc">两步完成：选择接入方式 → 填写连接参数。所有配置写入前都有校验与备份</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="/providers">{{ icon('arrow-right') }} 返回列表</a>
+  </div>
+</div>
+
+<div id="provider-wizard" data-wizard data-wizard-init-form="{{ kind if error else '' }}">
+  <div class="stepper">
+    <div class="step active" data-step-num="1"><span class="step-num">1</span> 选择接入方式</div>
+    <div class="step" data-step-num="2"><span class="step-num">2</span> 填写连接参数</div>
+  </div>
+
+  {# ================================================================ 第 1 步 #}
+  <div data-wizard-step="1">
+    <div class="card">
+      <div class="card-header"><h3>你想接入哪种供应商？</h3></div>
+      <div class="card-body">
+        <div class="radio-cards" style="max-width:760px;">
+          <div class="rc-body">
+            <div class="rc-title">{{ icon('zap') }} 预设供应商 <span class="tag tag-info">推荐</span></div>
+            <div class="rc-desc">OpenRouter、Anthropic、Gemini、DeepSeek、GLM、Kimi、MiniMax 等
+              13 家官方预设 —— 端点与密钥键名自动填好，只需粘贴 API Key。</div>
+            <button class="btn btn-primary btn-sm" style="margin-top:10px;" id="go-preset"
+                    data-wizard-goto="#provider-wizard" data-wizard-step="2"
+                    data-wizard-form="preset">选择预设供应商</button>
+          </div>
+          <div class="rc-body">
+            <div class="rc-title">{{ icon('pen') }} 自定义端点</div>
+            <div class="rc-desc">任意 OpenAI 兼容 / 中转站 / 自建推理服务，
+              支持五种协议模式（OpenAI Chat / Responses / Anthropic / Bedrock / Gemini）。</div>
+            <button class="btn btn-secondary btn-sm" style="margin-top:10px;" id="go-custom"
+                    data-wizard-goto="#provider-wizard" data-wizard-step="2"
+                    data-wizard-form="custom">配置自定义端点</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ================================================================ 第 2 步 #}
+  <div data-wizard-step="2" class="hidden">
+    {% if error %}<div class="alert alert-danger">{{ icon('alert') }} {{ error }}</div>{% endif %}
+
+    {# ---------------------------------------- 预设表单 #}
+    <div id="wizard-preset" class="wizard-form hidden" data-wizard-form-name="preset">
+      <div class="card">
+        <div class="card-header">
+          <h3>选择预设供应商</h3>
+          <div class="card-extra">
+            <button class="btn btn-ghost btn-sm" data-wizard-goto="#provider-wizard"
+                    data-wizard-step="1">
+              {{ icon('arrow-right') }} 重选类型
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <form method="post" action="/providers/new">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="kind" value="preset">
+            <div class="radio-cards" style="margin-bottom:18px;">
+              {% for preset in presets %}
+              <label class="radio-card">
+                <input type="radio" name="preset_id" value="{{ preset.id }}"
+                       {% if preset_id == preset.id %}checked{% endif %}>
+                <div class="rc-body">
+                  <div class="rc-title">{{ preset.label }}</div>
+                  <div class="rc-desc mono" style="font-size:11.5px;">{{ preset.base_url or preset.env_key }}</div>
+                </div>
+              </label>
+              {% endfor %}
+            </div>
+            <div class="form-grid">
+              {{ field('name', '显示名称（可选）', form.get('name',''), placeholder='留空使用预设名') }}
+              {{ field('api_key', 'API Key', '', kind='password', required=True,
+                       help='写入 .env 的官方约定键名（如 OPENROUTER_API_KEY），不进 config.yaml') }}
+              {{ field('default_model', '默认模型 ID（可选）', form.get('default_model',''),
+                       placeholder='创建后可在详情页拉取模型列表再选') }}
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary btn-lg" type="submit">{{ icon('check') }} 创建供应商</button>
+              <a class="btn btn-ghost" href="/providers">取消</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {# ---------------------------------------- 自定义表单 #}
+    <div id="wizard-custom" class="wizard-form hidden" data-wizard-form-name="custom">
+      <div class="card">
+        <div class="card-header">
+          <h3>自定义端点参数</h3>
+          <div class="card-extra">
+            <button class="btn btn-ghost btn-sm" data-wizard-goto="#provider-wizard"
+                    data-wizard-step="1">
+              {{ icon('arrow-right') }} 重选类型
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <form method="post" action="/providers/new">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="kind" value="custom">
+            <div class="form-grid">
+              <div class="form-item">
+                <label class="form-label" for="pid">供应商标识 <span class="required">*</span></label>
+                <input class="form-input" id="pid" name="pid" value="{{ form.get('pid','') }}"
+                       placeholder="my-relay" pattern="[a-z][a-z0-9_-]{1,31}" required>
+                <p class="form-help">小写字母开头，2-32 位；作为 config.yaml 中 providers 的键名</p>
+              </div>
+              {{ field('name', '供应商名称', form.get('name',''), required=True, placeholder='我的中转站') }}
+              <div class="form-item span-2">
+                <label class="form-label">API 协议模式 <span class="required">*</span></label>
+                <div class="radio-cards">
+                  {% for pid_def, proto in protocols.items() %}
+                  <label class="radio-card">
+                    <input type="radio" name="protocol" value="{{ pid_def }}"
+                           {% if loop.first and not form.get('protocol') %}checked{% elif form.get('protocol') == pid_def %}checked{% endif %}>
+                    <div class="rc-body">
+                      <div class="rc-title">{{ proto.label }}</div>
+                      <div class="rc-desc">{{ proto.note }}</div>
+                    </div>
+                  </label>
+                  {% endfor %}
+                </div>
+              </div>
+              {{ field('base_url', 'API Endpoint (Base URL)', form.get('base_url',''),
+                       placeholder='https://api.example.com/v1',
+                       help='OpenAI 兼容地址通常以 /v1 结尾；Bedrock 与 Gemini 官方可留空') }}
+              {{ field('env_key', 'API Key 环境变量名', form.get('env_key',''),
+                       placeholder='留空自动生成 HERMES_PROVIDER_XXX_API_KEY',
+                       help='密钥本体仅写入 ~/.hermes/.env') }}
+              {{ field('api_key', 'API Key', '', kind='password', help='可稍后在详情页补填') }}
+              {{ field('default_model', '默认模型 ID', form.get('default_model',''),
+                       placeholder='gpt-4o / claude-opus-4-6 / glm-4.7') }}
+              <div class="form-item span-2">
+                {{ field('note', '备注', form.get('note',''), kind='textarea', placeholder='用途、限额、联系人…') }}
+              </div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary btn-lg" type="submit">{{ icon('check') }} 创建供应商</button>
+              <a class="btn btn-ghost" href="/providers">取消</a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

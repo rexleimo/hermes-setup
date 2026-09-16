@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag with context %}
+{% block title %}配置项全景{% endblock %}
+{% block topbar_title %}平台 / <strong>配置项全景</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Hermes 配置项全景</h2>
+    <p class="page-desc">对 config.yaml 全部配置域的盘点与集成建议（依据官方 cli-config.yaml.example 与文档，2026-09）</p>
+  </div>
+</div>
+
+<div class="stat-grid">
+  {% for key, label in [('integrated','已集成'),('phase2','建议二期'),('evaluate','待评估'),('by-hand','建议手改')] %}
+  <div class="stat-card">
+    <span class="stat-icon {{ {'integrated':'ok','phase2':'info','evaluate':'warn','by-hand':''}[key] }}">{{ icon('book') }}</span>
+    <span class="stat-meta">
+      <span class="stat-label">{{ label }}</span>
+      <div class="stat-value">{{ counts.get(key, 0) }}</div>
+      <span class="stat-sub">个配置域</span>
+    </span>
+  </div>
+  {% endfor %}
+</div>
+
+{% for area in areas %}
+{% set badge = labels[area.integration] %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="mono" style="font-size:14px;">{{ area.key }}</h3>
+    <span style="margin-left:4px;">{{ tag(badge[0], {'integrated':'ok','phase2':'info','evaluate':'warn','by-hand':'muted'}[area.integration]) }}</span>
+    <div class="card-extra"><strong style="font-size:13.5px;">{{ area.name }}</strong></div>
+  </div>
+  <div class="card-body">
+    <p style="margin:0 0 10px; color:var(--text-2);">{{ area.summary }}</p>
+    <div class="flex" style="flex-wrap:wrap; gap:6px; align-items:flex-start;">
+      {% for item in area.items %}<code style="font-size:11.5px;">{{ item }}</code>{% endfor %}
+    </div>
+    {% if area.note %}
+    <p class="form-help" style="margin-top:10px;">{{ icon('info') }} {{ area.note }}</p>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

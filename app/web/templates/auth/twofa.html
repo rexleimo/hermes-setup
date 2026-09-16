@@ -1,0 +1,40 @@
+{% from "macros.html" import icon with context %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf" content="{{ csrf_token }}">
+  <title>两步验证 · Hermes Console</title>
+  <link rel="stylesheet" href="/static/css/admin.css?v={{ ASSET_VER }}">
+  <script src="/static/js/app.js?v={{ ASSET_VER }}" defer></script>
+</head>
+<body>
+<div class="auth-shell">
+  <aside class="auth-hero">
+    <a class="brand" href="/login"><span class="brand-mark">H</span>
+      <span class="brand-text"><strong>Hermes Console</strong><small>Agent 运维中台</small></span></a>
+    <div class="auth-hero-body">
+      <h1>两步验证</h1>
+      <p>该账户已启用 TOTP 动态口令。打开验证器 App（Google Authenticator、1Password 等），输入 6 位验证码完成登录。</p>
+    </div>
+  </aside>
+  <main class="auth-panel">
+    <div class="auth-card">
+      <h2>输入动态验证码</h2>
+      <p class="auth-sub">验证码每 30 秒刷新一次。</p>
+      {% if error %}<div class="alert alert-danger">{{ icon('alert') }} {{ error }}</div>{% endif %}
+      <form method="post" action="/login/2fa">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <div class="form-item">
+          <label class="form-label" for="code">验证码</label>
+          <input class="form-input" id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
+                 placeholder="123456" required autofocus style="font-size:20px; letter-spacing:8px; text-align:center;">
+        </div>
+        <button class="btn btn-primary btn-lg" type="submit" style="width:100%; margin-top:6px;">验 证</button>
+      </form>
+    </div>
+  </main>
+</div>
+</body>
+</html>

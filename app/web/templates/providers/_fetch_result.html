@@ -1,0 +1,40 @@
+{% from "macros.html" import csrf, icon, tag with context %}
+{% if error %}
+<div class="alert alert-danger" style="margin:0 14px 14px;">{{ icon('alert') }} {{ error }}</div>
+{% elif remote %}
+<form method="post" action="/providers/{{ pid }}/models">
+  {{ csrf() }}
+  <div style="max-height:320px; overflow:auto; border-top:1px solid var(--border);">
+    <table class="table">
+      <thead><tr>
+        <th style="width:36px;"></th><th>模型 ID</th><th>显示名称</th><th class="num">上下文长度</th><th>目录状态</th>
+      </tr></thead>
+      <tbody>
+      {% for m in remote %}
+      {% set token = m.id | replace('.', '-') | replace('/', '-') | replace(':', '-') %}
+      <tr>
+        <td><input type="checkbox" class="check" name="sel_{{ token }}" checked></td>
+        <td>
+          <div class="cell-main mono">{{ m.id }}</div>
+          <input type="hidden" name="mid_{{ token }}" value="{{ m.id }}">
+        </td>
+        <td><input class="form-input" style="height:30px; font-size:12.5px;" name="disp_{{ token }}"
+                   value="{{ m.display_name or m.id }}"></td>
+        <td><input class="form-input" style="height:30px; font-size:12.5px;" name="ctx_{{ token }}"
+                   inputmode="numeric" value="{{ m.context_length or '' }}" placeholder="自动"></td>
+        <td>{% if m.id in existing_ids %}{{ tag('已在目录', 'muted') }}{% else %}{{ tag('新增', 'ok') }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div style="padding:12px 14px;" class="flex">
+    <span class="text-muted" style="font-size:12.5px;">共 {{ remote|length }} 个模型；取消勾选的项将从平台目录移除。</span>
+    <button class="btn btn-primary btn-sm" style="margin-left:auto;" type="submit">
+      {{ icon('check') }} 保存所选模型
+    </button>
+  </div>
+</form>
+{% else %}
+<div class="empty-state" style="padding:24px;">{{ icon('info') }} 供应商返回了空模型列表</div>
+{% endif %}

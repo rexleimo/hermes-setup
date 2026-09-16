@@ -1,0 +1,8 @@
+{# 平台管理二级 Tab：用户 / 审计 / 系统设置（跨路由导航） #}
+<div class="tabs">
+  <a class="tab-btn {% if tab == 'users' %}active{% endif %}" href="/users">用户管理</a>
+  <a class="tab-btn {% if tab == 'audit' %}active{% endif %}" href="/audit">审计日志</a>
+  {% if user and user['role'] == 'admin' %}
+  <a class="tab-btn {% if tab == 'settings' %}active{% endif %}" href="/settings">系统设置</a>
+  {% endif %}
+</div>

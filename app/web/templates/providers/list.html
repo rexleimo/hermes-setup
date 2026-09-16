@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag with context %}
+{% block title %}模型供应商{% endblock %}
+{% block topbar_title %}配置 / <strong>模型供应商</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>模型供应商</h2>
+    <p class="page-desc">类似 CC Switch 的供应商管理：写入 config.yaml 与 .env，支持五种 API 协议</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary" href="/providers/new?kind=preset">{{ icon('zap') }} 添加预设供应商</a>
+    <a class="btn btn-primary" href="/providers/new">{{ icon('plus') }} 自定义供应商</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body flush">
+    {% if providers %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr>
+        <th>供应商</th><th>协议</th><th>Endpoint</th><th>API Key</th>
+        <th class="num">模型</th><th>角色</th><th style="text-align:right;">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for p in providers %}
+      <tr>
+        <td>
+          <div class="cell-main">{{ p.name }}</div>
+          <div class="cell-sub mono">{{ p.id }}</div>
+        </td>
+        <td>{{ tag(p.protocol_label, 'info') }}</td>
+        <td class="mono" style="font-size:12px;">{{ p.base_url or '—' }}</td>
+        <td>{% if p.has_api_key %}{{ tag('已设置', 'ok') }}{% else %}{{ tag('未设置', 'warn') }}{% endif %}</td>
+        <td class="num">{{ p.model_count }}</td>
+        <td>
+          {% if p.is_main %}{{ tag('主模型', 'ok') }}{% endif %}
+          {% if p.id in fallback_providers %}{{ tag('备选', 'info') }}{% endif %}
+          {% if not p.is_main and p.id not in fallback_providers %}{{ tag('未启用', 'muted') }}{% endif %}
+        </td>
+        <td><div class="table-actions">
+          <a class="btn btn-ghost btn-sm" href="/providers/{{ p.id }}">{{ icon('pen') }} 管理</a>
+        </div></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    <div class="empty-state">
+      {{ icon('box') }}
+      <h4>还没有供应商</h4>
+      <p>从预设（OpenRouter / Anthropic / Gemini / DeepSeek …）一键添加，或创建任意 OpenAI 兼容端点</p>
+      <a class="btn btn-primary" href="/providers/new">{{ icon('plus') }} 添加第一个供应商</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="alert alert-info">{{ icon('info') }}
+  供应商变更仅写入本地配置文件（config.yaml / .env），不会影响正在运行的 Gateway；
+  切换主模型后 Gateway 会自动热加载部分键，其余建议重启生效。
+</div>
+{% endblock %}

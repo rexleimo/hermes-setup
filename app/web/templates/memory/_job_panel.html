@@ -1,0 +1,24 @@
+{% from "macros.html" import icon with context %}
+{% if job %}
+<div id="job-panel">
+  <div class="card">
+    <div class="card-header">
+      <h3>依赖安装任务</h3>
+      <div class="card-extra">
+        {% if job['status'] == 'running' %}
+        <span class="tag tag-info"><span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> 执行中</span>
+        {% elif job['status'] == 'ok' %}<span class="tag tag-ok">{{ icon('check') }} 成功</span>
+        {% else %}<span class="tag tag-error">{{ icon('x') }} 失败 (exit {{ job['exit_code'] }})</span>{% endif %}
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="mono text-muted" style="margin:0 0 10px; font-size:12px;">$ {{ job['command'] }}</p>
+      <pre class="log-view" style="max-height:220px;">{%- if job_lines -%}
+{%- for line in job_lines %}<div class="log-line">{{ line }}</div>
+{% endfor %}{%- else -%}<span class="log-empty">等待输出…</span>{%- endif -%}</pre>
+    </div>
+  </div>
+</div>
+{% else %}
+<div id="job-panel" class="hidden"></div>
+{% endif %}

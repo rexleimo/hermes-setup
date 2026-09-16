@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag, field, csrf with context %}
+{% block title %}{{ def.label }}{% endblock %}
+{% block topbar_title %}消息渠道 / <strong>{{ def.label }}</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>{{ def.emoji }} {{ def.label }}
+      {% if c.enabled %}{{ tag('已启用', 'ok') }}{% else %}{{ tag('未启用', 'muted') }}{% endif %}</h2>
+    <p class="page-desc mono">platforms.{{ c.name }}{% if not def.verified %} · 本渠道字段名以官方文档为准{% endif %}</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="/channels">{{ icon('arrow-right') }} 返回</a>
+    {% if def.doc %}<a class="btn btn-secondary" href="{{ def.doc }}" target="_blank" rel="noopener">
+      {{ icon('external') }} 官方文档</a>{% endif %}
+  </div>
+</div>
+
+{% if def.note %}<div class="alert alert-info">{{ icon('info') }} {{ def.note }}</div>{% endif %}
+
+<div class="guide-strip">
+  {{ icon('info') }} 接入三步：
+  <span class="g-step">1. 填写凭证与令牌（下方表单）</span><span class="g-arrow">→</span>
+  <span class="g-step">2. 打开「启用状态」开关并保存</span><span class="g-arrow">→</span>
+  <span class="g-step">3. 到服务管理启动 Gateway</span>
+</div>
+
+<form method="post" action="/channels/{{ c.name }}/save">
+  {{ csrf() }}
+  <div class="grid-2">
+    <div>
+      <div class="card">
+        <div class="card-header">
+          <h3>启用状态</h3>
+          <div class="card-extra">
+            <label class="switch" title="启用 / 停用该渠道">
+              <input type="checkbox" name="enabled" value="on" {% if c.enabled %}checked{% endif %}>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="form-help" style="margin:0;">关闭 = 在 config.yaml 中写入 <code>platforms.{{ c.name }}.enabled: false</code>，
+            Gateway 不会加载该渠道。</p>
+        </div>
+      </div>
+
+      {% if def.env_fields %}
+      <div class="card">
+        <div class="card-header">
+          <h3>凭证与令牌</h3>
+          <div class="card-extra"><span class="tag tag-info">写入 .env</span></div>
+        </div>
+        <div class="card-body">
+          <div class="form-grid" style="grid-template-columns:1fr;">
+            {% for f in def.env_fields %}
+            <div class="form-item">
+              <label class="form-label" for="env-{{ f.name }}">{{ f.label }}
+                {% if f.required %}<span class="required">*</span>{% endif %}
+                {% if not f.verified %}{{ tag('待核对', 'warn') }}{% endif %}
+              </label>
+              {% if f.kind == 'select' %}
+              <select class="form-select" id="env-{{ f.name }}" name="env_{{ f.name }}">
+                <option value="">（保持现有值不变）</option>
+                {% for opt in f.options %}<option value="{{ opt }}">{{ opt }}</option>{% endfor %}
+              </select>
+              {% else %}
+              <input class="form-input" id="env-{{ f.name }}" name="env_{{ f.name }}"
+                     type="{{ 'password' if f.kind == 'password' else 'text' }}"
+                     {% if f.kind == 'password' %}autocomplete="new-password"{% endif %}
+                     placeholder="{{ '已设置 · 留空保持不变' if c.env_state.get(f.name) else (f.placeholder or '尚未设置') }}">
+              {% endif %}
+              {% if c.env_state.get(f.name) %}<p class="form-help">{{ icon('check') }} 已设置（值不回显）。填入 __CLEAR__ 可删除该键。</p>
+              {% elif f.help %}<p class="form-help">{{ f.help }}</p>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <details style="margin:0 0 16px; border:1px dashed var(--border-strong); border-radius:8px; padding:10px 14px; background:var(--bg-subtle);">
+        <summary class="form-label" style="cursor:pointer;">高级编辑：platforms.{{ c.name }}.extra（JSON）</summary>
+        <p class="form-help" style="margin:8px 0;">逐字段表单覆盖不到的键（如飞书 group_rules 群细粒度规则）在此以 JSON 全量编辑；
+          以合并方式写入（JSON 中的同名键覆盖表单值；值为 null 的键会被删除）。保持原样即不改动。</p>
+        <textarea class="form-textarea mono" name="advanced_extra" rows="7"
+                  style="font-size:12px;">{{ advanced_extra }}</textarea>
+      </details>
+      {% if def.extra_fields %}
+      <div class="card">
+        <div class="card-header">
+          <h3>{% if f_has_cred %}凭证与参数{% else %}平台参数{% endif %}</h3>
+          <div class="card-extra"><span class="tag tag-info">platforms.{{ c.name }}.extra</span></div>
+        </div>
+        <div class="card-body">
+          {% if f_has_cred %}
+          <div class="alert alert-warn" style="margin-bottom:14px;">{{ icon('info') }}
+            该渠道的连接判定读取 <code>extra</code> 中的凭证（而非 .env）—— 必填项填写后网关才会构建此渠道。</div>
+          {% endif %}
+          <div class="form-grid" style="grid-template-columns:1fr;">
+            {% for f in def.extra_fields %}
+            {{ field(f.name, f.label + (' *' if f.required else ''), c.extra.get(f.name, f.default) | string,
+                     kind=('password' if f.kind == 'password' else ('int' if f.kind == 'int' else 'text')),
+                     required=f.required, help=(f.help or ''), name_prefix='ext_') }}
+            {% endfor %}
+          </div>
+          <p class="form-help" style="margin-top:10px;">留空 = 保持现有值；填入 __CLEAR__ 可移除该键。</p>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div>
+      {% if def.config_keys %}
+      <div class="card">
+        <div class="card-header">
+          <h3>行为开关</h3>
+          <div class="card-extra"><span class="tag tag-info">platforms.{{ c.name }}</span></div>
+        </div>
+        <div class="card-body">
+          {% for f in def.config_keys %}
+          <div style="margin-bottom:14px;">
+          {% if f.kind == 'bool' %}
+            <div class="flex" style="justify-content:space-between;">
+              <span class="form-label" style="margin:0;">{{ f.label }}</span>
+              <label class="switch">
+                <input type="hidden" name="cfg_{{ f.name }}" value="off">
+                <input type="checkbox" name="cfg_{{ f.name }}" value="on"
+                       {% if c.config_values.get(f.name) in ('true','1','True') %}checked{% endif %}>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          {% else %}
+            {{ field(f.name, f.label, c.config_values.get(f.name, f.default),
+                     kind=('select' if f.kind == 'select' else 'text'),
+                     options=f.options, name_prefix='cfg_') }}
+          {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% if c.name in platform_keys %}
+      <div class="card">
+        <div class="card-header"><h3>工具集覆盖</h3></div>
+        <div class="card-body">
+          <p class="form-help" style="margin-bottom:12px;">
+            写入 <code>platform_toolsets.{{ c.name }}</code>，限制该渠道可用的工具（安全推荐：对外渠道给 <code>safe</code> 型集合）。
+          </p>
+          <div class="form-item">
+            <select class="form-select" name="choice">
+              <option value="">（使用官方默认）</option>
+              {% for t in toolset_choices %}
+              <option value="{{ t }}" {% if c.toolset == t %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-secondary btn-sm" type="submit" formaction="/channels/{{ c.name }}/toolset">
+              {{ icon('check') }} 应用工具集
+            </button>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="card">
+        <div class="card-header"><h3>保存</h3></div>
+        <div class="card-body">
+          <div class="form-actions" style="margin:0;">
+            <button class="btn btn-primary btn-lg" type="submit">{{ icon('check') }} 保存渠道配置</button>
+          </div>
+          <p class="form-help" style="margin-top:12px;">保存后写入 config.yaml / .env；
+            若 Gateway 正在运行，渠道变更需重启 Gateway 生效。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag, field, csrf, status_pill with context %}
+{% block title %}记忆系统{% endblock %}
+{% block topbar_title %}配置 / <strong>记忆系统</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>记忆系统</h2>
+    <p class="page-desc">内置记忆容量调优，或切换到能力更强的外置记忆方案 —— 二选一，随时可改回</p>
+  </div>
+</div>
+
+{# ================================================================ 当前方案横幅 #}
+<div data-tab-group="memory">
+<div class="banner">
+  <span class="banner-icon {% if status.provider %}ok{% endif %}">
+    {% if status.provider %}{{ icon('check') }}{% else %}{{ icon('memory') }}{% endif %}
+  </span>
+  <div class="banner-main">
+    <div class="banner-title">
+      {% if status.provider %}
+      当前使用外置方案：<span class="mono">{{ status.provider }}</span>
+      {% if status.mcp_agentmemory %}{{ tag('MCP 接入', 'info') }}{% endif %}
+      {% if status.plugin_agentmemory %}{{ tag('插件已安装', 'info') }}{% endif %}
+      {% else %}
+      当前使用内置记忆（默认容量 {{ status.builtin.memory_char_limit }} / {{ status.builtin.user_char_limit }} 字符）
+      {% endif %}
+    </div>
+    <div class="banner-sub">
+      {% if status.provider %}
+      判定依据：config.yaml 的 <code>memory.provider: {{ status.provider }}</code>。
+      外置方案与内置记忆并存；重启 Gateway 后生效。容量见「内置记忆」页签。
+      {% else %}
+      外置方案：<strong>未启用</strong>（config.yaml 无 memory.provider），当前完全使用内置记忆，
+      默认容量约 1,300 token，大项目容易写满报错。
+      {% if detected_files %}
+        <span class="text-danger">但检测到配置文件 {{ detected_files | join('、') }} ——
+        之前可能手动配置过外置方案却未激活，可在「外置方案」页签重新启用接管。</span>
+      {% else %}
+        可调高内置容量，或启用外置方案获得跨会话 / 跨 Agent 的持久记忆。
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+  <div class="banner-actions">
+    {% if status.provider %}
+    <form method="post" action="/memory/disable" data-confirm="关闭外置方案，回到纯内置记忆？">
+      {{ csrf() }}
+      <input type="hidden" name="remove_mcp" value="off">
+      <button class="btn btn-danger-outline" type="submit">关闭外置方案</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-secondary" href="#builtin" data-tab="builtin">调整内置容量</a>
+    <a class="btn btn-primary" href="#providers">浏览外置方案</a>
+  </div>
+</div>
+
+<div class="tabs" data-tab-group="memory">
+  <button class="tab-btn active" data-tab="builtin">{{ icon('memory') }} 内置记忆</button>
+  <button class="tab-btn" data-tab="providers">{{ icon('box') }} 外置方案（{{ providers|length }}）</button>
+</div>
+
+{# ================================================================ 内置记忆 #}
+<div data-tab-group="memory" data-tab-panel="builtin" id="builtin">
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <h3>容量与开关</h3>
+        <div class="card-extra"><span class="tag tag-info">config.yaml memory.*</span></div>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/memory/builtin">
+          {{ csrf() }}
+          <div class="form-grid">
+            <div class="form-item">
+              <label class="form-label">记忆开关（MEMORY.md）</label>
+              <label class="switch" style="margin-top:4px;">
+                <input type="hidden" name="memory_enabled" value="off">
+                <input type="checkbox" name="memory_enabled" value="on"
+                       {% if status.builtin.memory_enabled %}checked{% endif %}>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <div class="form-item">
+              <label class="form-label">用户画像开关（USER.md）</label>
+              <label class="switch" style="margin-top:4px;">
+                <input type="hidden" name="user_profile_enabled" value="off">
+                <input type="checkbox" name="user_profile_enabled" value="on"
+                       {% if status.builtin.user_profile_enabled %}checked{% endif %}>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-grid" style="margin-top:14px;">
+            {{ field('memory_char_limit', '记忆容量（字符）', status.builtin.memory_char_limit,
+                     kind='int', help='默认 2,200 ≈ 800 token') }}
+            {{ field('user_char_limit', '画像容量（字符）', status.builtin.user_char_limit,
+                     kind='int', help='默认 1,375 ≈ 500 token') }}
+          </div>
+          <div class="flex" style="flex-wrap:wrap; gap:8px; margin-top:10px;">
+            <span class="form-label" style="margin:0;">容量预设：</span>
+            {% for label, (m, u) in builtin_presets.items() %}
+            <button type="button" class="btn btn-ghost btn-sm mem-preset"
+                    data-set='{{ {"#f-memory_char_limit": m, "#f-user_char_limit": u} | tojson }}'>{{ label }}（{{ m }}/{{ u }}）</button>
+            {% endfor %}
+          </div>
+          <div class="form-grid" style="margin-top:14px;">
+            {{ field('nudge_interval', '记忆提醒间隔（轮）', status.builtin.nudge_interval,
+                     kind='int', help='每 N 轮提醒 Agent 考虑保存记忆；0 = 关闭') }}
+            {{ field('context_file_max_chars', '上下文文件注入上限（可选）',
+                     status.context_file_max_chars or '', kind='int',
+                     help='config.yaml 顶层键；官方区间 20,000–500,000，留空 = 自动') }}
+          </div>
+          <div class="flex" style="justify-content:space-between; margin-top:16px;">
+            <div class="flex">
+              <span class="form-label" style="margin:0;">写入需审批（write_approval）</span>
+              <label class="switch">
+                <input type="hidden" name="write_approval" value="off">
+                <input type="checkbox" name="write_approval" value="on"
+                       {% if status.builtin.write_approval %}checked{% endif %}>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <button class="btn btn-primary" type="submit">{{ icon('check') }} 保存内置配置</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>当前占用</h3></div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>MEMORY.md</dt>
+          <dd>{% if status.memory_files['MEMORY.md'] %}{{ status.memory_files['MEMORY.md'] }} 字符
+            {% if status.builtin.memory_char_limit %}（占上限 {{ ((status.memory_files['MEMORY.md'] / status.builtin.memory_char_limit) * 100) | round(0) | int }}%）{% endif %}
+            {% else %}<span class="text-muted">尚未创建</span>{% endif %}</dd>
+          <dt>USER.md</dt>
+          <dd>{% if status.memory_files['USER.md'] %}{{ status.memory_files['USER.md'] }} 字符
+            {% if status.builtin.user_char_limit %}（占上限 {{ ((status.memory_files['USER.md'] / status.builtin.user_char_limit) * 100) | round(0) | int }}%）{% endif %}
+            {% else %}<span class="text-muted">尚未创建</span>{% endif %}</dd>
+        </dl>
+        <div class="muted-border" style="margin-top:16px; font-size:12.5px; color:var(--text-3); line-height:1.7;">
+          什么时候需要外置方案？<br>
+          内置记忆是「常驻系统提示的小抄」，容量有限但零成本；外置方案提供无限容量、
+          语义检索、跨 Agent 共享（Claude Code / Cursor 等）。如果你只用 Hermes 且任务简单，
+          调高内置容量就够了。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:0;">
+    <div class="card-body">
+      <div hx-get="/memory/job" hx-trigger="every 3s" hx-swap="outerHTML">
+        {% include "memory/_job_panel.html" %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ================================================================ 外置方案 #}
+<div data-tab-group="memory" data-tab-panel="providers" id="providers" class="hidden">
+  <div class="guide-strip">
+    {{ icon('info') }} 三步启用：
+    <span class="g-step">1. 选一张方案卡片</span><span class="g-arrow">→</span>
+    <span class="g-step">2. 填写连接参数</span><span class="g-arrow">→</span>
+    <span class="g-step">3. 启用并重启 Gateway</span>
+    <span style="margin-left:auto;">同一时刻只能激活一个方案；内置记忆始终并存</span>
+  </div>
+
+  <div class="channel-grid">
+    {% for d in providers %}
+    <label class="channel-card mem-provider {% if status.provider == d.id %}active{% endif %}"
+           style="cursor:pointer;"
+           hx-get="/memory/provider/{{ d.id }}" hx-target="#provider-config"
+           hx-swap="innerHTML">
+      <div class="channel-head">
+        <span class="channel-emoji">{{ d.emoji }}</span>
+        <div>
+          <div class="channel-title">{{ d.label }}
+            {% if status.provider == d.id %}{{ tag('使用中', 'ok') }}{% endif %}</div>
+          <div class="channel-sub">{{ d.tagline }}</div>
+        </div>
+      </div>
+      <div class="flex" style="gap:6px; flex-wrap:wrap;">
+        {{ tag(d.storage, 'muted') }}{{ tag(d.cost, d.cost.startswith('免费') and 'ok' or 'warn') }}
+      </div>
+      <div class="channel-foot">
+        <span class="text-muted" style="font-size:12px;">{{ d.requires }}</span>
+        <span class="btn btn-secondary btn-sm" style="margin-left:auto;">配置</span>
+      </div>
+    </label>
+    {% endfor %}
+  </div>
+
+  <div class="alert alert-warn" style="margin-top:14px;">{{ icon('info') }}
+    Memori 为向导型接入：需在服务器上执行
+    <code>pip install hermes-memori && hermes-memori install && hermes config set memory.provider memori</code>。
+    其余方案均可由平台代写全部配置。</div>
+
+  <div id="provider-config" style="margin-top:18px;">
+    <div class="card"><div class="card-body">
+      <div class="empty-state" style="padding:26px;">{{ icon('memory') }}<h4>点击上方任意方案卡片</h4>
+        <p>这里会显示该方案的参数表单，保存时自动写入 config.yaml / JSON 配置 / .env</p></div>
+    </div></div>
+  </div>
+</div>
+</div>
+{% endblock %}
+

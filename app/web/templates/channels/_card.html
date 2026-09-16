@@ -1,0 +1,31 @@
+{% from "macros.html" import icon, tag with context %}
+<div class="channel-card {% if not c.enabled %}disabled{% endif %}" id="channel-{{ c.name }}">
+  <div class="channel-head">
+    <span class="channel-emoji">{{ c.definition.emoji }}</span>
+    <div>
+      <div class="channel-title">{{ c.definition.label }}</div>
+      <div class="channel-sub mono">{{ c.name }}</div>
+    </div>
+    <form hx-post="/channels/{{ c.name }}/toggle" hx-target="#channel-{{ c.name }}"
+          hx-swap="outerHTML" style="margin-left:auto;">
+      <input type="hidden" name="enable" value="{{ '0' if c.enabled else '1' }}">
+      <label class="switch" title="{{ '停用' if c.enabled else '启用' }}">
+        <input type="checkbox" {% if c.enabled %}checked{% endif %}
+               onchange="this.closest('form').requestSubmit()">
+        <span class="switch-slider"></span>
+      </label>
+    </form>
+  </div>
+  <div class="flex" style="gap:6px; flex-wrap:wrap;">
+    {% if c.enabled %}{{ tag('已启用', 'ok') }}{% else %}{{ tag('未启用', 'muted') }}{% endif %}
+    {% if c.definition.env_fields is defined %}{% endif %}
+    {% if c.has_required %}
+      {% if c.configured %}{{ tag('凭证齐备', 'info') }}{% else %}{{ tag('缺凭证', 'warn') }}{% endif %}
+    {% endif %}
+    {% if c.toolset %}{{ tag('工具集: ' + c.toolset, 'muted') }}{% endif %}
+  </div>
+  <div class="channel-foot">
+    {% if not c.definition.verified %}{{ tag('字段以文档为准', 'warn') }}{% endif %}
+    <a class="btn btn-secondary btn-sm" href="/channels/{{ c.name }}">{{ icon('pen') }} 配置</a>
+  </div>
+</div>

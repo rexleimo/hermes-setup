@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag with context %}
+{% block title %}消息渠道{% endblock %}
+{% block topbar_title %}配置 / <strong>消息渠道</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>消息渠道</h2>
+    <p class="page-desc">配置 Hermes 的 platforms（飞书 / 微信 / QQ / Telegram …），让用户随时随地给它发指令</p>
+  </div>
+</div>
+
+{% if enabled_count == 0 %}
+<div class="alert alert-info">{{ icon('info') }} 尚未启用任何渠道。选择一个渠道卡片进入配置；保存后需启动 Gateway 才会生效。</div>
+{% endif %}
+
+<div class="channel-grid">
+  {% for c in channels %}
+  {% include "channels/_card.html" %}
+  {% endfor %}
+</div>
+
+<div class="alert alert-info" style="margin-top:18px;">{{ icon('info') }}
+  令牌类敏感字段写入 <code>~/.hermes/.env</code>（权限 600，永不回显）；
+  启用状态与平台参数写入 <code>config.yaml</code> 的 <code>platforms.*</code>。
+  标注「以文档为准」的字段名请对照官方渠道文档核对。</div>
+{% endblock %}

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf, icon, tag with context %}
+{% block title %}平台管理 · 用户{% endblock %}
+{% block topbar_title %}平台 / <strong>平台管理</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>用户管理</h2>
+    <p class="page-desc">admin 拥有全部权限；operator 可管理供应商 / 渠道 / 服务，但无法进入用户管理与系统设置</p>
+  </div>
+</div>
+{% include "partials/_platform_tabs.html" %}
+
+<div class="card">
+  <div class="card-header"><h3>创建用户</h3></div>
+  <div class="card-body">
+    <form method="post" action="/users" class="form-grid">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="form-item">
+        <label class="form-label" for="u-username">用户名 <span class="required">*</span></label>
+        <input class="form-input" id="u-username" name="username" required minlength="3" maxlength="32">
+      </div>
+      <div class="form-item">
+        <label class="form-label" for="u-password">初始密码 <span class="required">*</span></label>
+        <input class="form-input" id="u-password" name="password" type="password" required minlength="10"
+               autocomplete="new-password">
+        <p class="form-help">≥10 位，含字母与数字</p>
+      </div>
+      <div class="form-item">
+        <label class="form-label" for="u-role">角色</label>
+        <select class="form-select" id="u-role" name="role">
+          <option value="operator">operator（操作员）</option>
+          <option value="admin">admin（管理员）</option>
+        </select>
+      </div>
+      <div class="form-item" style="justify-content:flex-end;">
+        <button class="btn btn-primary" type="submit">{{ icon('plus') }} 创建用户</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body flush">
+    <div class="table-wrap"><table class="table">
+      <thead><tr>
+        <th>用户</th><th>角色</th><th>两步验证</th><th>状态</th>
+        <th>最近登录</th><th style="text-align:right;">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for u in users %}
+      <tr>
+        <td>
+          <div class="flex">
+            <span class="avatar" style="width:30px;height:30px;font-size:13px;">{{ u['username']|first|upper }}</span>
+            <div>
+              <div class="cell-main">{{ u['username'] }} {% if u['id'] == user['id'] %}<span class="text-muted">(你)</span>{% endif %}</div>
+              <div class="cell-sub">创建于 {{ u['created_at'] }}</div>
+            </div>
+          </div>
+        </td>
+        <td>{{ tag(u['role'], 'info' if u['role'] == 'admin' else 'muted') }}</td>
+        <td>{% if u['totp_enabled'] %}{{ tag('已开启', 'ok') }}{% else %}{{ tag('未开启', 'warn') }}{% endif %}</td>
+        <td>{% if u['active'] %}{{ tag('启用', 'ok') }}{% else %}{{ tag('停用', 'error') }}{% endif %}</td>
+        <td class="num">{{ u['last_login_at'] or '—' }}</td>
+        <td>
+          <div class="table-actions">
+            {% if u['id'] != user['id'] %}
+            {% if u['active'] %}
+            <form method="post" action="/users/{{ u['id'] }}/action"
+                  data-confirm="停用 {{ u['username'] }}？该用户所有会话将被强制下线。"
+                  style="display:contents;">{{ csrf() }}
+              <input type="hidden" name="do" value="disable">
+              <button class="btn btn-ghost btn-sm" type="submit">停用</button>
+            </form>
+            {% else %}
+            <form method="post" action="/users/{{ u['id'] }}/action" style="display:contents;">{{ csrf() }}
+              <input type="hidden" name="do" value="enable">
+              <button class="btn btn-ghost btn-sm" type="submit">启用</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/users/{{ u['id'] }}/action"
+                  data-confirm="为 {{ u['username'] }} 设置新密码？"
+                  data-confirm-word="{{ u['username'] }}"
+                  id="rp-{{ u['id'] }}" style="display:contents;">{{ csrf() }}
+              <input type="hidden" name="do" value="reset_password">
+              <input type="hidden" name="password" value="" data-prompt-field>
+              <button class="btn btn-ghost btn-sm" type="button"
+                      data-prompt-submit="#rp-{{ u['id'] }}"
+                      data-prompt-message="为 {{ u['username'] }} 输入新密码（至少 10 位，含字母与数字）：">重置密码</button>
+            </form>
+            {% if u['totp_enabled'] %}
+            <form method="post" action="/users/{{ u['id'] }}/action"
+                  data-confirm="重置 {{ u['username'] }} 的两步验证？该用户需重新绑定。"
+                  style="display:contents;">{{ csrf() }}
+              <input type="hidden" name="do" value="reset_2fa">
+              <button class="btn btn-ghost btn-sm" type="submit">重置 2FA</button>
+            </form>
+            {% endif %}
+            {% if u['role'] == 'admin' %}
+            <form method="post" action="/users/{{ u['id'] }}/action"
+                  data-confirm="将 {{ u['username'] }} 降级为 operator？"
+                  style="display:contents;">{{ csrf() }}
+              <input type="hidden" name="do" value="set_role"><input type="hidden" name="role" value="operator">
+              <button class="btn btn-ghost btn-sm" type="submit">降级</button>
+            </form>
+            {% else %}
+            <form method="post" action="/users/{{ u['id'] }}/action"
+                  data-confirm="将 {{ u['username'] }} 提升为 admin？"
+                  style="display:contents;">{{ csrf() }}
+              <input type="hidden" name="do" value="set_role"><input type="hidden" name="role" value="admin">
+              <button class="btn btn-ghost btn-sm" type="submit">提升</button>
+            </form>
+            {% endif %}
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+{% endblock %}
+

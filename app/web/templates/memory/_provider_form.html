@@ -1,0 +1,75 @@
+{% from "macros.html" import csrf, field, icon, tag with context %}
+<div class="card" id="provider-form-card">
+  <div class="card-header">
+    <h3>{{ d.emoji }} {{ d.label }} — 配置</h3>
+    <div class="card-extra">
+      {% if d.docs %}<a class="btn btn-ghost btn-sm" href="{{ d.docs }}" target="_blank" rel="noopener">
+        {{ icon('external') }} 项目主页</a>{% endif %}
+      {% if status.provider == d.id %}{{ tag('使用中', 'ok') }}{% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="form-item"><span class="form-label">适合</span><span style="font-size:13px; color:var(--text-2);">{{ d.best_for }}</span></div>
+      <div class="form-item"><span class="form-label">要求 / 存储 / 费用</span>
+        <span style="font-size:12.5px; color:var(--text-3);">{{ d.requires }} · {{ d.storage }} · {{ d.cost }}</span></div>
+    </div>
+
+    <form method="post" action="/memory/apply/{{ d.id }}">
+      {{ csrf() }}
+      <div class="form-grid">
+        {% for f in d.form_fields %}
+        {% if f.visible_if_field %}
+        <div data-visible-if-field="{{ f.visible_if_field }}" data-visible-if-value="{{ f.visible_if_value }}">
+          {{ field(f.name, f.label + (' *' if f.required else ''), f.default or '', kind=f.kind,
+                   required=f.required, options=f.options, help=f.help) }}
+        </div>
+        {% else %}
+        {{ field(f.name, f.label + (' *' if f.required else ''), f.default or '', kind=f.kind,
+                 required=f.required, options=f.options, help=f.help) }}
+        {% endif %}
+        {% endfor %}
+      </div>
+
+      {% if d.deps_pip or d.job_command or d.id == 'agentmemory' %}
+      <div class="muted-border" style="margin-top:14px;">
+        <p class="form-label" style="margin-bottom:6px;">依赖安装（平台代劳）</p>
+        {% if d.deps_pip %}
+        <p class="form-help" style="margin-bottom:6px;">
+          需要装入 Hermes 运行环境的 Python 包：<code>{{ d.deps_pip | join('、') }}</code>。
+          平台会自动探测 Hermes 的虚拟环境（<code>~/.hermes/hermes-agent/.venv</code>）执行安装。
+        </p>
+        {% elif d.id == 'agentmemory' %}
+        <p class="form-help" style="margin-bottom:6px;">
+          MCP 模式：无需预装任何东西，Gateway 启动时经 <code>npx</code> 自动拉起（需机器上有 Node.js）。
+          插件模式：需下载 Provider 插件到 <code>~/.hermes/plugins/memory/agentmemory</code>，平台可代为执行。
+        </p>
+        {% else %}
+        <p class="form-help" style="margin-bottom:6px;">{{ d.job_label }}（在服务器后台执行，输出实时可见）。</p>
+        {% endif %}
+        <p class="form-help" style="margin-bottom:10px;">
+          全部在本机完成，<strong>不需要 Docker</strong>；提交安装后可在页面下方看到实时输出。
+        </p>
+        <button class="btn btn-secondary btn-sm" type="submit" formaction="/memory/install-job/{{ d.id }}"
+                formnovalidate>
+          {{ icon('download') }} <span class="btn-label">
+            {% if d.deps_pip %}自动安装依赖（{{ d.deps_pip | join('、') }}）{% else %}{{ d.job_label }}{% endif %}
+          </span><span class="spinner"></span>
+        </button>
+      </div>
+      {% endif %}
+
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">{{ icon('check') }} 启用 {{ d.label }}</button>
+      </div>
+      <p class="form-help" style="margin-top:12px;">
+        推荐顺序：先「启用」写入配置 → 再点「自动安装依赖」→ 重启 Gateway。
+        全部在本机完成，不需要 Docker。
+      </p>
+      <p class="form-help" style="margin-top:12px;">
+        保存动作只写配置文件（config.yaml / JSON / .env），不影响正在运行的 Gateway；
+        记忆方案在 Gateway 重启后生效。仅密钥类字段写入 .env，永不回显。
+      </p>
+    </form>
+  </div>
+</div>

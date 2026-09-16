@@ -1,0 +1,7 @@
+{% from "macros.html" import status_pill with context %}
+{%- set st = status if status is defined else none -%}
+{% if st is none -%}
+<span class="pill pill-unknown"><span class="dot"></span>…</span>
+{%- else -%}
+{{ status_pill(st.running) }}
+{%- endif %}

@@ -1,0 +1,311 @@
+/* Hermes Console 前端交互（无框架，配合 HTMX） */
+(function () {
+  "use strict";
+
+  // ------------------------------------------------------------------
+  // Toast
+  // ------------------------------------------------------------------
+  var stack = document.getElementById("toast-stack");
+
+  var ICONS = {
+    success: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    error: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>',
+    warning: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    info: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>'
+  };
+
+  function showToast(message, level) {
+    level = level || "success";
+    var el = document.createElement("div");
+    el.className = "toast toast-" + level;
+    el.innerHTML = (ICONS[level] || ICONS.info) + "<span></span>";
+    el.querySelector("span").textContent = message;
+    stack.appendChild(el);
+    setTimeout(function () {
+      el.classList.add("leaving");
+      setTimeout(function () { el.remove(); }, 260);
+    }, 4200);
+  }
+
+  document.body.addEventListener("console:toast", function (e) {
+    var d = e.detail || {};
+    showToast(d.message || "操作完成", d.level);
+  });
+
+  // ------------------------------------------------------------------
+  // 确认弹窗（data-confirm：纯文案确认；data-confirm-word：输词确认）
+  // ------------------------------------------------------------------
+  var modal = document.getElementById("confirm-modal");
+  var pendingForm = null;
+  var confirmWord = "";
+
+  function openConfirm(opts) {
+    document.getElementById("confirm-message").textContent = opts.message;
+    document.getElementById("confirm-accept").className =
+      "btn " + (opts.danger === false ? "btn-primary" : "btn-danger");
+    var formWrap = document.getElementById("confirm-form");
+    var input = document.getElementById("confirm-input");
+    confirmWord = opts.word || "";
+    if (confirmWord) {
+      formWrap.classList.remove("hidden");
+      document.getElementById("confirm-word").textContent = confirmWord;
+      input.value = "";
+    } else {
+      formWrap.classList.add("hidden");
+    }
+    pendingForm = opts.submit;
+    modal.showModal();
+    if (confirmWord) input.focus();
+  }
+
+  document.getElementById("confirm-accept").addEventListener("click", function () {
+    var typed = "";
+    if (confirmWord) {
+      typed = document.getElementById("confirm-input").value.trim();
+      if (typed !== confirmWord) {
+        showToast("确认词不匹配，未执行操作", "warning");
+        return;
+      }
+    }
+    modal.close();
+    if (pendingForm) {
+      var field = pendingForm.querySelector("[data-confirm-field]");
+      if (field) field.value = typed;
+      pendingForm();
+    }
+  });
+
+  // 拦截带 data-confirm 的表单与按钮
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!(form instanceof HTMLFormElement) || form.dataset.confirm === undefined) return;
+    if (form.dataset.confirmed === "1") { delete form.dataset.confirmed; return; }
+    e.preventDefault();
+    openConfirm({
+      message: form.dataset.confirm,
+      word: form.dataset.confirmWord || "",
+      submit: function () {
+        form.dataset.confirmed = "1";
+        if (form.requestSubmit) form.requestSubmit();
+        else form.submit();
+      }
+    });
+  }, true);
+
+  // ------------------------------------------------------------------
+  // 弹窗开关（data-modal-open / data-modal-close）
+  // ------------------------------------------------------------------
+  document.addEventListener("click", function (e) {
+    var opener = e.target.closest("[data-modal-open]");
+    if (opener) {
+      var target = document.querySelector(opener.dataset.modalOpen);
+      if (target && target.showModal) target.showModal();
+      return;
+    }
+    if (e.target.closest("[data-modal-close]")) {
+      var dlg = e.target.closest("dialog");
+      if (dlg) dlg.close();
+    }
+  });
+
+  // 点击 backdrop 关闭
+  document.querySelectorAll("dialog.modal").forEach(function (dlg) {
+    dlg.addEventListener("click", function (e) {
+      if (e.target === dlg) dlg.close();
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 复制按钮 [data-copy]
+  // ------------------------------------------------------------------
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-copy]");
+    if (!btn) return;
+    var text = btn.getAttribute("data-copy") || "";
+    var done = function () { showToast("已复制到剪贴板"); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done);
+    } else {
+      var ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta);
+      ta.select(); document.execCommand("copy"); ta.remove(); done();
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // 侧边栏（窄屏抽屉）
+  // ------------------------------------------------------------------
+  var sidebar = document.getElementById("sidebar");
+  var toggleBtn = document.querySelector("[data-sidebar-toggle]");
+  if (toggleBtn && sidebar) {
+    toggleBtn.addEventListener("click", function () {
+      var open = sidebar.classList.toggle("open");
+      document.body.classList.toggle("drawer-open", open);
+    });
+    document.addEventListener("click", function (e) {
+      if (!sidebar.classList.contains("open")) return;
+      if (e.target.closest("[data-drawer-close]") ||
+          (!sidebar.contains(e.target) && !toggleBtn.contains(e.target))) {
+        sidebar.classList.remove("open");
+        document.body.classList.remove("drawer-open");
+      }
+    });
+    // 抽屉里点了导航项后自动收起
+    sidebar.querySelectorAll("a.nav-item").forEach(function (a) {
+      a.addEventListener("click", function () {
+        sidebar.classList.remove("open");
+        document.body.classList.remove("drawer-open");
+      });
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // 页内 Tab（data-tab-group 容器 + data-tab 按钮 + data-tab-panel 面板）
+  // 支持 location.hash 深链
+  // ------------------------------------------------------------------
+  function activateTab(group, name) {
+    var names = Array.prototype.map.call(
+      group.querySelectorAll("[data-tab]"), function (b) { return b.dataset.tab; });
+    group.querySelectorAll("[data-tab]").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.tab === name);
+    });
+    // 面板以 Tab 名标记，可以在组容器之外的任意位置
+    document.querySelectorAll("[data-tab-panel]").forEach(function (p) {
+      if (names.indexOf(p.dataset.tabPanel) === -1) return; // 不属于本组
+      p.classList.toggle("hidden", p.dataset.tabPanel !== name);
+    });
+  }
+
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-tab]");
+    if (!btn) return;
+    var group = btn.closest("[data-tab-group]");
+    if (!group) return;
+    activateTab(group, btn.dataset.tab);
+    if (btn.tagName === "BUTTON") {
+      history.replaceState(null, "", "#" + btn.dataset.tab);
+    }
+  });
+
+  // 载入时按 hash 激活
+  document.querySelectorAll("[data-tab-group]").forEach(function (group) {
+    var hash = location.hash.replace("#", "");
+    if (hash && group.querySelector('[data-tab="' + hash + '"]')) {
+      activateTab(group, hash);
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // 两步引导（新建供应商等）：data-wizard 容器 + data-wizard-step 面板
+  // 可选 data-wizard-form="name"：切换到某步时同步切换对应表单
+  // ------------------------------------------------------------------
+  function showWizardForm(name) {
+    document.querySelectorAll("[data-wizard] .wizard-form").forEach(function (f) {
+      f.classList.toggle("hidden", f.dataset.wizardFormName !== name);
+    });
+  }
+  window.showWizardForm = showWizardForm;
+
+  document.addEventListener("click", function (e) {
+    var goto = e.target.closest("[data-wizard-goto]");
+    if (!goto) return;
+    e.preventDefault();
+    var wizard = document.querySelector(goto.dataset.wizardGoto);
+    if (!wizard) return;
+    var step = goto.dataset.wizardStep;
+    wizard.querySelectorAll("[data-wizard-step]").forEach(function (p) {
+      p.classList.toggle("hidden", p.dataset.wizardStep !== step);
+    });
+    wizard.querySelectorAll(".step").forEach(function (s) {
+      var n = s.dataset.stepNum;
+      s.classList.toggle("active", n === step);
+      s.classList.toggle("done", parseInt(n, 10) < parseInt(step, 10));
+    });
+    if (goto.dataset.wizardForm) showWizardForm(goto.dataset.wizardForm);
+    wizard.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  // 错误回显：向导带 data-wizard-init-form 时直接落到对应步与表单
+  document.querySelectorAll("[data-wizard][data-wizard-init-form]").forEach(function (wizard) {
+    var form = wizard.dataset.wizardInitForm;
+    if (!form) return;
+    var btn = wizard.querySelector('[data-wizard-form="' + form + '"]');
+    if (btn) btn.click();
+  });
+
+  // ------------------------------------------------------------------
+  // 条件字段：data-visible-if-field / data-visible-if-value
+  // ------------------------------------------------------------------
+  function applyConditionalFields() {
+    document.querySelectorAll("[data-visible-if-field]").forEach(function (f) {
+      var src = document.querySelector('[name="' + f.dataset.visibleIfField + '"]');
+      if (!src) return;
+      var item = src.closest(".form-item");
+      var srcHidden = item && item.classList.contains("hidden");
+      f.classList.toggle("hidden",
+        srcHidden || src.value !== f.dataset.visibleIfValue);
+    });
+  }
+  document.addEventListener("change", function (e) {
+    if (e.target.name && document.querySelector(
+        '[data-visible-if-field="' + e.target.name + '"]')) {
+      applyConditionalFields();
+    }
+  });
+  applyConditionalFields();
+
+  // ------------------------------------------------------------------
+  // 批量赋值按钮：data-set='{"#fieldId": "value", ...}'（如容量预设）
+  // ------------------------------------------------------------------
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-set]");
+    if (!btn) return;
+    try {
+      var mapping = JSON.parse(btn.dataset.set);
+      Object.keys(mapping).forEach(function (sel) {
+        var el = document.querySelector(sel);
+        if (el) el.value = mapping[sel];
+      });
+    } catch (err) { /* 非法 JSON 忽略 */ }
+  });
+
+  // ------------------------------------------------------------------
+  // 提示输入后提交表单：data-prompt-submit="#formId"
+  // 表单内以 data-prompt-field 标记接收输入的字段
+  // ------------------------------------------------------------------
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-prompt-submit]");
+    if (!btn) return;
+    var form = document.querySelector(btn.dataset.promptSubmit);
+    if (!form) return;
+    var field = form.querySelector("[data-prompt-field]");
+    var input = window.prompt(btn.dataset.promptMessage || "请输入：", "");
+    if (input === null) return;
+    if (field) field.value = input;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  // ------------------------------------------------------------------
+  // 杂项：details 下拉点外部收起；日志区滚到底部
+  // ------------------------------------------------------------------
+  document.addEventListener("click", function (e) {
+    document.querySelectorAll("details.user-menu[open]").forEach(function (d) {
+      if (!d.contains(e.target)) d.removeAttribute("open");
+    });
+  });
+
+  document.addEventListener("htmx:afterSwap", function (e) {
+    var logs = e.target && e.target.querySelectorAll ? e.target.querySelectorAll(".log-view") : [];
+    logs.forEach(function (lv) { lv.scrollTop = lv.scrollHeight; });
+    var single = e.target && e.target.classList && e.target.classList.contains("log-view")
+      ? e.target : null;
+    if (single) single.scrollTop = single.scrollHeight;
+    // HTMX 换入的动态面板（表单/结果）滚动到可视区，避免"点了没反应"的错觉
+    var scrollables = ["provider-config", "fetch-result", "test-result", "probe-result",
+                       "job-panel"];
+    if (e.target && scrollables.indexOf(e.target.id) !== -1) {
+      e.target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    applyConditionalFields();
+  });
+})();

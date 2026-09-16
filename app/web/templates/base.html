@@ -1,0 +1,120 @@
+{% from "macros.html" import icon with context %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf" content="{{ csrf_token }}">
+  <title>{% block title %}{{ app_name }}{% endblock %} · Hermes Console</title>
+  <link rel="stylesheet" href="/static/css/admin.css?v={{ ASSET_VER }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%231d4ed8'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Georgia'>H</text></svg>">
+  <script src="/static/vendor/htmx.min.js?v={{ ASSET_VER }}" defer></script>
+  <script src="/static/js/app.js?v={{ ASSET_VER }}" defer></script>
+</head>
+<body hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'>
+<div class="app-shell">
+  <div class="sidebar-backdrop" data-drawer-close></div>
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="/">
+      <span class="brand-mark">H</span>
+      <span class="brand-text">
+        <strong>Hermes Console</strong>
+        <small>Agent 运维中台</small>
+      </span>
+    </a>
+    <nav class="side-nav">
+      <p class="nav-section">总览</p>
+      <a class="nav-item {% if nav_active == 'dashboard' %}active{% endif %}" href="/">
+        {{ icon('grid') }}<span>仪表盘</span>
+      </a>
+      <a class="nav-item {% if nav_active == 'service' %}active{% endif %}" href="/service">
+        {{ icon('server') }}<span>服务管理</span>
+      </a>
+
+      <p class="nav-section">配置</p>
+      <a class="nav-item {% if nav_active == 'providers' %}active{% endif %}" href="/providers">
+        {{ icon('box') }}<span>模型供应商</span>
+      </a>
+      <a class="nav-item {% if nav_active == 'chains' %}active{% endif %}" href="/chains">
+        {{ icon('branch') }}<span>链路与别名</span>
+      </a>
+      <a class="nav-item {% if nav_active == 'channels' %}active{% endif %}" href="/channels">
+        {{ icon('tower') }}<span>消息渠道</span>
+      </a>
+      <a class="nav-item {% if nav_active == 'memory' %}active{% endif %}" href="/memory">
+        {{ icon('memory') }}<span>记忆系统</span>
+      </a>
+      <a class="nav-item {% if nav_active == 'engineering' %}active{% endif %}" href="/engineering">
+        {{ icon('folder') }}<span>工程规范</span>
+      </a>
+
+      <p class="nav-section">平台</p>
+      <a class="nav-item {% if nav_active == 'catalog' %}active{% endif %}" href="/catalog">
+        {{ icon('book') }}<span>配置项全景</span>
+      </a>
+      <a class="nav-item {% if nav_active == 'platform' %}active{% endif %}" href="/users">
+        {{ icon('users') }}<span>平台管理</span>
+      </a>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="text-muted">v{{ APP_VERSION }}</span>
+    </div>
+  </aside>
+
+  <div class="main-wrap">
+    <header class="topbar">
+      <button class="topbar-menu-btn" data-sidebar-toggle aria-label="打开导航">{{ icon('menu') }}</button>
+      <div class="topbar-title">{% block topbar_title %}{% endblock %}</div>
+      <div class="topbar-right">
+        <span id="topbar-status" hx-get="/service/pill" hx-trigger="load, every 15s"
+              hx-swap="innerHTML">{% include "service/_topbar_pill.html" %}</span>
+        {% if user %}
+        <details class="user-menu">
+          <summary>
+            <span class="avatar">{{ user['username']|first|upper }}</span>
+            <span class="user-name">{{ user['username'] }}</span>
+            {{ icon('chevron-down') }}
+          </summary>
+          <div class="user-dropdown">
+            <a href="/settings/account">{{ icon('settings') }} 个人账户</a>
+            {% if user['totp_enabled'] %}
+            <span class="dd-note ok">{{ icon('check') }} 两步验证已开启</span>
+            {% else %}
+            <a href="/2fa/setup" class="warn-link">{{ icon('lock') }} 开启两步验证</a>
+            {% endif %}
+            <form method="post" action="/logout">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <button type="submit" class="dd-logout">{{ icon('logout') }} 退出登录</button>
+            </form>
+          </div>
+        </details>
+        {% endif %}
+      </div>
+    </header>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<div class="toast-stack" id="toast-stack"></div>
+<dialog class="modal" id="confirm-modal">
+  <div class="modal-head">
+    <h3 id="confirm-title">操作确认</h3>
+  </div>
+  <div class="modal-body">
+    <p id="confirm-message" class="confirm-message"></p>
+    <form id="confirm-form" class="confirm-form hidden">
+      <label class="form-label" for="confirm-input">请输入 <code id="confirm-word"></code> 以确认</label>
+      <input class="form-input" id="confirm-input" autocomplete="off">
+    </form>
+  </div>
+  <div class="modal-foot">
+    <button class="btn btn-secondary" data-modal-close>取消</button>
+    <button class="btn btn-danger" id="confirm-accept">确认执行</button>
+  </div>
+</dialog>
+{% block scripts %}{% endblock %}
+</body>
+</html>

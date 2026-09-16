@@ -1,0 +1,18 @@
+{% from "macros.html" import status_pill with context %}
+<div>
+  <div class="banner-title">
+    Hermes Gateway {{ status_pill(status.running) }}
+    {% if version %}<code>{{ version }}</code>{% endif %}
+  </div>
+  <div class="banner-sub">
+    {% if status.running %}
+      {% if status.pid %}进程 {{ status.pid }} · {% endif %}正在接收各渠道消息
+      {% if status.log_fresh_seconds is not none %} · 日志 {{ status.log_fresh_seconds }} 秒前有写入{% endif %}
+    {% elif status.running is none %}
+      {{ status.detail or '无法确定状态，请刷新或检查 hermes 可执行文件' }}
+    {% else %}
+      {% if paths.installed %}已停止 —— 完成主模型与渠道配置后即可启动
+      {% else %}尚未安装 Hermes Agent，请先到「安装与更新」页签执行安装{% endif %}
+    {% endif %}
+  </div>
+</div>

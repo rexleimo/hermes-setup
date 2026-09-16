@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag with context %}
+{% block title %}平台管理 · 审计{% endblock %}
+{% block topbar_title %}平台 / <strong>平台管理</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>审计日志</h2>
+    <p class="page-desc">所有变更与登录行为留痕，仅追加不可删改 · 共 {{ data.total }} 条</p>
+  </div>
+</div>
+{% include "partials/_platform_tabs.html" %}
+
+<div class="card">
+  <div class="card-header">
+    <form class="flex" method="get" action="/audit" style="flex-wrap:wrap; gap:10px; width:100%;">
+      <input class="form-input" style="width:150px;" name="action" value="{{ f_action }}"
+             placeholder="操作前缀，如 provider">
+      <input class="form-input" style="width:130px;" name="username" value="{{ f_username }}"
+             placeholder="用户名">
+      <select class="form-select" style="width:120px;" name="outcome">
+        <option value="">全部结果</option>
+        <option value="ok" {% if f_outcome == 'ok' %}selected{% endif %}>成功</option>
+        <option value="failed" {% if f_outcome == 'failed' %}selected{% endif %}>失败</option>
+        <option value="denied" {% if f_outcome == 'denied' %}selected{% endif %}>被拒绝</option>
+      </select>
+      <button class="btn btn-secondary" type="submit">{{ icon('search') }} 筛选</button>
+      {% if f_action or f_username or f_outcome %}
+      <a class="btn btn-ghost" href="/audit">重置</a>
+      {% endif %}
+    </form>
+  </div>
+  <div class="card-body flush">
+    {% if data.rows %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>对象 / 详情</th><th>来源 IP</th><th>结果</th></tr></thead>
+      <tbody>
+        {% for r in data.rows %}
+        <tr>
+          <td class="num" style="white-space:nowrap;">{{ r['ts'] }}</td>
+          <td>{{ r['username'] or '匿名' }}</td>
+          <td><code>{{ r['action'] }}</code></td>
+          <td style="max-width:380px;">
+            {% if r['target'] %}<div class="cell-main mono" style="font-size:12.5px;">{{ r['target'] }}</div>{% endif %}
+            {% if r['detail'] %}<div class="cell-sub" style="white-space:normal;">{{ r['detail'][:220] }}</div>{% endif %}
+          </td>
+          <td class="mono" style="font-size:12px;">{{ r['ip'] or '—' }}</td>
+          <td>
+            {% if r['outcome'] == 'ok' %}{{ tag('成功', 'ok') }}
+            {% elif r['outcome'] == 'failed' %}{{ tag('失败', 'error') }}
+            {% else %}{{ tag(r['outcome'], 'warn') }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    <div class="pagination">
+      <span class="pg-info">第 {{ data.page }} / {{ data.pages }} 页 · 共 {{ data.total }} 条</span>
+      <div class="pg-btns">
+        {% if data.page > 1 %}
+        <a class="btn btn-secondary btn-sm" href="/audit?p={{ data.page - 1 }}&action={{ f_action }}&username={{ f_username }}&outcome={{ f_outcome }}">上一页</a>
+        {% endif %}
+        {% if data.page < data.pages %}
+        <a class="btn btn-secondary btn-sm" href="/audit?p={{ data.page + 1 }}&action={{ f_action }}&username={{ f_username }}&outcome={{ f_outcome }}">下一页</a>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="empty-state">{{ icon('shield') }}<h4>没有匹配的记录</h4><p>调整筛选条件或稍后再来</p></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

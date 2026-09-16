@@ -1,0 +1,10 @@
+{% from "macros.html" import tag with context %}
+<div class="muted-border">
+  <p class="form-label" style="margin-bottom:8px;">当前探测结果</p>
+  <dl class="kv" style="grid-template-columns:110px 1fr;">
+    <dt>数据目录</dt><dd><code>{{ paths.home }}</code>{% if paths.home.exists() %} {{ tag('存在', 'ok') }}{% else %} {{ tag('不存在', 'muted') }}{% endif %}</dd>
+    <dt>config.yaml</dt><dd>{% if paths.initialized %}{{ tag('已初始化', 'ok') }}{% else %}{{ tag('未创建', 'muted') }}{% endif %}</dd>
+    <dt>可执行文件</dt><dd>{% if paths.bin %}<code>{{ paths.bin }}</code> {{ tag('OK', 'ok') }}{% else %}{{ tag('未找到', 'warn') }}{% endif %}</dd>
+    <dt>gateway.log</dt><dd>{% if paths.gateway_log.exists() %}{{ tag('存在', 'ok') }}{% else %}{{ tag('尚无', 'muted') }}{% endif %}</dd>
+  </dl>
+</div>

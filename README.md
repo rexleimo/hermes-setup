@@ -1,0 +1,152 @@
+# Hermes Console
+
+[![CI](https://github.com/rexleimo/hermes-setup/actions/workflows/ci.yml/badge.svg)](https://github.com/rexleimo/hermes-setup/actions/workflows/ci.yml)
+[![Deploy Site](https://github.com/rexleimo/hermes-setup/actions/workflows/deploy-site.yml/badge.svg)](https://github.com/rexleimo/hermes-setup/actions/workflows/deploy-site.yml)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+
+Hermes Agent 的可视化运维中台 —— 让 [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+不再需要 SSH：安装、启动 Gateway、配置模型供应商与消息渠道，全部在一个**严格鉴权**的 Web 控制台完成。
+
+> 技术栈：Python 3.11+ · uv · FastAPI · Jinja2 · HTMX · SQLite。
+> 无前端构建步骤，静态资源本地化，可部署在内网隔离环境。
+
+## 官方地址
+
+| 入口 | 地址 |
+|---|---|
+| 🌐 **官网** | **[https://rexai.top](https://rexai.top)** （GitHub Pages，`site/` 目录自动部署） |
+| 💻 仓库 | <https://github.com/rexleimo/hermes-setup> |
+| 📄 文档站备用 | <https://rexleimo.github.io/hermes-setup/> |
+| 🐛 问题反馈 | <https://github.com/rexleimo/hermes-setup/issues> |
+| ⬆️ 上游项目 | [Hermes Agent](https://github.com/NousResearch/hermes-agent)（NousResearch） |
+
+## 功能总览
+
+| 模块 | 能力 |
+|---|---|
+| **初始化与服务管理** | 一键执行官方安装脚本 / `hermes update`；Gateway（server 服务）启动、停止、重启；状态三路探测（CLI / gateway_state.json / 日志新鲜度）；gateway.log 与 errors.log 实时查看；后台任务执行与输出轮询 |
+| **模型供应商管理** | 类 CC Switch 的 CRUD；五种 API 协议模式（OpenAI Chat 兼容 / OpenAI Responses / Anthropic Messages / AWS Bedrock / Google Gemini）；13 个官方预设供应商一键添加；在线拉取模型列表并逐个登记（模型 ID / 显示名称 / 上下文长度）；一键连接测试 |
+| **链路与别名** | 主模型切换（`model.*`）；降级备选链可视化排序（`delegation.fallback_providers`）；模型别名管理（`model_aliases`） |
+| **消息渠道** | 11 个渠道（飞书 / 微信 / QQ / Telegram / 企业微信 / 钉钉 / Discord / Slack / Email / Webhook / API Server）卡片式管理；令牌写入 `.env`（600 权限、永不回显）；平台参数写入 `config.yaml` 的 `platforms.*`；每渠道工具集覆盖（`platform_toolsets`） |
+| **记忆系统** | 内置记忆容量调优（默认 2,200/1,375 字符 → 一键预设至 16,000/8,000，解决大项目记忆写满报错）；9 家外置记忆方案一键切换并自动写入配置：社区 AgentMemory（零代码 MCP / Provider 插件自动安装）、Mem0、Supermemory、OpenViking、Hindsight、Holographic、RetainDB、ByteRover、Honcho |
+| **工程规范** | 参考 AIOS 的工程化约束层：工作区目录规范（projects/downloads/scratch/archive）+ 六条工程铁律 + 需求消化模板，通过 SOUL.md 托管块（幂等、不碰用户自有内容）、3 个官方格式技能（project-init / requirement-digest / file-placement）与 `agent.coding_instructions` 注入；支持工作区一键物理初始化与整体卸载（见 [docs/ENGINEERING_SPEC.md](docs/ENGINEERING_SPEC.md)） |
+| **配置项全景** | 对 Hermes 全部配置域的盘点与集成建议（已集成 / 建议二期 / 待评估 / 建议手改），作为后续迭代的评审入口 |
+| **安全与审计** | 详见下文「安全模型」与 [docs/SECURITY.md](docs/SECURITY.md) |
+
+## 快速开始
+
+```bash
+# 1. 安装依赖（自动创建虚拟环境）
+uv sync
+
+# 2. 配置环境变量（可选；不配置则使用安全默认值）
+cp .env.example .env
+# 编辑 .env，务必设置 HERMES_CONSOLE_SECRET：
+# python -c "import secrets; print(secrets.token_urlsafe(48))"
+
+# 3. 启动
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8420
+
+# 4. 打开 http://127.0.0.1:8420 —— 首次访问进入管理员初始化向导
+```
+
+首次部署建议流程（控制台内的「初始化清单」会引导这四步）：
+
+1. **服务管理 → 一键安装** Hermes Agent（官方 install.sh）；
+2. **模型供应商 → 添加预设**（如 OpenRouter / GLM / Kimi）→ 拉取模型列表 → 设为主模型；
+3. **消息渠道 → 飞书**，填入 App ID / App Secret 并启用；
+4. **服务管理 → 启动 Gateway**。
+
+生产部署：用 systemd 托管 uvicorn，前置 Nginx/Caddy 做 HTTPS（开启 `HERMES_CONSOLE_SECURE_COOKIES=1`），
+并用 `HERMES_CONSOLE_ALLOWED_IPS` 限制管理来源。
+
+## 运行测试
+
+```bash
+uv run pytest          # 全量回归：认证 / CSRF / 限流 / 配置读写 / 进程管理 / 页面渲染（70+ 用例）
+```
+
+## 目录结构
+
+```
+app/
+├── main.py                 # 应用工厂：中间件栈（安全头→IP白名单→会话）+ 异常处理
+├── core/                   # 平台自身
+│   ├── settings.py         #   env 配置（导入期只读单例）
+│   ├── db.py               #   SQLite（WAL）与全部建表
+│   ├── security.py         #   Argon2 密码、TOTP、HMAC 签名令牌
+│   ├── sessions.py         #   服务端会话（绝对+空闲双过期）
+│   ├── csrf.py             #   CSRF 令牌
+│   ├── ratelimit.py        #   登录限流与账号锁定
+│   ├── audit.py            #   审计日志（仅追加）
+│   └── appsettings.py      #   运行时设置与用户管理
+├── hermes/                 # Hermes 适配层（对底层操作的全部收敛点）
+│   ├── paths.py            #   ~/.hermes 目录与二进制探测
+│   ├── schema.py           #   协议/预设/渠道字段的 UI 描述符
+│   ├── config_store.py     #   config.yaml（保注释 round-trip）与 .env 的原子读写
+│   ├── providers_service.py#   供应商/主模型/别名/备选链 → Hermes 配置的映射
+│   ├── channels_service.py #   platforms.* / .env / platform_toolsets 的写入
+│   ├── supervisor.py       #   hermes gateway 进程控制与状态
+│   ├── installer.py        #   安装/更新后台任务
+│   └── model_catalog.py    #   各协议 list-models 拉取
+└── web/
+    ├── deps.py             # 认证守卫（异常式短路）与路由级 CSRF
+    ├── routers/            # auth/dashboard/service/providers/channels/chains/audit/users/settings/catalog
+    ├── catalog_data.py     # 配置项全景数据（UI 与文档共用）
+    ├── templates/          # Jinja2 模板 + 宏
+    └── static/             # 设计系统 CSS / 交互 JS / 本地化 htmx
+docs/
+├── ARCHITECTURE.md         # 架构与设计决策
+├── SECURITY.md             # 威胁模型与安全控制
+├── CONFIG_CATALOG.md       # Hermes 配置项深挖清单（二期评审用）
+├── ENGINEERING_SPEC.md     # 工程规范层设计（Agent OS 式约束）
+└── RUST_ASSESSMENT.md      # 「底层操作是否该用 Rust」的评估结论
+site/
+└── index.html              # 官网单页（rexai.top，纯静态无构建）
+.github/workflows/
+├── ci.yml                  # push/PR 跑 pytest
+└── deploy-site.yml         # site/ 变更自动发布 GitHub Pages
+```
+
+## 官网部署（GitHub Pages → rexai.top）
+
+官网是 [site/index.html](site/index.html) 纯静态单页（无构建步骤），由 GitHub Actions 自动发布：
+
+1. **CI/CD**：推送 `main` 且 `site/**` 有变更时，[deploy-site.yml](.github/workflows/deploy-site.yml)
+   自动部署到 GitHub Pages；也可在 Actions 页手动触发（`workflow_dispatch`）。
+2. **首次启用**：仓库 Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
+3. **绑定自定义域名**：
+   - 仓库 Settings → Pages → Custom domain 填 `rexai.top`（`site/CNAME` 已随产物包含该域名）；
+   - 在 DNS 服务商为 `rexai.top` 添加 GitHub Pages 解析记录：
+
+     | 类型 | 主机 | 值 |
+     |---|---|---|
+     | A | `@` | `185.199.108.153` |
+     | A | `@` | `185.199.109.153` |
+     | A | `@` | `185.199.110.153` |
+     | A | `@` | `185.199.111.153` |
+     | CNAME | `www` | `rexleimo.github.io` |
+
+   - 生效后在 Pages 设置中勾选 **Enforce HTTPS**。
+
+## 对 Hermes 配置的写入契约
+
+平台**只写 Hermes 官方 schema 认可的键**，且遵循官方推荐的安全实践：
+
+- API Key 本体只写 `~/.hermes/.env`，`config.yaml` 中仅存 `key_env` 键名；
+- 自定义供应商 → `providers.<id>: {base_url, api_mode, key_env}`；
+- 主模型 → `model.{provider, default, base_url, api_mode, context_length}`；
+- 别名 → `model_aliases.<alias>: {model, provider, base_url?, key_env?}`；
+- 备选链 → `delegation.fallback_providers: [{provider, model, ...}]`；
+- 渠道 → `platforms.<name>.{enabled, extra}` + `.env` 令牌键 + `platform_toolsets.<name>`。
+
+所有写入均为「备份 → 校验 → 临时文件 → 原子替换」，`config.yaml` 的注释通过
+ruamel.yaml round-trip 完整保留，备份保留最近 10 份（`config.yaml.bak-*`）。
+
+## 文档
+
+- [架构说明](docs/ARCHITECTURE.md) — 分层、数据流、扩展点
+- [安全模型](docs/SECURITY.md) — 威胁模型、控制矩阵、部署加固清单
+- [配置项深挖](docs/CONFIG_CATALOG.md) — Hermes 全部配置域盘点与平台集成建议
+- [Rust 评估](docs/RUST_ASSESSMENT.md) — 底层操作用 Rust 是否更优的结论

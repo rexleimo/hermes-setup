@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# 运行时数据（平台数据库 / 任务日志 / 配置备份）
+data/
+!data/.gitkeep
+
+# 环境变量
+.env
+
+# 测试与工具
+.pytest_cache/
+.ruff_cache/
+
+# 编辑器
+.DS_Store
+.idea/
+.vscode/

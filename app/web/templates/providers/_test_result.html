@@ -1,0 +1,9 @@
+{% from "macros.html" import icon with context %}
+{% if ok %}
+<div class="alert alert-success" style="margin:0;">
+  {{ icon('check') }} {{ message }}
+  {% if sample %}<div class="mono" style="font-size:12px; margin-top:6px; opacity:.8;">{{ sample | join(' · ') }}</div>{% endif %}
+</div>
+{% else %}
+<div class="alert alert-danger" style="margin:0;">{{ icon('alert') }} {{ message }}</div>
+{% endif %}

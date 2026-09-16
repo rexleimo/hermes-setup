@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag, field, csrf with context %}
+{% block title %}链路与别名{% endblock %}
+{% block topbar_title %}配置 / <strong>链路与别名</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>链路与别名</h2>
+    <p class="page-desc">主模型路由、降级备选链（fallback chain）与模型别名（model_aliases）</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div>
+    <div class="card">
+      <div class="card-header">
+        <h3>备选链（Fallback Chain）</h3>
+        <div class="card-extra"><span class="tag tag-info">delegation.fallback_providers</span></div>
+      </div>
+      <div class="card-body">
+        <p class="form-help" style="margin-bottom:14px;">主模型请求失败时按顺序降级。条目格式与 Hermes 官方一致：
+          <code>{provider, model, base_url?, key_env?}</code>。</p>
+        {% if fallback %}
+        <ul class="chain-list">
+          {% for e in fallback %}
+          <li class="chain-item">
+            <span class="chain-idx">{{ loop.index }}</span>
+            <div style="min-width:0;">
+              <div class="cell-main mono">{{ e.provider }} <span class="chain-arrow">/</span> {{ e.model }}</div>
+              {% if e.base_url or e.key_env %}
+              <div class="cell-sub mono">{{ e.base_url }}{% if e.base_url and e.key_env %} · {% endif %}{% if e.key_env %}key: {{ e.key_env }}{% endif %}</div>
+              {% endif %}
+            </div>
+            <div class="table-actions" style="margin-left:auto;">
+              {% if not loop.first %}
+              <form method="post" action="/chains/fallback/move" style="display:contents;">{{ csrf() }}
+                <input type="hidden" name="position" value="{{ loop.index }}">
+                <input type="hidden" name="direction" value="up">
+                <button class="btn btn-ghost btn-sm" type="submit" title="上移">{{ icon('arrow-up') }}</button>
+              </form>
+              {% endif %}
+              {% if not loop.last %}
+              <form method="post" action="/chains/fallback/move" style="display:contents;">{{ csrf() }}
+                <input type="hidden" name="position" value="{{ loop.index }}">
+                <input type="hidden" name="direction" value="down">
+                <button class="btn btn-ghost btn-sm" type="submit" title="下移">{{ icon('arrow-down') }}</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/chains/fallback/remove" style="display:contents;">{{ csrf() }}
+                <input type="hidden" name="position" value="{{ loop.index }}">
+                <button class="btn btn-ghost btn-sm" type="submit" title="移除">{{ icon('trash') }}</button>
+              </form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        <div class="flex text-muted" style="font-size:12.5px;">
+          {{ icon('arrow-down') }} 请求顺序：主模型
+          {% for e in fallback %}<span class="chain-arrow">→</span> <span class="mono">{{ e.model }}</span>{% endfor %}
+          <span class="chain-arrow">→</span> 报错
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding:28px;">{{ icon('branch') }}<h4>暂无备选链</h4>
+          <p>主模型不可用时将直接报错；添加降级条目可提升可用性</p></div>
+        {% endif %}
+
+        <form method="post" action="/chains/fallback/add" style="margin-top:16px; border-top:1px dashed var(--border); padding-top:16px;">
+          {{ csrf() }}
+          <div class="form-grid">
+            <div class="form-item">
+              <label class="form-label">供应商 <span class="required">*</span></label>
+              <select class="form-select" name="provider" required>
+                <option value="" disabled selected>选择供应商</option>
+                {% for p in providers %}
+                <option value="{{ p.preset_id if p.kind == 'preset' else p.id }}">{{ p.name }}（{{ p.id }}）</option>
+                {% endfor %}
+              </select>
+            </div>
+            {{ field('model', '模型 ID', '', required=True, placeholder='deepseek/deepseek-chat') }}
+            {{ field('base_url', 'Base URL（可选）', '', placeholder='custom 供应商专用') }}
+            {{ field('key_env', '密钥环境变量名（可选）', '', placeholder='MY_KEY_ENV') }}
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-secondary" type="submit">{{ icon('plus') }} 追加备选项</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-header"><h3>当前主模型</h3></div>
+      <div class="card-body">
+        {% if main %}
+        <dl class="kv">
+          <dt>供应商</dt><dd>{{ main.name }}（<span class="mono">{{ main.id }}</span>）</dd>
+          <dt>模型</dt><dd class="mono">{{ main.main_model }}</dd>
+          <dt>协议</dt><dd>{{ main.protocol_label }}</dd>
+          {% if main.base_url %}<dt>Endpoint</dt><dd class="mono">{{ main.base_url }}</dd>{% endif %}
+        </dl>
+        <div class="form-actions">
+          <a class="btn btn-secondary btn-sm" href="/providers/{{ main.id }}">更换主模型</a>
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding:26px;">{{ icon('zap') }}<h4>未设置主模型</h4>
+          <p>到供应商页面选择一个模型设为主模型</p>
+          <a class="btn btn-primary btn-sm" href="/providers">前往供应商</a></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>模型别名</h3>
+        <div class="card-extra"><span class="tag tag-info">model_aliases</span></div>
+      </div>
+      <div class="card-body flush">
+        {% if aliases %}
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>别名</th><th>指向</th><th style="text-align:right;">操作</th></tr></thead>
+          <tbody>
+            {% for alias, e in aliases.items() %}
+            <tr>
+              <td class="cell-main mono">{{ alias }}</td>
+              <td class="mono" style="font-size:12px;">
+                {{ e.get('model','') }}<br>
+                <span class="text-muted">provider: {{ e.get('provider','') }}
+                  {% if e.get('base_url') %} · {{ e.get('base_url') }}{% endif %}</span>
+              </td>
+              <td><div class="table-actions">
+                <form method="post" action="/chains/alias/remove" data-confirm="移除别名 {{ alias }}？"
+                      style="display:contents;">{{ csrf() }}
+                  <input type="hidden" name="alias" value="{{ alias }}">
+                  <button class="btn btn-ghost btn-sm" type="submit">{{ icon('trash') }}</button>
+                </form>
+              </div></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+        {% else %}
+        <div class="empty-state" style="padding:26px;">{{ icon('box') }}<h4>暂无别名</h4>
+          <p>在供应商详情页为常用模型发布短别名</p></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

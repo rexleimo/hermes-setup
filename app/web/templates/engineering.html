@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag, csrf with context %}
+{% block title %}工程规范{% endblock %}
+{% block topbar_title %}配置 / <strong>工程规范</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>工程规范（Engineering Guardrails）</h2>
+    <p class="page-desc">让 Hermes 做任何事都有工程概念：先建项目、文件归位、需求先消化再动手（参考 AIOS）</p>
+  </div>
+</div>
+
+{# ================================================================ 状态横幅 #}
+<div data-tab-group="eng">
+<div class="banner">
+  <span class="banner-icon {% if status.soul_managed %}ok{% endif %}">
+    {% if status.soul_managed %}{{ icon('check') }}{% else %}{{ icon('folder') }}{% endif %}
+  </span>
+  <div class="banner-main">
+    <div class="banner-title">
+      {% if status.soul_managed %}工程规范：已启用{% else %}工程规范：未启用{% endif %}
+      {% if status.soul_managed %}{{ tag('SOUL.md 已注入', 'ok') }}{% endif %}
+      {% if status.coding_instructions_set %}{{ tag('编码硬约束', 'info') }}{% endif %}
+    </div>
+    <div class="banner-sub">
+      {% if status.soul_managed %}
+        已注入技能：
+        {% for skill, ok in status.skills.items() %}{% if ok %}<code>{{ skill }}</code> {% endif %}{% endfor %}
+        · 用户自有内容 {{ status.user_soul_chars }} 字节不受影响 · 随时可整体卸载
+      {% else %}
+        启用后，Agent 接到任务会先建项目、写需求清单和计划，文件按规范归位 —— 解决产出东一块西一块的问题
+      {% endif %}
+    </div>
+  </div>
+  <div class="banner-actions">
+    {% if status.soul_managed %}
+    <a class="btn btn-secondary" href="#preview" data-tab="preview">查看注入内容</a>
+    {% else %}
+    <a class="btn btn-primary" href="#config" data-tab="config">去启用规范</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="tabs" data-tab-group="eng">
+  <button class="tab-btn active" data-tab="config">{{ icon('pen') }} 规范配置</button>
+  <button class="tab-btn" data-tab="preview">{{ icon('file') }} 注入预览</button>
+</div>
+
+</div>
+
+{# ================================================================ 规范配置 #}
+<div data-tab-group="eng" data-tab-panel="config">
+  <div class="card">
+    <div class="card-header">
+      <h3>定义你的工程规范</h3>
+      <div class="card-extra">{{ tag('写入 SOUL.md + skills/，可一键卸载', 'info') }}</div>
+    </div>
+    <div class="card-body">
+      <form method="post" action="/engineering/apply">
+        {{ csrf() }}
+        <div class="form-grid">
+          <div class="form-item">
+            <label class="form-label" for="workspace">① 工作区根目录</label>
+            <input class="form-input" id="workspace" name="workspace" value="{{ s.workspace }}">
+            <p class="form-help">Agent 的「文件系统」根：projects / downloads / scratch / archive 都在它之下</p>
+          </div>
+          <div class="form-item">
+            <label class="form-label">工作区目录</label>
+            <div style="height:36px; display:flex; align-items:center; gap:10px;">
+              {% if status.workspace_exists %}{{ tag('已在磁盘上创建', 'ok') }}
+              {% else %}<span class="text-muted" style="font-size:13px;">尚未创建</span>{% endif %}
+              <button class="btn btn-secondary btn-sm" type="submit" formaction="/engineering/workspace-init">
+                {{ icon('folder') }} 立即初始化
+              </button>
+            </div>
+            <p class="form-help">按规范创建目录树与示例项目模板（仅创建缺失项）</p>
+          </div>
+        </div>
+
+        <div class="form-item" style="margin-top:14px;">
+          <label class="form-label" for="rules">② 工程铁律（每行一条，注入 SOUL.md）</label>
+          <textarea class="form-textarea" id="rules" name="rules" rows="6">{{ s.rules }}</textarea>
+        </div>
+
+        <div style="margin-top:14px;">
+          <p class="form-label" style="margin-bottom:8px;">③ 工程技能（写入 ~/.hermes/skills/，按需加载）</p>
+          <div class="flex" style="gap:16px; flex-wrap:wrap;">
+            {% for skill in skills %}
+            <label class="flex" style="gap:7px; font-size:13px; color:var(--text-2);">
+              <input type="checkbox" class="check" name="skills" value="{{ skill.slug }}"
+                     {% if skill.slug in s.skills_enabled %}checked{% endif %}>
+              <span><code>{{ skill.slug }}</code> — {{ skill.description }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="flex" style="justify-content:space-between; margin-top:16px;">
+          <label class="flex" style="gap:8px; font-size:13px; color:var(--text-2);">
+            <input type="checkbox" class="check" name="inject_coding_instructions" value="on"
+                   {% if s.inject_coding_instructions %}checked{% endif %}>
+            ④ 同时注入 <code>agent.coding_instructions</code>（编码任务的额外硬约束）
+          </label>
+          <button class="btn btn-primary btn-lg" type="submit"
+                  data-confirm="应用工程规范？将写入 SOUL.md 托管块、所选技能与 agent.coding_instructions。">
+            {{ icon('check') }} <span class="btn-label">应用规范</span><span class="spinner"></span>
+          </button>
+        </div>
+        <p class="form-help" style="margin-top:10px;">
+          全部写入均为幂等操作：重复应用不产生重复内容；你手写的 SOUL.md 内容永不改动；
+          「注入预览」页签可先看将写入的完整内容。
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>卸载</h3></div>
+    <div class="card-body">
+      <form method="post" action="/engineering/remove"
+            data-confirm="移除工程规范？SOUL.md 中的托管块与 agent.coding_instructions 将被删除，你的自有内容保留。"
+            data-confirm-word="移除">
+        {{ csrf() }}
+        <div class="flex" style="justify-content:space-between;">
+          <label class="flex" style="gap:8px; font-size:13px; color:var(--text-2);">
+            <input type="checkbox" class="check" name="keep_skills">
+            保留已安装的技能
+          </label>
+          <button class="btn btn-danger-outline" type="submit">{{ icon('trash') }} 移除工程规范</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ================================================================ 注入预览 #}
+<div data-tab-group="eng" data-tab-panel="preview" id="preview" class="hidden">
+  <div class="card">
+    <div class="card-header">
+      <h3>SOUL.md 托管块</h3>
+      <div class="card-extra">{{ tag('标记之间由平台管理', 'muted') }}</div>
+    </div>
+    <div class="card-body">
+      <pre class="code-view" style="white-space:pre-wrap;">{{ block_preview }}</pre>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <h3>需求消化模板</h3>
+      <div class="card-extra">{{ tag('docs/requirements.md', 'muted') }}</div>
+    </div>
+    <div class="card-body">
+      <pre class="code-view" style="white-space:pre-wrap;">{{ requirement_template }}</pre>
+      <p class="form-help" style="margin-top:10px;">
+        初始化工作区后示例项目自带此模板；<code>requirement-digest</code> 技能会引导 Agent 对每个非平凡需求先填它再动手。</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

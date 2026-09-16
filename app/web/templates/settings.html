@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, field, csrf with context %}
+{% block title %}平台管理 · 系统设置{% endblock %}
+{% block topbar_title %}平台 / <strong>平台管理</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>系统设置</h2>
+    <p class="page-desc">Hermes 路径与平台运行参数；安全敏感项（密钥、白名单）仅能通过环境变量配置</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="/settings/account">{{ icon('users') }} 个人账户</a>
+  </div>
+</div>
+{% include "partials/_platform_tabs.html" %}
+
+<div class="grid-2">
+  <div class="card">
+    <div class="card-header"><h3>Hermes 路径</h3></div>
+    <div class="card-body">
+      <form method="post" action="/settings">
+        {{ csrf() }}
+        <div class="form-grid" style="grid-template-columns:1fr;">
+          {{ field('hermes_home', 'Hermes 数据目录', settings.get('hermes_home'),
+                   placeholder='默认 ~/.hermes',
+                   help='config.yaml / .env / logs 所在目录') }}
+          {{ field('hermes_bin', 'hermes 可执行文件路径', settings.get('hermes_bin'),
+                   placeholder='留空自动探测 PATH 与常见位置',
+                   help='例如 /usr/local/bin/hermes 或 ~/.local/bin/hermes') }}
+          {{ field('gateway_log_lines', '日志查看行数', settings.get('gateway_log_lines'), kind='int') }}
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">{{ icon('check') }} 保存设置</button>
+          <button class="btn btn-ghost" type="button" hx-get="/settings/probe"
+                  hx-target="#probe-result" hx-swap="innerHTML">{{ icon('search') }} 重新探测</button>
+        </div>
+      </form>
+      <div id="probe-result" style="margin-top:14px;">
+        {% include "settings/_probe.html" %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-header"><h3>安全策略（只读）</h3></div>
+      <div class="card-body">
+        <p class="form-help" style="margin-bottom:14px;">以下策略由部署环境变量（<code>HERMES_CONSOLE_*</code>）决定，
+          不提供网页修改入口，避免被越权篡改。</p>
+        <dl class="kv">
+          <dt>Cookie Secure</dt><dd>{{ '已开启' if secure_cookies else '未开启（本地 HTTP）' }}</dd>
+          <dt>IP 白名单</dt><dd>{{ ip_allowlist or '未配置（不限来源）' }}</dd>
+          <dt>会话绝对过期</dt><dd>{{ session_ttl }} 分钟</dd>
+          <dt>会话空闲过期</dt><dd>{{ idle_ttl }} 分钟</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>配置文件位置</h3></div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>config.yaml</dt><dd><code>{{ paths.config_yaml }}</code></dd>
+          <dt>.env</dt><dd><code>{{ paths.env_file }}</code></dd>
+          <dt>gateway.log</dt><dd><code>{{ paths.gateway_log }}</code></dd>
+        </dl>
+        <p class="form-help" style="margin-top:12px;">所有写入均为「备份 → 校验 → 原子替换」，
+          备份保留最近 10 份（config.yaml.bak-*）。</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

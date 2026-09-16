@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ code }}{% endblock %}
+{% block content %}
+<div class="error-page">
+  <div class="error-code">{{ code }}</div>
+  <h2>{{ message or '出了点问题' }}</h2>
+  <p class="text-muted" style="margin-bottom:22px;">如果这是系统缺陷，请把发生时间与操作路径反馈给管理员。</p>
+  <a class="btn btn-primary" href="/">返回控制台</a>
+</div>
+{% endblock %}

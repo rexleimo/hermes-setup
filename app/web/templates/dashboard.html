@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, status_pill with context %}
+{% block title %}仪表盘{% endblock %}
+{% block topbar_title %}<strong>仪表盘</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>{{ user['username'] }}，你好</h2>
+    <p class="page-desc">这里是 Hermes Agent 的运维控制台 —— 初始化进度 {{ check_done }}/4，完成后即可在消息渠道中直接指挥你的 Agent。</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-primary" href="/service">{{ icon('server') }} 服务管理</a>
+  </div>
+</div>
+
+<div class="stat-grid">
+  <a class="stat-card" href="/service">
+    <span class="stat-icon {% if status.running %}ok{% elif status.running is none %}warn{% endif %}">{{ icon('server') }}</span>
+    <span class="stat-meta">
+      <span class="stat-label">Gateway 服务</span>
+      <div class="stat-value">{{ status.label }}</div>
+      {% if version %}<span class="stat-sub">{{ version }}</span>{% endif %}
+    </span>
+  </a>
+  <a class="stat-card" href="/providers">
+    <span class="stat-icon info">{{ icon('box') }}</span>
+    <span class="stat-meta">
+      <span class="stat-label">模型供应商</span>
+      <div class="stat-value">{{ providers|length }}</div>
+      <span class="stat-sub">{% if main_provider %}主模型 {{ main_provider.main_model }}{% else %}尚未设置主模型{% endif %}</span>
+    </span>
+  </a>
+  <a class="stat-card" href="/channels">
+    <span class="stat-icon {% if enabled_channel_count %}ok{% else %}warn{% endif %}">{{ icon('tower') }}</span>
+    <span class="stat-meta">
+      <span class="stat-label">消息渠道</span>
+      <div class="stat-value">{{ enabled_channel_count }}<span class="text-muted" style="font-size:14px;"> / {{ channels|length }}</span></div>
+      <span class="stat-sub">已启用 / 已收录</span>
+    </span>
+  </a>
+  <a class="stat-card" href="/chains">
+    <span class="stat-icon">{{ icon('branch') }}</span>
+    <span class="stat-meta">
+      <span class="stat-label">备选链</span>
+      <div class="stat-value">{{ fallback|length }}</div>
+      <span class="stat-sub">降级模型条目</span>
+    </span>
+  </a>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="card-header">
+      <h3>初始化清单</h3>
+      <div class="card-extra"><span class="tag {{ 'tag-ok' if check_done == 4 else 'tag-info' }}">{{ check_done }} / 4 完成</span></div>
+    </div>
+    <div class="card-body">
+      <ul class="check-list">
+        {% for c in checklist %}
+        <li class="check-item {% if c.done %}done{% endif %}">
+          <span class="check-dot">{% if c.done %}{{ icon('check') }}{% else %}{{ loop.index }}{% endif %}</span>
+          <div class="check-body">
+            <div class="check-title">{{ c.label }}</div>
+            <div class="check-desc">{{ c.desc }}</div>
+          </div>
+          <a class="btn btn-ghost btn-sm" style="margin-left:auto;" href="{{ c.href }}">
+            {% if c.done %}查看{% else %}去完成{% endif %} {{ icon('arrow-right') }}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% if check_done == 4 %}
+      <div class="alert alert-success" style="margin:14px 0 0;">{{ icon('zap') }} 一切就绪。打开你的消息渠道，发条消息试试吧 —— 例如「/status」。</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-header">
+        <h3>运行信息</h3>
+      </div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>Hermes</dt><dd>
+            {% if paths.installed %}<span class="tag tag-ok">已安装</span> {% if version %}<code>{{ version }}</code>{% endif %}
+            {% else %}<span class="tag tag-warn">未安装</span>{% endif %}
+          </dd>
+          <dt>配置目录</dt><dd><code>{{ paths.home }}</code></dd>
+          <dt>config.yaml</dt><dd>{% if paths.initialized %}<span class="tag tag-ok">存在</span>{% else %}<span class="tag tag-muted">未创建</span>{% endif %}</dd>
+          <dt>服务状态</dt><dd>{{ status_pill(status.running) }}</dd>
+        </dl>
+        {% if status.detail and status.running is none %}
+        <div class="alert alert-warn" style="margin:14px 0 0;">{{ icon('alert') }} {{ status.detail }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>最近操作</h3>
+        <div class="card-extra"><a class="btn btn-ghost btn-sm" href="/audit">{{ icon('shield') }} 全部审计</a></div>
+      </div>
+      <div class="card-body flush">
+        {% if audit_rows %}
+        <div class="table-wrap"><table class="table">
+          <tbody>
+          {% for r in audit_rows %}
+          <tr>
+            <td>
+              <div class="cell-main">{{ r['action'] }}</div>
+              <div class="cell-sub">{{ r['username'] or '匿名' }} · {{ r['ip'] or '-' }}</div>
+            </td>
+            <td style="text-align:right;">
+              <div class="cell-sub">{{ r['ts'] }}</div>
+              {% if r['outcome'] != 'ok' %}<span class="tag tag-error">{{ r['outcome'] }}</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table></div>
+        {% else %}
+        <div class="empty-state">{{ icon('file') }}<h4>暂无操作记录</h4><p>所有变更都会记录在这里</p></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

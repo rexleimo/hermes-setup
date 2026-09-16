@@ -1,0 +1,5 @@
+{% if log_lines %}
+{% for line in log_lines %}<div class="log-line">{{ line }}</div>{% endfor %}
+{% else %}
+<span class="log-empty">日志文件为空或不存在（等待 Gateway 首次写入）</span>
+{% endif %}

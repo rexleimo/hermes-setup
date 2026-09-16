@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag, field, csrf with context %}
+{% block title %}{{ p.name }}{% endblock %}
+{% block topbar_title %}模型供应商 / <strong>{{ p.name }}</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>{{ p.name }}
+      <span class="tag tag-info" style="vertical-align:middle;">{{ p.protocol_label }}</span>
+      {% if p.is_main %}<span class="tag tag-ok" style="vertical-align:middle;">主模型</span>{% endif %}</h2>
+    <p class="page-desc mono">{{ p.id }}{% if p.kind == 'preset' %} · 官方预设 · 端点与密钥键名由官方约定{% endif %}</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="/providers">{{ icon('arrow-right') }} 返回列表</a>
+    {% if user['role'] == 'admin' and p.kind == 'custom' %}
+    <form method="post" action="/providers/{{ p.id }}/delete"
+          data-confirm="删除供应商 {{ p.name }}？将清理 config.yaml / .env 中的相关配置{% if p.is_main %}；该供应商当前承担主模型，删除后需重新指定{% endif %}。"
+          data-confirm-word="{{ p.id }}">
+      {{ csrf() }}
+      <input type="hidden" name="confirm" value="" data-confirm-field>
+      <button class="btn btn-danger-outline" type="submit">{{ icon('trash') }} 删除</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="tabs" data-tab-group="provider">
+  <button class="tab-btn active" data-tab="models">模型目录 <span class="tag tag-muted">{{ models|length }}</span></button>
+  <button class="tab-btn" data-tab="connection">连接与密钥</button>
+  <button class="tab-btn" data-tab="advanced">别名与编辑</button>
+</div>
+
+{# ================================================================ 模型目录 #}
+<div data-tab-group="provider" data-tab-panel="models">
+  <div class="card">
+    <div class="card-header">
+      <h3>模型列表</h3>
+      <div class="card-extra">
+        {% if user['role'] == 'admin' and proto.list_models != 'manual' %}
+        <button class="btn btn-primary btn-sm" hx-post="/providers/{{ p.id }}/fetch"
+                hx-target="#fetch-result" hx-swap="innerHTML">
+          {{ icon('download') }} <span class="btn-label">拉取模型列表</span><span class="spinner"></span>
+        </button>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card-body flush">
+      {% if proto.list_models == 'manual' %}
+      <div class="alert alert-warn" style="margin:14px;">{{ icon('info') }} {{ proto.note }} 请在下方手动登记模型 ID。</div>
+      {% endif %}
+      {% if models %}
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>模型 ID</th><th>显示名称</th><th class="num">上下文长度</th><th style="text-align:right;">操作</th></tr></thead>
+        <tbody>
+          {% for m in models %}
+          <tr>
+            <td><div class="cell-main mono">{{ m['model_id'] }}</div></td>
+            <td>{{ m['display_name'] or '—' }}</td>
+            <td class="num">{{ m['context_length'] or '自动' }}</td>
+            <td><div class="table-actions">
+              {% if user['role'] == 'admin' %}
+              <form method="post" action="/providers/{{ p.id }}/models/{{ m['model_id'] }}/delete"
+                    data-confirm="从平台目录移除模型 {{ m['model_id'] }}？" style="display:contents;">
+                {{ csrf() }}<button class="btn btn-ghost btn-sm" type="submit">{{ icon('trash') }}</button>
+              </form>
+              {% endif %}
+            </div></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}
+      <div class="empty-state">{{ icon('box') }}<h4>目录为空</h4>
+        <p>{% if proto.list_models != 'manual' %}点击「拉取模型列表」从供应商同步{% else %}在下方手动登记模型 ID{% endif %}，
+          然后可将某个模型设为主模型</p></div>
+      {% endif %}
+    </div>
+    <div id="fetch-result"></div>
+  </div>
+
+  {% if user['role'] == 'admin' %}
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header"><h3>设为主模型</h3>
+        <div class="card-extra"><span class="tag tag-info">model.*</span></div></div>
+      <div class="card-body">
+        <form method="post" action="/providers/{{ p.id }}/set-main">
+          {{ csrf() }}
+          <div class="form-grid" style="grid-template-columns:1fr;">
+            {{ field('model_id', '模型 ID', p.default_model, required=True,
+                     placeholder='从上方目录复制一个模型 ID') }}
+            {{ field('context_length', '上下文长度覆盖（可选）', '', kind='int',
+                     placeholder='留空 = Hermes 自动检测') }}
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="submit">{{ icon('zap') }} 设为主模型</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>手动登记模型</h3></div>
+      <div class="card-body">
+        <form method="post" action="/providers/{{ p.id }}/models/manual" class="form-grid">
+          {{ csrf() }}
+          {{ field('model_id', '模型 ID', '', required=True, placeholder='gpt-4o / glm-4.7') }}
+          {{ field('display_name', '显示名称', '', placeholder='留空同模型 ID') }}
+          {{ field('context_length', '上下文长度', '', kind='int', placeholder='128000（留空自动）') }}
+          <div class="form-item" style="justify-content:flex-end;">
+            <button class="btn btn-secondary" type="submit">{{ icon('plus') }} 登记</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ================================================================ 连接与密钥 #}
+<div data-tab-group="provider" data-tab-panel="connection" class="hidden">
+  <div class="card">
+    <div class="card-header"><h3>概览</h3></div>
+    <div class="card-body">
+      <dl class="kv">
+        <dt>协议模式</dt><dd>{{ p.protocol_label }}</dd>
+        {% if p.base_url %}<dt>Endpoint</dt><dd class="mono">{{ p.base_url }}</dd>{% endif %}
+        <dt>API Key</dt><dd>
+          {% if p.has_api_key %}<span class="tag tag-ok">已写入 .env（{{ p.env_key }}）</span>
+          {% else %}<span class="tag tag-warn">未设置（{{ p.env_key }}）</span>{% endif %}
+        </dd>
+        <dt>默认模型</dt><dd class="mono">{{ p.default_model or '未指定' }}</dd>
+        {% if p.note %}<dt>备注</dt><dd>{{ p.note }}</dd>{% endif %}
+      </dl>
+    </div>
+  </div>
+
+  {% if user['role'] == 'admin' %}
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header"><h3>更新 API Key</h3></div>
+      <div class="card-body">
+        {% if p.has_api_key %}<p class="form-help" style="margin-bottom:10px;">已设置。粘贴新值即覆盖；密钥永不回显。</p>{% endif %}
+        <form method="post" action="/providers/{{ p.id }}/apikey">
+          {{ csrf() }}
+          {{ field('api_key', 'API Key（' + p.env_key + '）', '', kind='password') }}
+          <div class="form-actions">
+            <button class="btn btn-secondary" type="submit">{{ icon('key') }} 保存密钥</button>
+            <button class="btn btn-ghost" type="button" hx-post="/providers/{{ p.id }}/test"
+                    hx-target="#test-result" hx-swap="innerHTML">
+              {{ icon('zap') }} <span class="btn-label">测试连接</span><span class="spinner"></span>
+            </button>
+          </div>
+        </form>
+        <div id="test-result" style="margin-top:10px;"></div>
+      </div>
+    </div>
+    {% if p.kind == 'custom' %}
+    <div class="card">
+      <div class="card-header"><h3>端点信息</h3></div>
+      <div class="card-body">
+        <form method="post" action="/providers/{{ p.id }}/update">
+          {{ csrf() }}
+          <div class="form-grid" style="grid-template-columns:1fr;">
+            {{ field('name', '名称', p.name, required=True) }}
+            {{ field('base_url', 'Base URL', p.base_url) }}
+            {{ field('env_key', 'API Key 环境变量名', p.env_key) }}
+            {{ field('default_model', '默认模型', p.default_model) }}
+            {{ field('note', '备注', p.note, kind='textarea') }}
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-secondary" type="submit">保存修改</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{# ================================================================ 别名与编辑 #}
+<div data-tab-group="provider" data-tab-panel="advanced" class="hidden">
+  {% if user['role'] == 'admin' %}
+  <div class="card">
+    <div class="card-header">
+      <h3>发布模型别名</h3>
+      <div class="card-extra"><span class="tag tag-info">model_aliases</span></div>
+    </div>
+    <div class="card-body">
+      <p class="form-help" style="margin-bottom:12px;">为该供应商的模型起短别名，写入 <code>model_aliases</code>，
+        之后在任意渠道用别名快速切换。全部别名见「链路与别名」页。</p>
+      <form method="post" action="/providers/{{ p.id }}/alias" class="form-grid">
+        {{ csrf() }}
+        {{ field('model_id', '模型 ID', p.default_model, required=True) }}
+        {{ field('alias', '别名', '', required=True, placeholder='fast / long-context / cheap') }}
+        <div class="form-item" style="justify-content:flex-end;">
+          <button class="btn btn-secondary" type="submit">发布别名</button>
+        </div>
+      </form>
+      {% if aliases %}
+      <div class="table-wrap" style="margin-top:14px; border:1px solid var(--border); border-radius:8px;">
+        <table class="table">
+          <thead><tr><th>该供应商的别名</th><th>指向</th></tr></thead>
+          <tbody>{% for a, e in aliases.items() %}
+            <tr><td class="mono">{{ a }}</td><td class="mono" style="font-size:12px;">{{ e.get('model','') }}</td></tr>
+          {% endfor %}</tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

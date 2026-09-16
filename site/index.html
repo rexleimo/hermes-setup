@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="no-js">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
+  <title>Hermes Console — Hermes Agent 可视化管控中台</title>
+  <meta name="description" content="Hermes Console 是一个用于管理与把控 Hermes Agent 的可视化管控中台：安装、服务管理、模型供应商、消息渠道、记忆与工程规范，Agent 的关键配置与运行状态一处集中管理。">
+  <link rel="canonical" href="https://rexai.top/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Hermes Console">
+  <meta property="og:title" content="Hermes Console — Hermes Agent 可视化管控中台">
+  <meta property="og:description" content="一个用于管理与把控 Hermes Agent 的可视化管控中台：安装、服务管理、模型供应商、消息渠道、记忆与工程规范，Agent 的关键配置与运行状态一处集中管理。">
+  <meta property="og:url" content="https://rexai.top/">
+  <meta name="twitter:card" content="summary">
+  <meta name="theme-color" content="#0c1526">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232f66f6'/%3E%3Cstop offset='1' stop-color='%231e40af'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='15' fill='url(%23g)'/%3E%3Ctext x='32' y='45' font-family='Georgia,serif' font-size='38' font-weight='700' fill='%23fff' text-anchor='middle'%3EH%3C/text%3E%3C/svg%3E">
+  <style>
+    :root {
+      --brand-500: #2f66f6;
+      --brand-600: #1d4ed8;
+      --brand-700: #1e40af;
+      --dark: #0c1526;
+      --dark-2: #16233c;
+      --bg: #ffffff;
+      --bg-subtle: #f8fafc;
+      --border: #e3e8f0;
+      --text-1: #1c2434;
+      --text-2: #4a5568;
+      --text-3: #8a94a8;
+      --ok: #16a34a;
+      --radius: 12px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+              "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font);
+      color: var(--text-1);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.6;
+    }
+    a { color: var(--brand-600); text-decoration: none; }
+    a:hover { color: var(--brand-500); }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+    .mono { font-family: var(--mono); }
+
+    /* ---------- 导航 ---------- */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(12, 21, 38, .88);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+    }
+    .nav-inner {
+      display: flex; align-items: center; gap: 28px;
+      height: 60px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: 700; font-size: 16px; }
+    .brand:hover { color: #fff; }
+    .brand-mark {
+      width: 32px; height: 32px; border-radius: 8px; flex: none;
+      display: grid; place-items: center;
+      font: 700 17px Georgia, serif; color: #fff;
+      background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
+    }
+    .nav-links { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+    .nav-links a {
+      color: #93a4c3; font-size: 14px; padding: 8px 12px; border-radius: 8px;
+    }
+    .nav-links a:hover { color: #fff; background: var(--dark-2); }
+    .nav-cta {
+      margin-left: 8px !important;
+      background: var(--brand-500); color: #fff !important;
+      padding: 8px 16px !important; border-radius: 8px; font-weight: 500;
+    }
+    .nav-cta:hover { background: var(--brand-600) !important; }
+    .nav-toggle {
+      display: none; margin-left: auto;
+      background: none; border: 0; cursor: pointer; padding: 8px;
+    }
+    .nav-toggle svg { display: block; }
+
+    /* ---------- Hero ---------- */
+    .hero {
+      background:
+        radial-gradient(700px 340px at 18% -10%, rgba(47, 102, 246, .35), transparent 65%),
+        radial-gradient(600px 300px at 88% 8%, rgba(30, 64, 175, .4), transparent 60%),
+        var(--dark);
+      color: #fff;
+      padding: 96px 0 84px;
+    }
+    .hero-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 13px; color: #a9bbe0;
+      border: 1px solid rgba(147, 164, 195, .3);
+      background: rgba(22, 35, 60, .6);
+      padding: 5px 14px; border-radius: 999px; margin-bottom: 22px;
+    }
+    .hero-badge .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 0 3px rgba(22, 163, 74, .18);
+    }
+    .hero h1 {
+      font-size: clamp(2.1rem, 4.6vw, 3.2rem);
+      line-height: 1.22; font-weight: 700; letter-spacing: -.01em;
+      margin-bottom: 18px;
+    }
+    .hero h1 em {
+      font-style: normal;
+      background: linear-gradient(100deg, #7ea2ff, #b9ccff);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hero p.lead {
+      font-size: 17px; color: #aebbd6; max-width: 32em; margin-bottom: 30px;
+    }
+    .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 22px; border-radius: 10px;
+      font-size: 15px; font-weight: 600;
+    }
+    .btn-primary { background: var(--brand-500); color: #fff; }
+    .btn-primary:hover { background: var(--brand-600); color: #fff; }
+    .btn-ghost {
+      color: #dbe4f5; border: 1px solid rgba(147, 164, 195, .35);
+    }
+    .btn-ghost:hover { border-color: #93a4c3; color: #fff; background: rgba(22, 35, 60, .6); }
+    .btn svg { flex: none; }
+    .hero-meta { margin-top: 26px; font-size: 13px; color: #71829f; }
+
+    /* 终端卡片 */
+    .terminal {
+      background: #0a1120;
+      border: 1px solid rgba(147, 164, 195, .18);
+      border-radius: 14px;
+      box-shadow: 0 24px 60px rgba(2, 6, 16, .55);
+      overflow: hidden;
+    }
+    .terminal-bar {
+      display: flex; align-items: center; gap: 7px;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(147, 164, 195, .12);
+      background: rgba(22, 35, 60, .5);
+    }
+    .terminal-bar i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+    .terminal-bar i:nth-child(1) { background: #ff5f57; }
+    .terminal-bar i:nth-child(2) { background: #febc2e; }
+    .terminal-bar i:nth-child(3) { background: #28c840; }
+    .terminal-bar span {
+      margin-left: 10px; font: 12px var(--mono); color: #6d7f9f;
+    }
+    .terminal-body {
+      padding: 20px 22px 24px;
+      font: 13.5px/2 var(--mono);
+      color: #c6d4ee; white-space: pre; overflow-x: auto;
+    }
+    .t-prompt { color: #5f6f8f; }
+    .t-cmd { color: #e8eefb; }
+    .t-flag { color: #7ea2ff; }
+    .t-ok { color: #34d399; }
+    .t-dim { color: #6d7f9f; }
+    .t-url { color: #7ea2ff; text-decoration: underline; text-underline-offset: 3px; }
+
+    /* ---------- 数据条 ---------- */
+    .stats {
+      background: var(--dark);
+      border-top: 1px solid rgba(255, 255, 255, .06);
+      padding: 0 0 72px;
+    }
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+    }
+    .stat {
+      text-align: center; padding: 22px 10px;
+      border: 1px solid rgba(147, 164, 195, .16);
+      border-radius: var(--radius);
+      background: rgba(22, 35, 60, .45);
+    }
+    .stat b {
+      display: block; font-size: 34px; font-weight: 700; color: #fff;
+      font-variant-numeric: tabular-nums; line-height: 1.2;
+    }
+    .stat span { font-size: 13.5px; color: #8fa1c2; }
+
+    /* ---------- 通用 section ---------- */
+    section.block { padding: 84px 0; }
+    section.block.subtle { background: var(--bg-subtle); }
+    .sec-head { max-width: 620px; margin-bottom: 44px; }
+    .sec-kicker {
+      font-size: 13px; font-weight: 700; letter-spacing: .12em;
+      color: var(--brand-600); text-transform: uppercase; margin-bottom: 10px;
+    }
+    .sec-head h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 700; letter-spacing: -.01em; margin-bottom: 12px; }
+    .sec-head p { color: var(--text-2); font-size: 15.5px; }
+
+    /* ---------- 功能卡片 ---------- */
+    .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .feat {
+      background: #fff; border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 26px 24px;
+      transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+    }
+    .feat:hover {
+      box-shadow: 0 12px 32px rgba(16, 24, 40, .1);
+      transform: translateY(-2px); border-color: #cbd8f5;
+    }
+    .feat-icon {
+      width: 42px; height: 42px; border-radius: 10px;
+      display: grid; place-items: center; margin-bottom: 16px;
+      background: #eef4ff; color: var(--brand-600);
+    }
+    .feat h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+    .feat p { font-size: 13.8px; color: var(--text-2); }
+    .feat .tags { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag {
+      font-size: 11.5px; color: var(--brand-700);
+      background: #eef4ff; border: 1px solid #dbe6ff;
+      padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+    }
+
+    /* ---------- 写入契约 ---------- */
+    .contract { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+    .contract-list { list-style: none; margin-top: 22px; }
+    .contract-list li {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 9px 0; font-size: 14.5px; color: var(--text-2);
+    }
+    .contract-list li svg { flex: none; margin-top: 4px; color: var(--ok); }
+    .contract-list b { color: var(--text-1); }
+    .code-card {
+      background: #0a1120; border-radius: 14px; padding: 22px 24px;
+      border: 1px solid var(--border);
+      box-shadow: 0 16px 40px rgba(16, 24, 40, .16);
+      font: 13px/1.9 var(--mono); color: #c6d4ee;
+      overflow-x: auto; white-space: pre;
+    }
+    .code-card .cm { color: #6d7f9f; }
+    .code-card .k { color: #7ea2ff; }
+    .code-card .s { color: #34d399; }
+
+    /* ---------- 安全 ---------- */
+    .sec-dark {
+      background:
+        radial-gradient(600px 300px at 85% 0%, rgba(47, 102, 246, .22), transparent 60%),
+        var(--dark);
+      color: #fff;
+    }
+    .sec-dark .sec-kicker { color: #7ea2ff; }
+    .sec-dark .sec-head p { color: #aebbd6; }
+    .sec-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .sec-item {
+      border: 1px solid rgba(147, 164, 195, .18);
+      background: rgba(22, 35, 60, .5);
+      border-radius: 10px; padding: 16px 16px;
+      font-size: 13.5px; color: #c6d4ee;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .sec-item svg { flex: none; color: #34d399; }
+    .sec-note {
+      margin-top: 26px; font-size: 13.5px; color: #71829f;
+    }
+    .sec-note a { color: #9db6ea; }
+
+    /* ---------- 快速开始 ---------- */
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; counter-reset: step; }
+    .step {
+      background: #fff; border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 22px 20px;
+      position: relative;
+    }
+    .step::before {
+      counter-increment: step; content: counter(step);
+      position: absolute; top: -13px; left: 18px;
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--brand-500); color: #fff;
+      font: 700 13px/26px var(--font); text-align: center;
+    }
+    .step h3 { font-size: 14.5px; font-weight: 700; margin: 8px 0 6px; }
+    .step p { font-size: 13px; color: var(--text-2); }
+    .step code {
+      font-family: var(--mono); font-size: 11.5px;
+      background: var(--bg-subtle); border: 1px solid var(--border);
+      border-radius: 5px; padding: 1px 5px;
+    }
+    .qs-cmd {
+      margin: 0 0 34px; background: #0a1120; border-radius: 12px;
+      padding: 18px 22px; border: 1px solid var(--border);
+      font: 13.5px/2.1 var(--mono); color: #c6d4ee; white-space: pre; overflow-x: auto;
+    }
+
+    /* ---------- 文档 ---------- */
+    .doc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+    .doc-card {
+      display: block; background: #fff;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 22px 20px;
+      transition: box-shadow .2s ease, transform .2s ease;
+      color: inherit;
+    }
+    .doc-card:hover { box-shadow: 0 10px 28px rgba(16, 24, 40, .1); transform: translateY(-2px); color: inherit; }
+    .doc-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; color: var(--brand-700); }
+    .doc-card p { font-size: 13px; color: var(--text-2); }
+    .doc-card .arrow { display: inline-block; margin-top: 12px; font-size: 13px; color: var(--brand-600); font-weight: 600; }
+
+    /* ---------- CTA ---------- */
+    .cta-band {
+      background: linear-gradient(120deg, var(--brand-600), var(--brand-700));
+      border-radius: 18px; color: #fff;
+      padding: 48px 44px;
+      display: flex; align-items: center; justify-content: space-between; gap: 24px;
+      flex-wrap: wrap;
+      box-shadow: 0 20px 50px rgba(29, 78, 216, .3);
+    }
+    .cta-band h2 { font-size: clamp(1.3rem, 2.6vw, 1.7rem); font-weight: 700; margin-bottom: 6px; }
+    .cta-band p { color: #cdd9f8; font-size: 14.5px; }
+    .cta-band .btn { background: #fff; color: var(--brand-700); }
+    .cta-band .btn:hover { background: #eef4ff; }
+
+    /* ---------- 页脚 ---------- */
+    footer { background: var(--dark); color: #8fa1c2; padding: 56px 0 40px; margin-top: 84px; }
+    .foot-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 36px; }
+    .foot-brand { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: 700; margin-bottom: 12px; }
+    .foot-desc { font-size: 13.5px; color: #71829f; max-width: 26em; }
+    footer h4 { color: #c6d4ee; font-size: 13px; letter-spacing: .06em; margin-bottom: 14px; }
+    footer ul { list-style: none; }
+    footer li { margin-bottom: 9px; }
+    footer ul a { color: #8fa1c2; font-size: 13.5px; }
+    footer ul a:hover { color: #fff; }
+    .foot-bottom {
+      margin-top: 44px; padding-top: 22px;
+      border-top: 1px solid rgba(147, 164, 195, .14);
+      display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+      font-size: 12.5px; color: #5f7090;
+    }
+
+    /* ---------- 滚动浮现（仅在 JS 可用时隐藏待入场元素） ---------- */
+    .js .reveal { opacity: 0; transform: translateY(18px); transition: opacity .6s ease, transform .6s ease; }
+    .js .reveal.on { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .js .reveal { opacity: 1; transform: none; transition: none; }
+    }
+
+    /* ---------- 响应式 ---------- */
+    @media (max-width: 960px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+      .hero { padding: 64px 0 56px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .feat-grid { grid-template-columns: repeat(2, 1fr); }
+      .sec-grid { grid-template-columns: repeat(2, 1fr); }
+      .steps { grid-template-columns: repeat(2, 1fr); row-gap: 30px; }
+      .doc-grid { grid-template-columns: repeat(2, 1fr); }
+      .contract { grid-template-columns: 1fr; gap: 32px; }
+      .foot-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 620px) {
+      .feat-grid, .sec-grid, .steps, .doc-grid, .stats-grid { grid-template-columns: 1fr; }
+      .nav-links {
+        display: none; position: absolute; top: 60px; left: 0; right: 0;
+        background: var(--dark); flex-direction: column; align-items: stretch;
+        padding: 12px 16px 18px; gap: 2px;
+        border-bottom: 1px solid rgba(255, 255, 255, .08);
+      }
+      .nav-links.open { display: flex; }
+      .nav-toggle { display: block; }
+      section.block { padding: 60px 0; }
+      .cta-band { padding: 36px 26px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============ 导航 ============ -->
+  <nav class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top">
+        <span class="brand-mark">H</span>
+        Hermes Console
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="展开菜单" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#c6d4ee" stroke-width="2" stroke-linecap="round">
+          <line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>
+        </svg>
+      </button>
+      <div class="nav-links" id="navLinks">
+        <a href="#features">功能</a>
+        <a href="#contract">写入契约</a>
+        <a href="#security">安全</a>
+        <a href="#quickstart">快速开始</a>
+        <a href="#docs">文档</a>
+        <a class="nav-cta" href="https://github.com/rexleimo/hermes-setup" target="_blank" rel="noopener">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-2px"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ============ Hero ============ -->
+  <header class="hero" id="top">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="hero-badge"><span class="dot"></span>开源 · Python 3.11+ · FastAPI · HTMX · SQLite</span>
+        <h1>你的 Hermes Agent，<br><em>一手掌控</em></h1>
+        <p class="lead">
+          Hermes Console 是 Hermes Agent 的<strong style="color:#e8eefb">可视化管控中台</strong>：
+          安装、服务管理、模型供应商、消息渠道、记忆与工程规范——Agent 的每一项关键配置与运行状态，
+          都在这里集中把控。
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="https://github.com/rexleimo/hermes-setup" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+            查看源码
+          </a>
+          <a class="btn btn-ghost" href="#quickstart">快速开始 →</a>
+        </div>
+        <p class="hero-meta">无前端构建步骤 · 静态资源本地化 · 可部署于内网隔离环境</p>
+      </div>
+      <div class="terminal" aria-hidden="true">
+        <div class="terminal-bar"><i></i><i></i><i></i><span>rex@server — zsh</span></div>
+        <div class="terminal-body"><span class="t-prompt">$</span> <span class="t-cmd">uv sync</span>
+<span class="t-ok">✓</span> <span class="t-dim">依赖安装完成（自动创建虚拟环境）</span>
+<span class="t-prompt">$</span> <span class="t-cmd">uv run uvicorn app.main:app <span class="t-flag">--host</span> 127.0.0.1 <span class="t-flag">--port</span> 8420</span>
+<span class="t-ok">✓</span> <span class="t-dim">Hermes Console 已启动</span>
+<span class="t-prompt">→</span> <span class="t-url">http://127.0.0.1:8420</span>
+<span class="t-dim">首次访问进入管理员初始化向导</span></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ 数据条 ============ -->
+  <div class="stats">
+    <div class="wrap stats-grid reveal">
+      <div class="stat"><b>5</b><span>API 协议模式</span></div>
+      <div class="stat"><b>13</b><span>官方预设供应商</span></div>
+      <div class="stat"><b>11</b><span>消息渠道</span></div>
+      <div class="stat"><b>9</b><span>外置记忆方案</span></div>
+    </div>
+  </div>
+
+  <!-- ============ 功能 ============ -->
+  <section class="block" id="features">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">Features</div>
+        <h2>一个控制台，管好 Hermes 的一切</h2>
+        <p>安装、服务、模型、渠道、记忆、工程规范——Agent 的关键配置与运行状态，一处集中把控。</p>
+      </div>
+      <div class="feat-grid">
+        <div class="feat reveal">
+          <div class="feat-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><line x1="7" y1="7.5" x2="7" y2="7.5"/><line x1="7" y1="16.5" x2="7" y2="16.5"/></svg>
+          </div>
+          <h3>初始化与服务管理</h3>
+          <p>一键执行官方安装脚本与 <span class="mono">hermes update</span>；Gateway 启动、停止、重启；CLI / 状态文件 / 日志三路状态探测；gateway.log 与 errors.log 实时查看。</p>
+        </div>
+        <div class="feat reveal">
+          <div class="feat-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+          </div>
+          <h3>模型供应商管理</h3>
+          <p>类 CC Switch 的 CRUD；五种 API 协议模式；13 个官方预设一键添加；在线拉取模型列表逐个登记；一键连接测试。</p>
+          <div class="tags"><span class="tag">OpenAI Chat</span><span class="tag">OpenAI Responses</span><span class="tag">Anthropic</span><span class="tag">Bedrock</span><span class="tag">Gemini</span></div>
+        </div>
+        <div class="feat reveal">
+          <div class="feat-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h11"/><polyline points="12 3 16 7 12 11"/><path d="M20 17H9"/><polyline points="12 13 8 17 12 21"/></svg>
+          </div>
+          <h3>链路与别名</h3>
+          <p>主模型一键切换；降级备选链可视化排序；模型别名管理——供应商故障时自动落到备选，不改一行配置。</p>
+        </div>
+        <div class="feat reveal">
+          <div class="feat-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"/></svg>
+          </div>
+          <h3>消息渠道</h3>
+          <p>飞书、微信、QQ、Telegram、企业微信、钉钉、Discord、Slack、Email、Webhook、API Server 共 11 个渠道卡片式管理；令牌写入 <span class="mono">.env</span>（600 权限、永不回显）。</p>
+          <div class="tags"><span class="tag">飞书</span><span class="tag">Telegram</span><span class="tag">Discord</span><span class="tag">Slack</span><span class="tag">钉钉</span><span class="tag">+6</span></div>
+        </div>
+        <div class="feat reveal">
+          <div class="feat-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v1a3 3 0 0 0-3 3v1a3 3 0 0 0-3 3 3 3 0 0 0 3 3h1a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3h1a3 3 0 0 0 3-3 3 3 0 0 0-3-3v-1a3 3 0 0 0-3-3V6a3 3 0 0 0-3-3Z"/></svg>
+          </div>
+          <h3>记忆系统</h3>
+          <p>内置记忆容量一键调优（2,200 → 16,000 字符，解决大项目记忆写满报错）；AgentMemory、Mem0、Supermemory 等 9 家外置记忆方案一键切换、自动写入配置。</p>
+        </div>
+        <div class="feat reveal">
+          <div class="feat-icon">
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="M6 20V9l6-5 6 5v11"/><path d="M10 20v-5h4v5"/></svg>
+          </div>
+          <h3>工程规范</h3>
+          <p>参考 AIOS 的工程化约束层：工作区目录规范 + 六条工程铁律 + 需求消化模板，通过 SOUL.md 托管块幂等注入，支持工作区一键物理初始化与整体卸载。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 写入契约 ============ -->
+  <section class="block subtle" id="contract">
+    <div class="wrap contract">
+      <div class="reveal">
+        <div class="sec-kicker">Write Contract</div>
+        <h2 style="font-size:clamp(1.5rem,3vw,2.1rem);margin-bottom:12px;">对 Hermes 配置的写入契约</h2>
+        <p style="color:var(--text-2);">平台只写 Hermes 官方 schema 认可的键，并遵循官方推荐的安全实践。</p>
+        <ul class="contract-list">
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span><b>密钥隔离</b> — API Key 本体只写 <span class="mono">~/.hermes/.env</span>，<span class="mono">config.yaml</span> 中仅存 <span class="mono">key_env</span> 键名</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span><b>原子写入</b> — 备份 → 校验 → 临时文件 → 原子替换，备份保留最近 10 份</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span><b>注释保留</b> — ruamel.yaml round-trip，<span class="mono">config.yaml</span> 手写注释完整保留</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span><b>最小写入面</b> — 供应商 / 主模型 / 别名 / 备选链 / 渠道各归其位，不越界改键</span></li>
+        </ul>
+      </div>
+      <div class="code-card reveal"><span class="cm"># config.yaml — 只写官方 schema 认可的键</span>
+<span class="k">providers</span>:
+  <span class="k">openrouter</span>:
+    <span class="k">base_url</span>: <span class="s">https://openrouter.ai/api/v1</span>
+    <span class="k">api_mode</span>: <span class="s">openai_compatible</span>
+    <span class="k">key_env</span>: <span class="s">HERMES_OPENROUTER_API_KEY</span>  <span class="cm"># 密钥只在 .env</span>
+
+<span class="k">model</span>:
+  <span class="k">provider</span>: <span class="s">openrouter</span>
+  <span class="k">default</span>: <span class="s">anthropic/claude-sonnet-4.5</span>
+
+<span class="k">delegation</span>:
+  <span class="k">fallback_providers</span>: [ … ]  <span class="cm"># 降级备选链</span>
+
+<span class="k">platforms</span>:
+  <span class="k">feishu</span>:
+    <span class="k">enabled</span>: <span class="s">true</span>          <span class="cm"># 令牌写入 .env（600）</span></div>
+    </div>
+  </section>
+
+  <!-- ============ 安全 ============ -->
+  <section class="block sec-dark" id="security">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">Security</div>
+        <h2>严格鉴权，为公网部署而生</h2>
+        <p>威胁模型驱动的安全设计，完整控制矩阵见 <a href="https://github.com/rexleimo/hermes-setup/blob/main/docs/SECURITY.md" target="_blank" rel="noopener" style="color:#9db6ea;">docs/SECURITY.md</a>。</p>
+      </div>
+      <div class="sec-grid reveal">
+        <div class="sec-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>Argon2 密码哈希</div>
+        <div class="sec-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>TOTP 双因素认证</div>
+        <div class="sec-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>服务端会话 · 双过期</div>
+        <div class="sec-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>全站 CSRF 令牌</div>
+        <div class="sec-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>登录限流与账号锁定</div>
+        <div class="sec-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>IP 白名单 + 安全响应头</div>
+        <div class="sec-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>仅追加审计日志</div>
+        <div class="sec-item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>密钥永不回显</div>
+      </div>
+      <p class="sec-note">生产部署建议：systemd 托管 uvicorn，前置 Nginx/Caddy 做 HTTPS（开启 <span class="mono" style="color:#9db6ea;">HERMES_CONSOLE_SECURE_COOKIES=1</span>），并用 <span class="mono" style="color:#9db6ea;">HERMES_CONSOLE_ALLOWED_IPS</span> 限制管理来源。</p>
+    </div>
+  </section>
+
+  <!-- ============ 快速开始 ============ -->
+  <section class="block" id="quickstart">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">Quick Start</div>
+        <h2>四步上线</h2>
+        <p>控制台内的「初始化清单」会逐步引导同样的流程。</p>
+      </div>
+      <div class="qs-cmd reveal"><span class="t-prompt"># 1. 安装依赖（自动创建虚拟环境）</span>
+uv sync
+<span class="t-prompt"># 2. 配置环境变量（务必设置 HERMES_CONSOLE_SECRET）</span>
+cp .env.example .env
+<span class="t-prompt"># 3. 启动</span>
+uv run uvicorn app.main:app <span class="t-flag">--host</span> 127.0.0.1 <span class="t-flag">--port</span> 8420
+<span class="t-prompt"># 4. 打开 http://127.0.0.1:8420 — 首次访问进入管理员初始化向导</span></div>
+      <div class="steps reveal">
+        <div class="step">
+          <h3>安装 Hermes Agent</h3>
+          <p>「服务管理 → 一键安装」，执行官方 <code>install.sh</code>。</p>
+        </div>
+        <div class="step">
+          <h3>添加模型供应商</h3>
+          <p>「模型供应商 → 添加预设」→ 拉取模型列表 → 设为主模型。</p>
+        </div>
+        <div class="step">
+          <h3>接入消息渠道</h3>
+          <p>「消息渠道 → 飞书」，填入 App ID / App Secret 并启用。</p>
+        </div>
+        <div class="step">
+          <h3>启动 Gateway</h3>
+          <p>「服务管理 → 启动 Gateway」，状态三路探测实时可见。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 文档 ============ -->
+  <section class="block subtle" id="docs">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="sec-kicker">Documentation</div>
+        <h2>深入阅读</h2>
+      </div>
+      <div class="doc-grid reveal">
+        <a class="doc-card" href="https://github.com/rexleimo/hermes-setup/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">
+          <h3>架构说明</h3>
+          <p>分层、数据流、扩展点与设计决策。</p>
+          <span class="arrow">阅读 →</span>
+        </a>
+        <a class="doc-card" href="https://github.com/rexleimo/hermes-setup/blob/main/docs/SECURITY.md" target="_blank" rel="noopener">
+          <h3>安全模型</h3>
+          <p>威胁模型、控制矩阵、部署加固清单。</p>
+          <span class="arrow">阅读 →</span>
+        </a>
+        <a class="doc-card" href="https://github.com/rexleimo/hermes-setup/blob/main/docs/CONFIG_CATALOG.md" target="_blank" rel="noopener">
+          <h3>配置项深挖</h3>
+          <p>Hermes 全部配置域盘点与集成建议。</p>
+          <span class="arrow">阅读 →</span>
+        </a>
+        <a class="doc-card" href="https://github.com/rexleimo/hermes-setup/blob/main/docs/ENGINEERING_SPEC.md" target="_blank" rel="noopener">
+          <h3>工程规范层</h3>
+          <p>Agent OS 式约束层的设计与实现。</p>
+          <span class="arrow">阅读 →</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CTA ============ -->
+  <section class="block" style="padding-bottom:0;">
+    <div class="wrap">
+      <div class="cta-band reveal">
+        <div>
+          <h2>现在，把你的 Hermes Agent 管起来</h2>
+          <p>克隆仓库，四步完成部署，开始集中管控你的 Agent。</p>
+        </div>
+        <a class="btn" href="https://github.com/rexleimo/hermes-setup" target="_blank" rel="noopener">
+          <span class="mono" style="font-size:13.5px;">git clone git@github.com:rexleimo/hermes-setup.git</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 页脚 ============ -->
+  <footer>
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <div class="foot-brand"><span class="brand-mark">H</span> Hermes Console</div>
+          <p class="foot-desc">Hermes Agent 的可视化管控中台 —— 安装、服务、模型、渠道、记忆与工程规范，一处集中管理。</p>
+        </div>
+        <div>
+          <h4>官方地址</h4>
+          <ul>
+            <li><a href="https://rexai.top" target="_blank" rel="noopener">rexai.top（官网）</a></li>
+            <li><a href="https://github.com/rexleimo/hermes-setup" target="_blank" rel="noopener">GitHub 仓库</a></li>
+            <li><a href="https://github.com/rexleimo/hermes-setup/issues" target="_blank" rel="noopener">问题反馈</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>文档</h4>
+          <ul>
+            <li><a href="https://github.com/rexleimo/hermes-setup/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">架构说明</a></li>
+            <li><a href="https://github.com/rexleimo/hermes-setup/blob/main/docs/SECURITY.md" target="_blank" rel="noopener">安全模型</a></li>
+            <li><a href="https://github.com/rexleimo/hermes-setup/blob/main/docs/CONFIG_CATALOG.md" target="_blank" rel="noopener">配置项深挖</a></li>
+            <li><a href="https://github.com/rexleimo/hermes-setup/blob/main/docs/ENGINEERING_SPEC.md" target="_blank" rel="noopener">工程规范层</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>相关项目</h4>
+          <ul>
+            <li><a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noopener">Hermes Agent（上游）</a></li>
+            <li><a href="https://rexleimo.github.io/hermes-setup/" target="_blank" rel="noopener">Pages 备用地址</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="foot-bottom">
+        <span>© 2026 Hermes Console · rexai.top</span>
+        <span>Built with Python · FastAPI · HTMX · SQLite</span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // 移动端菜单
+    var toggle = document.getElementById('navToggle');
+    var links = document.getElementById('navLinks');
+    toggle.addEventListener('click', function () {
+      var open = links.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    links.addEventListener('click', function (e) {
+      if (e.target.tagName === 'A') links.classList.remove('open');
+    });
+
+    // 滚动浮现
+    var revealAll = function () {
+      document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('on'); });
+    };
+    try {
+      if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) {
+            if (en.isIntersecting) { en.target.classList.add('on'); io.unobserve(en.target); }
+          });
+        }, { threshold: 0.12 });
+        document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+      } else {
+        revealAll();
+      }
+    } catch (e) {
+      revealAll();
+    }
+  </script>
+</body>
+</html>
