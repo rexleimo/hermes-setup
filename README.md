@@ -1,7 +1,6 @@
 # Hermes Console
 
 [![CI](https://github.com/rexleimo/hermes-setup/actions/workflows/ci.yml/badge.svg)](https://github.com/rexleimo/hermes-setup/actions/workflows/ci.yml)
-[![Deploy Site](https://github.com/rexleimo/hermes-setup/actions/workflows/deploy-site.yml/badge.svg)](https://github.com/rexleimo/hermes-setup/actions/workflows/deploy-site.yml)
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 
@@ -11,15 +10,31 @@ Hermes Agent 的可视化运维中台 —— 让 [Hermes Agent](https://github.c
 > 技术栈：Python 3.11+ · uv · FastAPI · Jinja2 · HTMX · SQLite。
 > 无前端构建步骤，静态资源本地化，可部署在内网隔离环境。
 
-## 官方地址
+**这份 README 就是本项目唯一的对外首页。** 文档正文直接在 GitHub 上点开看（Markdown 原生渲染）；
+不再单独维护官网或文档站 —— 原 `site/` 单页与 GitHub Pages 部署已在 v0.7.1 退役。
+
+## 入口
 
 | 入口 | 地址 |
 |---|---|
-| 🌐 **官网** | **[https://rexai.top](https://rexai.top)** （GitHub Pages，`site/` 目录自动部署） |
-| 💻 仓库 | <https://github.com/rexleimo/hermes-setup> |
-| 📄 文档站备用 | <https://rexleimo.github.io/hermes-setup/> |
+| 💻 仓库 / 首页 | <https://github.com/rexleimo/hermes-setup>（即本页） |
+| 📄 文档 | 本页「文档」一节 + [`docs/`](docs/) 目录 |
 | 🐛 问题反馈 | <https://github.com/rexleimo/hermes-setup/issues> |
+| 🔒 漏洞报告 | 见 [docs/SECURITY.md](docs/SECURITY.md)，走私有通道，**勿开公开 Issue** |
 | ⬆️ 上游项目 | [Hermes Agent](https://github.com/NousResearch/hermes-agent)（NousResearch） |
+
+## 界面
+
+仪表盘：Gateway 运行状态、供应商与渠道概览、待办引导。
+
+![Hermes Console 仪表盘](docs/assets/dashboard.webp)
+
+消息渠道：14 个渠道卡片墙，令牌只写 `.env` 且永不回显。
+
+![Hermes Console 消息渠道卡片墙](docs/assets/channels.webp)
+
+> 截图来自**隔离的演示实例**（合成数据、独立的 `HERMES_CONSOLE_DATA` 与 `HERMES_HOME`），
+> 不含任何真实机器的路径、账号或密钥。重拍方式见 [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)。
 
 ## 功能总览
 
@@ -28,11 +43,11 @@ Hermes Agent 的可视化运维中台 —— 让 [Hermes Agent](https://github.c
 | **初始化与服务管理** | 一键执行官方安装脚本 / `hermes update`；Gateway（server 服务）启动、停止、重启；状态三路探测（CLI / gateway_state.json / 日志新鲜度）；gateway.log 与 errors.log 实时查看；后台任务执行与输出轮询 |
 | **模型供应商管理** | 类 CC Switch 的 CRUD；五种 API 协议模式（OpenAI Chat 兼容 / OpenAI Responses / Anthropic Messages / AWS Bedrock / Google Gemini）；13 个官方预设供应商一键添加；在线拉取模型列表并逐个登记（模型 ID / 显示名称 / 上下文长度）；一键连接测试 |
 | **链路与别名** | 主模型切换（`model.*`）；降级备选链可视化排序（`delegation.fallback_providers`）；模型别名管理（`model_aliases`） |
-| **消息渠道** | 11 个渠道（飞书 / 微信 / QQ / Telegram / 企业微信 / 钉钉 / Discord / Slack / Email / Webhook / API Server）卡片式管理；令牌写入 `.env`（600 权限、永不回显）；平台参数写入 `config.yaml` 的 `platforms.*`；每渠道工具集覆盖（`platform_toolsets`） |
+| **消息渠道** | 14 个渠道（飞书 / 微信 / QQ / Telegram / 企业微信 / 钉钉 / Discord / Slack / Email / WhatsApp / Signal / Matrix / Webhook / API Server）卡片式管理；令牌写入 `.env`（600 权限、永不回显）；平台参数写入 `config.yaml` 的 `platforms.*`；每渠道工具集覆盖（`platform_toolsets`） |
 | **记忆系统** | 内置记忆容量调优（默认 2,200/1,375 字符 → 一键预设至 16,000/8,000，解决大项目记忆写满报错）；9 家外置记忆方案一键切换并自动写入配置：社区 AgentMemory（零代码 MCP / Provider 插件自动安装）、Mem0、Supermemory、OpenViking、Hindsight、Holographic、RetainDB、ByteRover、Honcho |
 | **工程规范** | 参考 AIOS 的工程化约束层：工作区目录规范（projects/downloads/scratch/archive）+ 六条工程铁律 + 需求消化模板，通过 SOUL.md 托管块（幂等、不碰用户自有内容）、3 个官方格式技能（project-init / requirement-digest / file-placement）与 `agent.coding_instructions` 注入；支持工作区一键物理初始化与整体卸载（见 [docs/ENGINEERING_SPEC.md](docs/ENGINEERING_SPEC.md)） |
 | **配置项全景** | 对 Hermes 全部配置域的盘点与集成建议（已集成 / 建议二期 / 待评估 / 建议手改），作为后续迭代的评审入口 |
-| **安全与审计** | 详见下文「安全模型」与 [docs/SECURITY.md](docs/SECURITY.md) |
+| **安全与审计** | 详见下文「安全」与 [docs/SECURITY.md](docs/SECURITY.md)（面向部署者的加固清单） |
 
 ## 快速开始
 
@@ -105,38 +120,29 @@ app/
     ├── templates/          # Jinja2 模板 + 宏
     └── static/             # 设计系统 CSS / 交互 JS / 本地化 htmx
 docs/
-├── ARCHITECTURE.md         # 架构与设计决策
-├── SECURITY.md             # 威胁模型与安全控制
-├── CONFIG_CATALOG.md       # Hermes 配置项深挖清单（二期评审用）
+├── SECURITY.md             # 面向部署者的安全说明与加固清单（对外）
+├── ARCHITECTURE.md         # 架构与设计决策（工程）
+├── CONFIG_CATALOG.md       # Hermes 配置项深挖清单（二期排期入口）
 ├── ENGINEERING_SPEC.md     # 工程规范层设计（Agent OS 式约束）
-└── RUST_ASSESSMENT.md      # 「底层操作是否该用 Rust」的评估结论
-site/
-└── index.html              # 官网单页（rexai.top，纯静态无构建）
+├── CHANNEL_ONBOARDING_SPEC.md  # 全渠道接入助手设计
+├── FILE_WORKBENCH_SPEC.md  # 文件管理器规格（W3-W5）
+├── RUST_ASSESSMENT.md      # 「底层操作是否该用 Rust」的评估结论
+├── SCREENSHOTS.md          # README 截图的重拍方法
+├── assets/                 # README 用图（WebP，压缩后入库）
+└── dev/                    # 工程内部文档（威胁模型等，不在首页/UI 链接）
 .github/workflows/
-├── ci.yml                  # push/PR 跑 pytest
-└── deploy-site.yml         # site/ 变更自动发布 GitHub Pages
+└── ci.yml                  # push/PR 跑 pytest（ubuntu + windows）
+shots/                      # 截图原图（gitignore，不入库）
 ```
 
-## 官网部署（GitHub Pages → rexai.top）
+## 对外入口策略（为什么没有文档站）
 
-官网是 [site/index.html](site/index.html) 纯静态单页（无构建步骤），由 GitHub Actions 自动发布：
-
-1. **CI/CD**：推送 `main` 且 `site/**` 有变更时，[deploy-site.yml](.github/workflows/deploy-site.yml)
-   自动部署到 GitHub Pages；也可在 Actions 页手动触发（`workflow_dispatch`）。
-2. **首次启用**：仓库 Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
-3. **绑定自定义域名**：
-   - 仓库 Settings → Pages → Custom domain 填 `rexai.top`（`site/CNAME` 已随产物包含该域名）；
-   - 在 DNS 服务商为 `rexai.top` 添加 GitHub Pages 解析记录：
-
-     | 类型 | 主机 | 值 |
-     |---|---|---|
-     | A | `@` | `185.199.108.153` |
-     | A | `@` | `185.199.109.153` |
-     | A | `@` | `185.199.110.153` |
-     | A | `@` | `185.199.111.153` |
-     | CNAME | `www` | `rexleimo.github.io` |
-
-   - 生效后在 Pages 设置中勾选 **Enforce HTTPS**。
+- **唯一首页 = 本 README**。GitHub 自带 Markdown 渲染、自带图片、自带 Issue，够用且零维护。
+- **工程文档留在 `docs/`**，从 README 点进去；`docs/dev/` 是内部工程文档，
+  不在首页与产品界面里链接（原因见 [docs/dev/THREAT_MODEL.md](docs/dev/THREAT_MODEL.md) 末尾「对外表述纪律」）。
+- **不再自建文档站**：v0.7.1 起 `site/` 与 `deploy-site.yml` 已删除，GitHub Pages 未启用。
+  曾经写过的 `rexai.top` 已不再指向本项目，不要再引用。
+- 若将来确实需要静态站（例如做交互式教程），再单独评审，不要提前维护。
 
 ## 对 Hermes 配置的写入契约
 
@@ -154,7 +160,21 @@ ruamel.yaml round-trip 完整保留，备份保留最近 10 份（`config.yaml.b
 
 ## 文档
 
+**给使用者**
+
+- [安全说明](docs/SECURITY.md) — 平台内置防护 + 首次部署加固清单 + 漏洞报告渠道
+- [工程规范层](docs/ENGINEERING_SPEC.md) — 工作区目录规范与六条工程铁律
+- [截图重拍方法](docs/SCREENSHOTS.md) — 如何在不泄露真实环境的前提下更新本页配图
+
+**给贡献者（工程文档，随代码演进）**
+
 - [架构说明](docs/ARCHITECTURE.md) — 分层、数据流、扩展点
-- [安全模型](docs/SECURITY.md) — 威胁模型、控制矩阵、部署加固清单
-- [配置项深挖](docs/CONFIG_CATALOG.md) — Hermes 全部配置域盘点与平台集成建议
+- [配置项深挖](docs/CONFIG_CATALOG.md) — Hermes 全部配置域盘点与二期排期
+- [渠道接入助手](docs/CHANNEL_ONBOARDING_SPEC.md) — 扫码/令牌接入的设计与验收
+- [文件管理器规格](docs/FILE_WORKBENCH_SPEC.md) — W3-W5 需求、安全硬约束与里程碑
 - [Rust 评估](docs/RUST_ASSESSMENT.md) — 底层操作用 Rust 是否更优的结论
+- [威胁模型（内部）](docs/dev/THREAT_MODEL.md) — 资产、控制矩阵、部署边界与对外表述纪律
+
+## 版本与变更
+
+版本在 `pyproject.toml`，变更记录在 [CHANGELOG.md](CHANGELOG.md)。

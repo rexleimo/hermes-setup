@@ -23,3 +23,6 @@ data/
 .DS_Store
 .idea/
 .vscode/
+
+# README 截图原图（只入库 docs/assets 的 webp）
+shots/

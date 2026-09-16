@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.1 — 2026-09-17（对外面收敛：一份首页 + 真实截图）
+
+### Added
+- **README 配图**：`scripts/make_screenshots.py` 拉起一个**隔离演示实例**（独立
+   `HERMES_CONSOLE_DATA` / `HERMES_HOME`，`HERMES_BIN` 指向不可执行的空桩）后用 Playwright 截图，
+   配方可重现（`docs/SCREENSHOTS.md`）；入库的是 `docs/assets/*.webp`（单张 <200 KB），
+   原图落 `shots/`（已 gitignore）。截图不读也不写机器上真实的 `~/.hermes`，也不会调用真实 hermes CLI。
+- **文档分层**：新增 `docs/dev/`（工程内部文档）与 `docs/SCREENSHOTS.md`；
+   `docs/` 目录清单补齐了两份之前没列进 README 的规格（渠道接入助手、文件管理器）。
+
+### Changed
+- **对外只留一份首页 = README**。文档正文在 GitHub 直接渲染阅读，不再自建文档站。
+- **`docs/SECURITY.md` 重写为“给部署者的安全说明”**：保留已内置防护清单 + 首次部署加固清单，
+   新增「发现漏洞怎么办」（走 GitHub 私有漏洞报告，不开公开 Issue）；
+   原来的「资产与威胁 / 控制矩阵 / 已知边界」迁入 `docs/dev/THREAT_MODEL.md`，
+   并把「已知边界」改写成中性的「部署边界」（剔除 CSP 指令细节与缺口清单式表述，
+   排期信息归 `CONFIG_CATALOG.md`），另补一节「对外表述纪律」（首页/UI/仓库分别能写什么）。
+
+### Removed
+- **`site/` 单页与 `.github/workflows/deploy-site.yml` 已删除**（GitHub Pages 未启用，
+   且 `rexai.top` 已不再指向本项目 —— 该域名与相关 DNS/部署步骤全部从文档中移除，不要再引用）。
+   原首页把 `docs/SECURITY.md` 的威胁矩阵与 `docs/CONFIG_CATALOG.md` 的**未实现功能排期**
+   直链给任意访客，相当于递出攻击面清单；这是本次收敛的直接动因。
+
 ## 0.7.0 — 2026-09-17（扫码修复 + 全渠道接入引导）
 
 ### Added
