@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag, csrf with context %}
+{% block title %}文件工作台{% endblock %}
+{% block topbar_title %}产出 / <strong>文件工作台</strong>{% endblock %}
+{% block content %}
+<style>
+  .wb-shell { display:grid; grid-template-columns:200px minmax(0,1fr) 430px; gap:16px; align-items:start; }
+  @media (max-width:1100px){ .wb-shell { grid-template-columns:1fr; } .wb-side{ display:none; } }
+  .wb-tree a { display:flex; gap:8px; align-items:center; padding:7px 10px; border-radius:8px;
+               color:var(--text-2, #444); font-size:13px; text-decoration:none; }
+  .wb-tree a:hover { background:rgba(0,0,0,.05); }
+  .wb-preview-body { max-height:70vh; overflow:auto; }
+  .wb-preview-body img { max-width:100%; border-radius:8px; }
+  .wb-preview-body pre { white-space:pre-wrap; word-break:break-all; margin:0; font-size:12.5px; }
+  .wb-row { cursor:pointer; }
+  .wb-row:hover td { background:rgba(29,78,216,.05); }
+  .chip-line { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+</style>
+
+<div class="page-header">
+  <div>
+    <h2>文件工作台</h2>
+    <p class="page-desc">
+      Agent 产物的固定去处 ·
+      <code>{{ ws_status.root if ws_status.root else '未配置' }}</code>
+      （与工程规范层同一 workspace 契约）
+    </p>
+    {% if inspect and inspect.available %}
+    <div class="chip-line">
+      {% if not inspect.stray %}{{ tag('根部无散乱文件', 'ok') }}
+      {% else %}{{ tag('散乱文件 ' ~ (inspect.stray|length) ~ ' 项: ' ~ inspect.stray|join('、'), 'warn') }}{% endif %}
+      {% if inspect.stale_scratch %}{{ tag('scratch 超期 ' ~ inspect.stale_scratch, 'info') }}{% endif %}
+      {% if inspect.projects_without_requirements %}
+        {{ tag('缺需求清单的项目: ' ~ inspect.projects_without_requirements|join('、'), 'warn') }}
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if ws_status.error or not ws_status.exists or not ws_status.initialized %}
+<div class="card"><div class="card-body">
+  {% if ws_status.error %}
+    <div class="alert alert-danger">{{ ws_status.error }}</div>
+  {% else %}
+    <div class="empty-state">
+      <p><strong>工作区尚未初始化</strong><br>
+      <span class="text-muted">将按工程规范创建 projects / downloads / scratch / archive 目录树与示例项目。</span></p>
+      {% if is_admin %}
+      <form method="post" action="/files/init" style="margin-top:12px;">
+        {{ csrf() }}
+        <button class="btn btn-primary" type="submit">{{ icon('folder') }} 初始化工作区</button>
+      </form>
+      {% else %}
+      <p class="text-muted">请联系管理员在「工程规范」页初始化。</p>
+      {% endif %}
+    </div>
+  {% endif %}
+</div></div>
+{% else %}
+
+<div class="wb-shell">
+  {# ---------------- 左：快捷树 ---------------- #}
+  <div class="card wb-side">
+    <div class="card-header"><h3>目录树</h3></div>
+    <div class="card-body wb-tree">
+      <a hx-get="/files/list?path=" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('grid') }} 工作区根</a>
+      <a hx-get="/files/list?path=projects" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('folder') }} projects 产出</a>
+      <a hx-get="/files/list?path=downloads" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('download') }} downloads 材料</a>
+      <a hx-get="/files/list?path=scratch" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('branch') }} scratch 实验</a>
+      <a hx-get="/files/list?path=archive" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('box') }} archive 归档</a>
+    </div>
+  </div>
+
+  {# ---------------- 中：列表（_list.html 根元素自带 #wb-list） ---------------- #}
+  {% include "files/_list.html" %}
+
+  {# ---------------- 右：预览 ---------------- #}
+  <div class="card">
+    <div class="card-header"><h3>预览</h3></div>
+    <div class="card-body wb-preview-body" id="wb-preview">
+      <div class="empty-state"><p class="text-muted">点击文件名即可预览<br>md / 代码 / 图片 / pdf 支持内联</p></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

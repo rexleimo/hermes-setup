@@ -218,6 +218,13 @@ def load_settings() -> EngSettings:
 
 
 def save_settings(s: EngSettings) -> None:
+    """写入前校验 workspace 根（S2 防劫持）：拒绝过浅/危险路径。
+
+    延迟导入避免与 workspace_service 形成模块级循环。
+    """
+    from app.hermes.workspace_service import validate_root
+
+    validate_root(s.workspace or DEFAULT_WORKSPACE)  # 不合法抛 WorkspaceError
     appsettings.set_setting(SETTING_KEY, s.to_json())
 
 
@@ -399,6 +406,9 @@ def remove(keep_skills: bool = False, paths: HermesPaths | None = None) -> list[
 
 
 def init_workspace(s: EngSettings, paths: HermesPaths | None = None) -> list[str]:
+    from app.hermes.workspace_service import validate_root  # 同为 S2 校验，避免模块级循环
+
+    validate_root(s.workspace or DEFAULT_WORKSPACE)
     paths = paths or detect()
     base = Path(s.workspace or DEFAULT_WORKSPACE).expanduser()
     created: list[str] = []

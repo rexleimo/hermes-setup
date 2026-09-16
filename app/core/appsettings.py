@@ -16,6 +16,8 @@ DEFAULTS: dict[str, str] = {
     "hermes_home": "",
     "hermes_bin": "",
     "gateway_log_lines": "200",
+    # 文件工作台：上传大小上限（MB）
+    "workbench_upload_max_mb": "50",
 }
 
 

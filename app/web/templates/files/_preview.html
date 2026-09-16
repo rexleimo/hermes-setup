@@ -1,0 +1,18 @@
+{% from "macros.html" import tag with context %}
+<div>
+  <p style="margin:0 0 8px;">
+    <code>{{ pv.rel }}</code>
+    {% if pv.mode == 'text' and pv.truncated %}{{ tag('已截断预览（前 512KB）', 'warn') }}{% endif %}
+  </p>
+  {% if pv.mode == 'text' %}
+    <pre class="code-view">{{ pv.content }}</pre>
+    <p style="margin-top:10px;"><a class="btn btn-secondary btn-sm" href="/files/raw?path={{ pv.rel }}&dl=1">下载源文件</a></p>
+  {% elif pv.mode == 'image' %}
+    <img src="/files/raw?path={{ pv.rel }}" alt="{{ pv.name or '' }}">
+  {% elif pv.mode == 'pdf' %}
+    <iframe src="/files/raw?path={{ pv.rel }}" style="width:100%; height:60vh; border:1px solid var(--border, #ddd); border-radius:8px;"></iframe>
+  {% else %}
+    <div class="empty-state"><p class="text-muted">此类型不支持内联预览，请下载使用</p>
+      <p><a class="btn btn-secondary btn-sm" href="/files/raw?path={{ pv.rel }}&dl=1">下载</a></p></div>
+  {% endif %}
+</div>
