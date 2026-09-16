@@ -270,8 +270,8 @@ PLATFORMS: dict[str, PlatformDef] = {
             FieldDef("WEIXIN_ALLOWED_USERS", "用户白名单", kind="textarea"),
         ),
         extra_fields=(
-            FieldDef("account_id", "iLink Bot 账号 ID", required=True,
-                     help="服务器上执行 `hermes weixin` 扫码登录后获得"),
+            FieldDef("account_id", "iLink Bot 账号 ID",
+                     help="由上方「接入助手」扫码后自动回填；仅在扫码不可用时手动填写"),
         ),
         config_keys=(
             FieldDef("dm_policy", "私聊策略", kind="select", options=COMMON_POLICIES, default="open"),

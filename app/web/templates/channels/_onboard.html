@@ -1,0 +1,92 @@
+{% from "macros.html" import icon, tag with context %}
+{# 渠道接入助手：依赖一键装 → 浏览器内扫码 → account_id 自动回填。
+   由 detail.html 以 hx-trigger="load" 拉取；轮询时整个片段 outerHTML 自替换。 #}
+<div class="card" id="wx-onboard"
+     {% if polling %}hx-get="/channels/weixin/onboard" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="card-header">
+    <h3>{{ icon('zap') }} 接入助手 <span class="text-muted" style="font-weight:400">— 不用读文档，不用碰终端</span></h3>
+    <div class="card-extra">{% if acct %}{{ tag('已连接 ' ~ acct, 'ok') }}{% endif %}</div>
+  </div>
+  <div class="card-body">
+
+    {% if err %}<div class="alert alert-danger">{{ icon('alert') }} {{ err }}</div>{% endif %}
+
+    {# ---------- 第 1 步：依赖 ---------- #}
+    <div class="ob-row">
+      {% if deps.ok %}
+        <span class="ob-dot ok">{{ icon('check') }}</span> 依赖已就绪
+      {% elif deps_job and deps_job.status == 'running' %}
+        <span class="ob-dot"><svg class="icon is-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg></span> 正在后台安装依赖，请稍候…
+      {% else %}
+        <span class="ob-dot warn">{{ icon('alert') }}</span>
+        缺少依赖：{{ (deps.missing or []) | join('、') or deps.reason }}
+        <form hx-post="/channels/weixin/deps-install" hx-target="#wx-onboard" hx-swap="outerHTML">
+          <button class="btn btn-secondary btn-sm" type="submit">{{ icon('download') }} 一键安装依赖</button>
+        </form>
+      {% endif %}
+    </div>
+    {% if deps_job and deps_job.status == 'running' and deps_job.log_tail %}
+      <pre class="code-view ob-log">{{ deps_job.log_tail | join('\n') }}</pre>
+    {% elif deps_job and deps_job.status == 'failed' and not deps.ok %}
+      <div class="ob-row"><span class="text-muted">上次安装未完成，日志尾部：</span></div>
+      <pre class="code-view ob-log">{{ deps_job.log_tail | join('\n') }}</pre>
+    {% endif %}
+
+    {# ---------- 第 2 步：扫码 ---------- #}
+    {% if deps.ok %}
+    <div class="ob-qr-wrap">
+      {% if state.qr_url and state.phase in ('qr', 'scaned') %}
+        <div class="ob-qr" id="wx-qr" data-url="{{ state.qr_url }}"></div>
+      {% endif %}
+      <div class="ob-side">
+        {% if state.phase == 'idle' %}
+          <p>点击下方按钮，二维码会直接显示在这里——用手机微信扫码即可。</p>
+        {% elif state.phase == 'starting' %}
+          <p>正在向微信（iLink）请求二维码…</p>
+        {% elif state.phase == 'qr' %}
+          <p><b>请打开微信扫描二维码</b><br>
+             <span class="text-muted">二维码约 2 分钟有效，过期会自动刷新，无需任何操作。</span></p>
+        {% elif state.phase == 'scaned' %}
+          <p>{{ icon('check') }} 已扫码 —— 请在手机上点「<b>确认登录</b>」。</p>
+        {% elif state.phase == 'confirmed' %}
+          <p><b>微信已连接 ✓</b> 账号 ID 已自动写入配置并启用渠道。<br>
+             <span class="text-muted">下一步：到「服务管理」启动 Gateway，即可收发消息。</span></p>
+        {% elif state.phase == 'error' %}
+          <p class="text-muted">{{ state.error }}</p>
+        {% endif %}
+
+        {% if state.account_id %}
+          <p class="mono">account_id: {{ state.account_id }}</p>
+        {% elif acct %}
+          <p class="mono">account_id: {{ acct }}</p>
+        {% endif %}
+
+        {% if state.phase in ('idle', 'error', 'confirmed') or (state.phase == 'qr' and not state.qr_url) %}
+          <form hx-post="/channels/weixin/qr-start" hx-target="#wx-onboard" hx-swap="outerHTML">
+            <button class="btn btn-primary" type="submit">
+              {{ icon('key') }} {% if acct %}重新扫码连接{% else %}开始扫码连接{% endif %}
+            </button>
+          </form>
+        {% endif %}
+
+        {% if state.qr_url and state.phase in ('qr', 'scaned') %}
+          <p class="form-help">二维码不显示？
+            <a href="{{ state.qr_url }}" target="_blank" rel="noopener">点此在手机上直接打开登录链接</a></p>
+        {% endif %}
+      </div>
+    </div>
+    <script>
+    (function () {
+      var el = document.getElementById('wx-qr');
+      if (window.QRCode && el && el.dataset.url && el.dataset.url !== window.__wxQrUrl) {
+        el.innerHTML = ''; window.__wxQrUrl = el.dataset.url;
+        new QRCode(el, { text: el.dataset.url, width: 200, height: 200,
+                         correctLevel: QRCode.CorrectLevel.M });
+      }
+    })();
+    </script>
+    {% else %}
+      <p class="form-help">{{ icon('info') }} 依赖就绪后即可在此扫码连接，无需打开终端。</p>
+    {% endif %}
+  </div>
+</div>

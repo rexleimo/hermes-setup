@@ -759,3 +759,19 @@ input[type="checkbox"].check {
   body.drawer-open .sidebar-backdrop { display: block; }
   .content { padding: 16px; }
 }
+
+/* ---------- 渠道接入助手（onboard panel） ---------- */
+.ob-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.ob-dot { display: inline-flex; width: 18px; height: 18px; border-radius: 50%;
+  align-items: center; justify-content: center; flex: none; }
+.ob-dot.ok { color: #fff; background: var(--ok); }
+.ob-dot.ok .icon { width: 12px; height: 12px; }
+.ob-dot.warn { color: #fff; background: #d97706; }
+.ob-dot.warn .icon { width: 12px; height: 12px; }
+.ob-log { max-height: 140px; overflow: auto; margin: 4px 0 8px; font-size: 12px; }
+.ob-qr-wrap { display: flex; gap: 20px; align-items: flex-start; margin-top: 14px; flex-wrap: wrap; }
+.ob-qr { padding: 10px; background: #fff; border: 1px solid var(--border);
+  border-radius: var(--radius); line-height: 0; }
+.ob-qr img, .ob-qr canvas { display: block; }
+.ob-side { flex: 1; min-width: 240px; }
+.icon.is-spin { animation: spin 1.2s linear infinite; width: 14px; height: 14px; }

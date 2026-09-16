@@ -18,12 +18,20 @@
 
 {% if def.note %}<div class="alert alert-info">{{ icon('info') }} {{ def.note }}</div>{% endif %}
 
+{% if c.name != "weixin" %}
 <div class="guide-strip">
   {{ icon('info') }} 接入三步：
   <span class="g-step">1. 填写凭证与令牌（下方表单）</span><span class="g-arrow">→</span>
   <span class="g-step">2. 打开「启用状态」开关并保存</span><span class="g-arrow">→</span>
   <span class="g-step">3. 到服务管理启动 Gateway</span>
 </div>
+{% endif %}
+
+{% if c.name == "weixin" %}
+{# 微信：接入助手代办依赖安装 + 浏览器内扫码 + 自动回填，下方表单退为高级选项 #}
+<div hx-get="/channels/weixin/onboard" hx-trigger="load" hx-swap="outerHTML"></div>
+<script src="/static/vendor/qrcode.min.js?v={{ ASSET_VER }}" defer></script>
+{% endif %}
 
 <form method="post" action="/channels/{{ c.name }}/save">
   {{ csrf() }}

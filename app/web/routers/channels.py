@@ -4,13 +4,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Form, Request
 
 from app.core import audit
+from app.hermes import onboarding
 from app.hermes.channels_service import (
     ChannelError, get_channel, list_channels, save_channel, set_toolset,
 )
 from app.hermes.schema import (
     PLATFORMS, PLATFORM_TOOLSET_KEYS, TOOLSET_CHOICES, TOOLSET_PRESETS,
 )
-from app.web.deps import User, client_ip, csrf_guard
+from app.web.deps import Admin, User, client_ip, csrf_guard
 from app.web.htmx import is_htmx, redirect, toast
 from app.web.templating import render, render_partial
 
@@ -113,6 +114,64 @@ def toolset(request: Request, user: User, name: str, choice: str = Form("")):
     resp = redirect(request, f"/channels/{name}")
     toast(resp, message)
     return resp
+
+
+# ---------------------------------------------------------------------------
+# 接入助手（onboarding）：浏览器内扫码 + 一键装依赖 + 自动回填（weixin 先行）
+
+
+@router.get("/{name}/onboard")
+def onboard_panel(request: Request, user: User, name: str):
+    """HTMX 轮询片段：依赖状态 + 二维码 + 进度。"""
+    if name != "weixin":
+        return _not_found(request)
+    return _panel(request, user, err=None)
+
+
+@router.post("/{name}/qr-start")
+def qr_start(request: Request, user: Admin, name: str):
+    if name != "weixin":
+        return _not_found(request)
+    try:
+        onboarding.start_qr_login()
+    except Exception as exc:
+        return _panel(request, user, err=str(exc))
+    audit.record("channel_qr_start", username=user["username"], target=name,
+                 ip=client_ip(request))
+    return _panel(request, user, err=None)
+
+
+@router.post("/{name}/deps-install")
+def deps_install(request: Request, user: Admin, name: str):
+    try:
+        onboarding.install_deps()
+    except Exception as exc:
+        return _panel(request, user, err=f"安装任务启动失败：{exc}")
+    audit.record("channel_deps_install", username=user["username"], target=name,
+                 ip=client_ip(request))
+    return _panel(request, user, err=None)
+
+
+def _panel(request: Request, user, *, err: str | None):
+    state = onboarding.qr_state()
+    acct = onboarding.current_account_id()
+    if state["phase"] == "confirmed" and state["account_id"] and state["account_id"] != acct:
+        try:
+            onboarding.apply_weixin_account(state["account_id"],
+                                            username=user["username"])
+            acct = state["account_id"]
+        except ChannelError as exc:
+            err = err or f"自动回填失败：{exc}"
+    return render_partial(request, "channels/_onboard.html", {
+        "state": state,
+        "deps": onboarding.deps_status(),
+        "deps_job": onboarding.deps_job_state(),
+        "acct": acct,
+        "err": err,
+        "polling": state["phase"] in ("starting", "qr", "scaned")
+                   or bool(onboarding.deps_job_state() and
+                           onboarding.deps_job_state()["status"] == "running"),
+    })
 
 
 # ---------------------------------------------------------------------------

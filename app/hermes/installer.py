@@ -49,7 +49,7 @@ def job_log(job_id: int, tail: int = 60) -> list[str]:
         return []
 
 
-def submit(kind: str, command: str, *, shell: bool = True) -> int:
+def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = None) -> int:
     """提交后台任务；返回 job id。"""
     with _lock:
         if active_job():
@@ -69,7 +69,7 @@ def submit(kind: str, command: str, *, shell: bool = True) -> int:
             with open(log_path, "w", encoding="utf-8") as fh:
                 proc = subprocess.run(
                     command, shell=shell, stdout=fh, stderr=subprocess.STDOUT,
-                    env=env, timeout=1800,
+                    env=env, timeout=1800, cwd=cwd,
                 )
             code = proc.returncode
         except subprocess.TimeoutExpired:

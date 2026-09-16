@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 — 2026-09-16（渠道接入助手 · weixin 浏览器内扫码）
+
+### Added
+- **接入助手（onboarding）**：微信渠道配置不再要求用户读文档、开终端。
+  - 依赖检测 + 一键安装（`uv/pip install -e ".[messaging]"` 后台任务，日志实时进面板）；
+  - 二维码直接渲染在网页里（vendored qrcode.min.js，CSP 不破），扫码状态 2s 轮询，
+    过期自动刷新（≤3 次），全程零终端；
+  - 登录成功自动回填 `platforms.weixin.extra.account_id` 并启用渠道，
+    凭据由 hermes 自身写入 `~/.hermes/weixin/accounts/`（复用 `gateway.platforms.weixin`）。
+- 新端点：`GET /channels/{name}/onboard`（HTMX 片段）、`POST qr-start`、`POST deps-install`
+ （后两者 admin only）；审计事件 channel_qr_start / channel_deps_install / channel_onboard_backfill。
+- 设计文档 `docs/CHANNEL_ONBOARDING_SPEC.md`：五原则（零终端/QR进浏览器/自动回填/
+  引导代替甩链接/复用hermes本体）+ M2 计划（白名单免查ID、表单渠道分步指引）。
+
+### Changed
+- weixin 详情页：接入助手置顶，隐藏"填凭证三步"引导条；`account_id` 不再必填，
+  帮助文案改为"扫码后自动回填"。
+
+### Tests
+- 新增 tests/test_onboarding.py（7 项）：EVENT 解析、confirmed 自动回填、
+  非 weixin 404、登录门槛、operator 403。共 104 passed, 3 skipped。
+
 ## 0.3.1 — 2026-09-16（按钮样式修复）
 
 ### Fixed
