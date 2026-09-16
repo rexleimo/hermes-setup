@@ -18,13 +18,31 @@ from pathlib import Path
 from app.core import appsettings
 from app.hermes import engineering_service as eng
 
-BUCKETS = ("projects", "downloads", "scratch", "archive")
+BUCKETS = ("projects", "downloads", "documents", "pictures", "videos",
+           "scratch", "archive")
 
 TEXT_EXTS = {".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".ini", ".log", ".csv"}
 CODE_EXTS = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sh", ".go",
              ".rs", ".java", ".sql", ".env"}
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif"}
+VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".flv", ".wmv"}
+AUDIO_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus"}
+DOC_EXTS = {".md", ".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+            ".ppt", ".pptx", ".csv", ".rtf"}
+ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".tgz", ".bz2", ".7z", ".rar"}
+
+# 智能集合（虚拟视图，不复制文件）：key → (标签, emoji, 扩展名)
+CATEGORIES = (
+    ("images", "图片", "🖼️", IMAGE_EXTS),
+    ("videos", "视频", "🎬", VIDEO_EXTS),
+    ("audio", "音频", "🎵", AUDIO_EXTS),
+    ("documents", "文档", "📄", DOC_EXTS),
+    ("code", "代码", "📜", CODE_EXTS),
+    ("archives", "压缩包", "🗜️", ARCHIVE_EXTS),
+)
+CATEGORY_MAP = {k: (label, emoji, exts) for k, label, emoji, exts in CATEGORIES}
 PREVIEW_LIMIT = 512 * 1024
+COLLECTION_LIMIT = 1000
 UPLOAD_DEFAULT_MAX_MB = 50
 SCRATCH_STALE_DAYS = 14
 
@@ -85,6 +103,7 @@ class Entry:
     is_dir: bool
     size: int
     mtime: float
+    count: int | None = None  # 目录内子项数（列表页填充）
 
     @property
     def mtime_text(self) -> str:
@@ -107,21 +126,107 @@ class Entry:
     def is_bucket(self) -> bool:
         return self.rel in BUCKETS
 
+    @property
+    def category(self) -> str | None:
+        return category_of(self.name)
 
-def _entry(base: Path, p: Path) -> Entry:
+    @property
+    def category_emoji(self) -> str:
+        c = self.category
+        return CATEGORY_MAP[c][1] if c else "📎"
+
+
+def _entry(p: Path, base: Path) -> Entry:
     st = p.stat()
-    return Entry(name=p.name, rel=rel_of(p), is_dir=p.is_dir(),
-                 size=st.st_size, mtime=st.st_mtime)
+    return Entry(name=p.name, rel=p.relative_to(base).as_posix(),
+                 is_dir=p.is_dir(), size=st.st_size, mtime=st.st_mtime)
 
 
-def list_dir(rel: str = "") -> list[Entry]:
+def category_of(filename: str) -> str | None:
+    ext = Path(filename).suffix.lower()
+    for key, _label, _emoji, exts in CATEGORIES:
+        if ext in exts:
+            return key
+    return None
+
+
+def _sort_entries(entries: list[Entry], sort: str) -> list[Entry]:
+    if sort == "time":
+        key = lambda e: (not e.is_dir, -e.mtime)
+    elif sort == "size":
+        key = lambda e: (not e.is_dir, -e.size)
+    else:
+        key = lambda e: (not e.is_dir, e.name.lower())
+    return sorted(entries, key=key)
+
+
+def _walk_files() -> list[Entry]:
+    base = root()
+    out = []
+    for p in base.rglob("*"):
+        try:
+            parts = p.relative_to(base).parts
+            if p.is_file() and not any(part.startswith(".") for part in parts):
+                out.append(_entry(p, base))
+        except OSError:
+            continue
+    return out
+
+
+def list_collection(cat: str, limit: int = COLLECTION_LIMIT) -> list[Entry]:
+    """智能集合：全工作区按类型聚合（虚拟视图，文件不动、不复制）。"""
+    if cat not in CATEGORY_MAP:
+        raise WorkspaceError(f"未知集合：{cat}")
+    exts = CATEGORY_MAP[cat][2]
+    files = [e for e in _walk_files() if e.ext in exts]
+    return _sort_entries(files, "time")[:limit]
+
+
+def list_recent(limit: int = 100) -> list[Entry]:
+    files = _walk_files()
+    return _sort_entries(files, "time")[:limit]
+
+
+def category_counts() -> list[tuple[str, str, str, int]]:
+    """[(key, 标签, emoji, 数量)]，侧栏用。"""
+    counts = {k: 0 for k, *_ in CATEGORIES}
+    for e in _walk_files():
+        c = e.category
+        if c:
+            counts[c] += 1
+    return [(k, CATEGORY_MAP[k][0], CATEGORY_MAP[k][1], counts[k]) for k in counts]
+
+
+def location_counts() -> list[tuple[str, int]]:
+    """标准目录（位置）的文件总数，侧栏用。"""
+    base = root()
+    out = []
+    for d in BUCKETS:
+        p = base / d
+        n = sum(1 for f in p.rglob("*") if f.is_file()) if p.is_dir() else 0
+        out.append((d, n))
+    return out
+
+
+def list_dir(rel: str = "", sort: str = "name") -> list[Entry]:
     target = resolve_rel(rel)
     if not target.exists():
         raise NotFound(f"目录不存在：{rel or '/'}")
     if not target.is_dir():
         raise WorkspaceError("不是目录")
-    entries = [_entry(target, p) for p in target.iterdir() if not p.name.startswith(".")]
-    return sorted(entries, key=lambda e: (not e.is_dir, e.name.lower()))
+    entries = []
+    base = root()
+    for p in target.iterdir():
+        if p.name.startswith("."):
+            continue
+        e = _entry(p, base)
+        if e.is_dir:
+            try:
+                e.count = sum(1 for c in p.iterdir() if not c.name.startswith("."))
+            except OSError:
+                e.count = None
+        entries.append(e)
+    return _sort_entries(entries, sort)
 
 
 def breadcrumbs(rel: str = "") -> list[tuple[str, str]]:
@@ -160,6 +265,10 @@ def preview_class(rel: str) -> str:
     ext = Path(rel).suffix.lower()
     if ext in IMAGE_EXTS:
         return "image"
+    if ext in VIDEO_EXTS:
+        return "video"
+    if ext in AUDIO_EXTS:
+        return "audio"
     if ext == ".pdf":
         return "pdf"
     if ext in TEXT_EXTS or ext in CODE_EXTS:

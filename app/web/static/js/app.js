@@ -309,3 +309,132 @@
     applyConditionalFields();
   });
 })();
+
+  // ------------------------------------------------------------------
+  // 文件工作台（OS 风格）：选择 / 双击打开 / 右键菜单 / 筛选 / 排序 / 上传即传
+  // 事件全部委托在 document 上，hx-boost 换 body 后依然有效。
+  // ------------------------------------------------------------------
+  (function () {
+  "use strict";
+  var sel = null;
+
+  function wbItem(ev) { return ev.target.closest(".osfm-card-item"); }
+  function wbClearSel() {
+    var old = document.querySelectorAll(".osfm-card-item.selected");
+    for (var i = 0; i < old.length; i++) old[i].classList.remove("selected");
+  }
+  function wbSelbar(item) {
+    var bar = document.getElementById("osfm-selbar");
+    if (!bar) return;
+    if (!item) { bar.hidden = true; return; }
+    bar.hidden = false;
+    var rel = item.dataset.rel;
+    var isDir = item.dataset.dir === "1";
+    document.getElementById("osfm-selname").textContent = rel;
+    var dl = document.getElementById("osfm-act-dl");
+    var zip = document.getElementById("osfm-act-zip");
+    var arc = document.getElementById("osfm-act-archive");
+    if (dl) { dl.style.display = isDir ? "none" : ""; dl.href = "/files/raw?path=" + encodeURIComponent(rel) + "&dl=1"; }
+    if (zip) { zip.style.display = isDir ? "" : "none"; zip.href = "/files/zip?path=" + encodeURIComponent(rel); }
+    if (arc) arc.style.display = item.dataset.bucket === "1" ? "none" : "";
+  }
+  function wbPreview(rel) {
+    if (!window.htmx) return;
+    htmx.ajax("GET", "/files/preview?path=" + encodeURIComponent(rel),
+              { target: "#wb-preview", swap: "innerHTML" });
+  }
+  function wbOpen(item) {
+    if (item.dataset.dir === "1") window.location.href = item.dataset.href;
+    else wbPreview(item.dataset.rel);
+  }
+  function wbArchive(rel) {
+    if (!window.confirm("归档 " + rel + " → archive/？（移动，不留副本）")) return;
+    var meta = document.querySelector('meta[name="csrf"]');
+    var fd = new FormData();
+    fd.append("path", rel);
+    fetch("/files/move", { method: "POST",
+      headers: { "X-CSRF-Token": meta ? meta.content : "" }, body: fd })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); window.location.reload(); })
+      .catch(function () { window.alert("归档失败"); });
+  }
+  // 右键菜单
+  var wbMenu = null;
+  function wbHideMenu() { if (wbMenu) wbMenu.style.display = "none"; }
+  function wbMenuAdd(label, fn) {
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = label;
+    b.addEventListener("click", function () { wbHideMenu(); fn(); });
+    wbMenu.appendChild(b);
+  }
+  document.addEventListener("contextmenu", function (ev) {
+    var item = wbItem(ev);
+    if (!item) return;
+    ev.preventDefault();
+    wbClearSel(); item.classList.add("selected"); sel = item; wbSelbar(item);
+    var root = document.getElementById("osfm-root");
+    if (!wbMenu) {
+      wbMenu = document.createElement("div");
+      wbMenu.className = "osfm-menu";
+      document.body.appendChild(wbMenu);
+    }
+    wbMenu.innerHTML = "";
+    wbMenuAdd("打开", function () { wbOpen(item); });
+    if (item.dataset.dir === "0")
+      wbMenuAdd("下载", function () { location.href = "/files/raw?path=" + encodeURIComponent(item.dataset.rel) + "&dl=1"; });
+    if (item.dataset.dir === "1")
+      wbMenuAdd("打包下载（zip）", function () { location.href = "/files/zip?path=" + encodeURIComponent(item.dataset.rel); });
+    if (root && root.dataset.admin === "1" && item.dataset.bucket !== "1")
+      wbMenuAdd("归档到 archive/", function () { wbArchive(item.dataset.rel); });
+    wbMenu.style.display = "block";
+    var mw = wbMenu.offsetWidth, mh = wbMenu.offsetHeight;
+    wbMenu.style.left = Math.min(ev.clientX, window.innerWidth - mw - 8) + "px";
+    wbMenu.style.top = Math.min(ev.clientY, window.innerHeight - mh - 8) + "px";
+  });
+  // 选择与双击
+  document.addEventListener("click", function (ev) {
+    if (wbMenu && !ev.target.closest(".osfm-menu")) wbHideMenu();
+    var act = ev.target.closest("#osfm-selbar [id^='osfm-act-']");
+    if (act && act.id === "osfm-act-open" && sel) { wbOpen(sel); return; }
+    if (act && act.id === "osfm-act-archive" && sel) { wbArchive(sel.dataset.rel); return; }
+    var item = wbItem(ev);
+    if (!item) { wbClearSel(); sel = null; wbSelbar(null); return; }
+    wbClearSel(); item.classList.add("selected"); sel = item; wbSelbar(item);
+  });
+  document.addEventListener("dblclick", function (ev) {
+    var item = wbItem(ev);
+    if (!item || ev.target.closest(".table-actions")) return;
+    wbOpen(item);
+  });
+  // 键盘：Esc 取消 / Enter 打开 / Backspace 上一级
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") { wbHideMenu(); wbClearSel(); sel = null; wbSelbar(null); return; }
+    var tag = (document.activeElement || {}).tagName || "";
+    if (/INPUT|TEXTAREA|SELECT/i.test(tag)) return;
+    if (ev.key === "Enter" && sel) { wbOpen(sel); return; }
+    if (ev.key === "Backspace") {
+      var up = document.querySelector(".osfm-crumbs a");
+      if (up) { ev.preventDefault(); window.location.href = up.getAttribute("href"); }
+    }
+  });
+  // 筛选当前视图
+  document.addEventListener("input", function (ev) {
+    if (!ev.target || ev.target.id !== "osfm-search") return;
+    var q = ev.target.value.toLowerCase();
+    var items = document.querySelectorAll(".osfm-card-item");
+    for (var i = 0; i < items.length; i++) {
+      items[i].style.display = items[i].dataset.name.indexOf(q) >= 0 ? "" : "none";
+    }
+  });
+  // 排序
+  document.addEventListener("change", function (ev) {
+    if (!ev.target || ev.target.id !== "osfm-sort") return;
+    var url = new URL(window.location.href);
+    url.searchParams.set("sort", ev.target.value);
+    window.location.href = url.toString();
+  });
+  // 选完文件即上传（downloads/，永不覆盖）
+  document.addEventListener("change", function (ev) {
+    if (!ev.target || !ev.target.matches || !ev.target.matches(".osfm-upload input[type=file]")) return;
+    if (ev.target.files && ev.target.files.length) ev.target.closest("form").submit();
+  });
+})();

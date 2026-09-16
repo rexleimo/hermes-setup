@@ -89,3 +89,22 @@ app/web/templates/files/*.html      # HTMX 局部交换，零构建链不变
 - Agent 不守约写飞 → 巡检兜底可见，不阻塞。
 - workspace 在 NAS/慢盘 → list 加 TTL 缓存（30s），zip 流式不落地。
 - 大量文件（>10k）→ 分页 + 目录级汇总，M1 内实现分页即可。
+
+---
+
+## 修订 R1（v0.5.0）— OS 风格重构（用户验收反馈）
+
+用户反馈：M1 的三栏表格"不是很能接受"，要求做成真正的 OS 文件管理器（Windows Explorer / macOS Finder 均可），且要有自己的文件类型体系（图片、视频等）。
+
+落地：
+1. **类型体系**：`CATEGORIES = images/videos/audio/documents/code/archives`（按扩展名）；
+   物理目录新增 `documents/ pictures/ videos/` 标准桶（init 幂等补齐）。
+2. **智能集合**：侧栏虚拟视图（全工作区聚合、按时间倒序、上限 1000），只读定位，
+   **不移动不复制文件**（维持"永不产生第二份"执法原则）。
+3. **OS 交互**：网格（图片/视频真缩略图，浏览器原生渲染，零依赖）⇄ 详细列表；
+   单击选中 + 操作条、双击进入/预览、右键菜单、Backspace 上一级、筛选、排序；
+   hx-boost 整页导航，URL 即状态，前进/后退原生可用。
+4. 预览面板 = Finder Quick Look 角色，新增 video/audio 内联播放。
+
+约束遵守：零新依赖（缩略图/播放用浏览器原生能力）、零构建链（交互为 app.js 委托事件）、
+jail/审计/上传落 downloads/归档不复制等执法规则全部未变。

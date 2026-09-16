@@ -1,0 +1,118 @@
+{% from "macros.html" import icon, tag, csrf with context %}
+{% set baseq = ('cat=' ~ cat if cat else 'path=' ~ path) ~ '&sort=' ~ sort %}
+{# OS 风格内容区：面包屑工具条 + 图标网格 / 详细列表。页面与 /files/list 片段共用。 #}
+<div class="card osfm-card">
+  <div class="osfm-toolbar">
+    <div class="osfm-crumbs">
+      {% if path %}
+      <a href="/files?path={{ path.rsplit('/', 1)[0] if '/' in path else '' }}&sort={{ sort }}&view={{ view }}"
+         title="上一级">{{ icon('branch') }}</a>
+      {% endif %}
+      {% for name, p in crumbs %}
+        {% if not loop.last %}
+          <a href="/files?{% if p.startswith('?') %}{{ p[1:] }}{% else %}path={{ p }}{% endif %}&sort={{ sort }}&view={{ view }}">{{ name }}</a><span class="osfm-crumb-sep">›</span>
+        {% else %}<strong>{{ name }}</strong>{% endif %}
+      {% endfor %}
+    </div>
+    <div class="osfm-tools">
+      <input class="form-input osfm-search" id="osfm-search" type="search" placeholder="筛选当前视图…" autocomplete="off">
+      <select class="form-input osfm-sort" id="osfm-sort" title="排序">
+        <option value="name" {% if sort == 'name' %}selected{% endif %}>按名称</option>
+        <option value="time" {% if sort == 'time' %}selected{% endif %}>按时间</option>
+        <option value="size" {% if sort == 'size' %}selected{% endif %}>按大小</option>
+      </select>
+      <div class="osfm-viewtoggle">
+        <a class="{% if view != 'list' %}active{% endif %}" title="图标视图"
+           href="/files?{{ baseq }}&view=grid">{{ icon('grid') }}</a>
+        <a class="{% if view == 'list' %}active{% endif %}" title="列表视图"
+           href="/files?{{ baseq }}&view=list">{{ icon('menu') }}</a>
+      </div>
+      {% if is_admin %}
+      <form method="post" action="/files/upload" enctype="multipart/form-data" class="osfm-upload">
+        {{ csrf() }}
+        <label class="btn btn-secondary btn-sm" title="上传到 downloads/（同名自动加后缀，永不覆盖）">
+          {{ icon('download') }} 上传<input type="file" name="file" hidden required>
+        </label>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="osfm-selbar" id="osfm-selbar" hidden>
+    <span id="osfm-selname" class="mono"></span>
+    <span style="flex:1"></span>
+    <button class="btn btn-ghost btn-sm" id="osfm-act-open" type="button">打开</button>
+    <a class="btn btn-ghost btn-sm" id="osfm-act-dl" style="display:none">下载</a>
+    <a class="btn btn-ghost btn-sm" id="osfm-act-zip" style="display:none">打包</a>
+    {% if is_admin %}
+    <button class="btn btn-ghost btn-sm" id="osfm-act-archive" type="button" style="display:none">归档</button>
+    {% endif %}
+  </div>
+
+  {# ---------------- 网格 ---------------- #}
+  {% if view != 'list' %}
+  <div class="osfm-grid" id="osfm-items">
+    {% for e in entries %}
+    <div class="osfm-card-item" tabindex="0"
+         data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}"
+         data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
+         data-href="/files?path={{ e.rel }}&sort={{ sort }}&view={{ view }}"
+         title="{{ e.rel }} · {{ e.size_text }} · {{ e.mtime_text }}">
+      <div class="osfm-thumb">
+        {% if e.is_dir %}{{ icon('folder') }}
+          {% if e.count is not none %}<em class="osfm-badge">{{ e.count }}</em>{% endif %}
+        {% elif e.category == 'images' %}<img src="/files/raw?path={{ e.rel }}" loading="lazy" alt="">
+        {% elif e.category == 'videos' %}<video src="/files/raw?path={{ e.rel }}#t=0.5" preload="metadata" muted playsinline></video><em class="osfm-badge">▶</em>
+        {% else %}<span class="osfm-glyph">{{ e.category_emoji }}</span>
+          {% if not e.category %}<em class="osfm-badge osfm-badge-ext">{{ e.ext[1:]|upper if e.ext else '文件' }}</em>{% endif %}
+        {% endif %}
+      </div>
+      <div class="osfm-fname">{{ e.name }}</div>
+      <div class="osfm-fmeta">{{ e.size_text }} · {{ e.mtime_text }}</div>
+    </div>
+    {% else %}
+    <div class="empty-state" style="grid-column:1/-1"><p class="text-muted">此文件夹为空</p></div>
+    {% endfor %}
+  </div>
+
+  {# ---------------- 列表（详细信息视图） ---------------- #}
+  {% else %}
+  <div class="table-wrap"><table class="table osfm-table" id="osfm-items">
+    <thead><tr><th>名称</th><th>类型</th><th></th><th>大小</th><th>修改 (UTC)</th></tr></thead>
+    <tbody>
+      {% for e in entries %}
+      <tr class="osfm-card-item" tabindex="0"
+          data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}"
+          data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
+          data-href="/files?path={{ e.rel }}&sort={{ sort }}&view={{ view }}">
+        <td>
+          {% if e.is_dir %}{{ icon('folder') }}{% else %}<span class="osfm-emoji">{{ e.category_emoji }}</span>{% endif %}
+          <span class="cell-main">{{ e.name }}</span>
+          {% if e.is_bucket %}{{ tag('规范目录', 'muted') }}{% endif %}
+        </td>
+        <td class="text-muted">{{ '文件夹' if e.is_dir else (e.category or '文件') }}</td>
+        <td class="table-actions" onclick="event.stopPropagation();">
+          {% if e.is_dir %}
+            <a class="btn btn-ghost btn-sm" href="/files/zip?path={{ e.rel }}">打包</a>
+          {% else %}
+            <a class="btn btn-ghost btn-sm" href="/files/raw?path={{ e.rel }}&dl=1">下载</a>
+          {% endif %}
+          {% if is_admin and not e.is_bucket %}
+          <form method="post" action="/files/move" style="display:inline;"
+                data-confirm="确认归档 {{ e.name }}？（mv 到 archive/，不留副本）">
+            {{ csrf() }}
+            <input type="hidden" name="path" value="{{ e.rel }}">
+            <button class="btn btn-ghost btn-sm" type="submit">归档</button>
+          </form>
+          {% endif %}
+        </td>
+        <td class="num">{{ e.size_text }}</td>
+        <td class="num">{{ e.mtime_text }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5"><div class="empty-state"><p class="text-muted">此文件夹为空</p></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</div>

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0 — 2026-09-16（文件工作台 OS 风格重构）
+
+### Changed
+- **文件工作台按 Finder/Explorer 交互重做**（用户反馈：不接受表格型页面）：
+  - 侧栏 = 位置（工作区根 + 7 个标准目录含文件数）+ 智能集合
+    （最近使用 / 图片 / 视频 / 音频 / 文档 / 代码 / 压缩包，全工作区按扩展名聚合，虚拟视图不复制文件）；
+  - 主区 = 图标网格（图片真缩略图、视频首帧 `<video preload=metadata>`、类型 emoji 字形 + 扩展名徽标、
+    目录子项计数）⇄ 详细列表一键切换；工具条含面包屑、筛选框（前端即时过滤）、排序（名称/时间/大小）；
+  - 交互 = 单击选中（选中操作条：打开/下载/打包/归档）、双击打开（目录进入/文件右侧 Quick Look 预览）、
+    右键上下文菜单、Esc 取消、Enter 打开、Backspace 上一级、选完文件即上传；
+  - 导航改 hx-boost 整页（URL 即状态，浏览器前进/后退原生可用）。
+- 工作区目录体系扩展：`documents/ pictures/ videos/` 成为标准目录（init 幂等补齐，
+  散乱文件巡检白名单同步）；上传仍固定落 downloads/。
+- 预览面板支持视频播放与音频播放（原生 `<video>/<audio>`，零依赖）。
+
+### Added
+- workspace_service：CATEGORIES 类型体系、list_collection / list_recent /
+  category_counts / location_counts、Entry.count（目录子项数）、排序参数。
+
+### Removed
+- 旧三栏表格 `files/_list.html`。
+
+### Tests
+- 新增智能集合/布局/排序/目录计数 2 项；106 passed, 3 skipped。
+
 ## 0.4.0 — 2026-09-16（渠道接入助手 · weixin 浏览器内扫码）
 
 ### Added

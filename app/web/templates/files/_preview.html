@@ -9,6 +9,10 @@
     <p style="margin-top:10px;"><a class="btn btn-secondary btn-sm" href="/files/raw?path={{ pv.rel }}&dl=1">下载源文件</a></p>
   {% elif pv.mode == 'image' %}
     <img src="/files/raw?path={{ pv.rel }}" alt="{{ pv.name or '' }}">
+  {% elif pv.mode == 'video' %}
+    <video src="/files/raw?path={{ pv.rel }}" controls preload="metadata" style="width:100%; border-radius:8px; background:#000;"></video>
+  {% elif pv.mode == 'audio' %}
+    <audio src="/files/raw?path={{ pv.rel }}" controls style="width:100%;"></audio>
   {% elif pv.mode == 'pdf' %}
     <iframe src="/files/raw?path={{ pv.rel }}" style="width:100%; height:60vh; border:1px solid var(--border, #ddd); border-radius:8px;"></iframe>
   {% else %}

@@ -415,6 +415,9 @@ def init_workspace(s: EngSettings, paths: HermesPaths | None = None) -> list[str
     dirs = [
         base / "projects",
         base / "downloads",
+        base / "documents",
+        base / "pictures",
+        base / "videos",
         base / "scratch",
         base / "archive",
     ]
@@ -425,10 +428,11 @@ def init_workspace(s: EngSettings, paths: HermesPaths | None = None) -> list[str
     readme = base / "README.md"
     if not readme.exists():
         readme.write_text(
-            "# Hermes 工作区\n\n由 Hermes Console 按工程规范初始化。\n\n"
-            "- `projects/<项目名>/`：所有产出归属项目，动手前先建项目\n"
-            "- `downloads/`：外部下载材料\n- `scratch/`：一次性实验\n"
-            "- `archive/`：完结项目（追加日期后缀）\n",
+            "# Hermes 工作区\n\n由 Hermes Console 按工程规范初始化（OS 风格目录体系）。\n\n"
+            "- `projects/<项目名>/`：项目产出\n- `downloads/`：外部下载材料\n"
+            "- `documents/` `pictures/` `videos/`：文档 / 图片 / 视频\n"
+            "- `scratch/`：一次性实验\n- `archive/`：完结归档（追加日期后缀）\n\n"
+            "控制台侧栏「智能集合」按扩展名全工作区聚合，不复制文件。\n",
             encoding="utf-8")
         created.append("README.md")
     # 项目模板文件落到一个示例项目（仅首次）

@@ -94,3 +94,39 @@ def test_denied_is_audited(workspace, logged_in):
     logged_in.get("/files/raw", params={"path": "../../x", "dl": 1})
     rows = db.query("SELECT action, outcome FROM audit_log WHERE action='files_denied'")
     assert rows, "越狱尝试必须落审计"
+
+
+# ---------------------------------------------------------------------------
+# OS 风格改造（v0.5.0）：类型体系与智能集合
+# ---------------------------------------------------------------------------
+
+def test_smart_collections_and_os_layout(logged_in, workspace):
+    import io
+    # 初始化后存在标准类型目录
+    for d in ("documents", "pictures", "videos"):
+        assert (workspace / d).is_dir(), d
+    # 放一张"图片"和一段"视频"在深层目录，验证全工作区聚合
+    deep = workspace / "projects" / "example-project" / "docs"
+    (deep / "shot.png").write_bytes(b"\x89PNG fake")
+    (deep / "clip.mp4").write_bytes(b"fakevideo")
+    page = logged_in.get("/files?cat=images")
+    assert page.status_code == 200 and "shot.png" in page.text
+    assert "clip.mp4" not in page.text  # 集合按类型过滤
+    frag = logged_in.get("/files/list", params={"cat": "videos"})
+    assert frag.status_code == 200 and "clip.mp4" in frag.text
+    # 智能集合是虚拟视图：文件没有被移动
+    assert (deep / "shot.png").exists()
+    # 最近使用视图
+    rec = logged_in.get("/files?cat=recent")
+    assert rec.status_code == 200 and "shot.png" in rec.text
+    # 未知集合 → 400
+    assert logged_in.get("/files", params={"cat": "badgers"}).status_code == 400
+
+
+def test_entry_sorting_and_dir_counts(logged_in, workspace):
+    (workspace / "scratch" / "a_big.txt").write_bytes(b"x" * 2048)
+    (workspace / "scratch" / "z_small.txt").write_text("s", encoding="utf-8")
+    by_size = logged_in.get("/files/list", params={"path": "scratch", "sort": "size"}).text
+    assert by_size.index("a_big.txt") < by_size.index("z_small.txt")
+    page = logged_in.get("/files?path=projects").text
+    assert "example-project" in page  # 目录卡片（含数量徽标）

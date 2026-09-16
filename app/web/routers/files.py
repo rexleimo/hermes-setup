@@ -50,33 +50,56 @@ def _list_or_404(request: Request, rel: str):
 # ---------------------------------------------------------------------------
 
 @router.get("")
-def files_page(request: Request, user: User, path: str = ""):
+def files_page(request: Request, user: User, path: str = "", cat: str = "",
+               sort: str = "name", view: str = "grid"):
     status = ws.workspace_status()
     ctx = {
         "nav_active": "workbench",
         "ws_status": status,
-        "path": path,
-        "crumbs": [],
-        "entries": [],
-        "inspect": None,
+        "path": path, "cat": cat, "sort": sort, "view": view,
+        "crumbs": [], "entries": [], "inspect": None,
+        "counts": [], "locs": [],
         "is_admin": user["role"] == "admin",
     }
     if status.get("error") or not status.get("exists"):
         return render(request, "files.html", ctx)
-    ctx["crumbs"] = ws.breadcrumbs(path)
-    ctx["entries"] = _list_or_404(request, path)
+    try:
+        ctx["entries"], ctx["crumbs"] = _listing(request, path, cat, sort)
+    except ws.WorkspaceError as exc:
+        _fail(request, exc, path or cat or "/")
+        return render(request, "files.html", ctx)
+    ctx["counts"] = ws.category_counts()
+    ctx["locs"] = ws.location_counts()
     ctx["inspect"] = ws.inspect_summary()
-    audit.record("files_browse", username=user["username"], target=path or "/",
-                 ip=client_ip(request))
+    audit.record("files_browse", username=user["username"],
+                 target=f"{path or cat or '/'}", ip=client_ip(request))
     return render(request, "files.html", ctx)
 
 
+def _listing(request: Request, path: str, cat: str, sort: str):
+    """三种视图模式：目录 / 智能集合 / 最近。返回 (entries, crumbs)。"""
+    if cat == "recent":
+        return ws.list_recent(), [("🕘 最近使用", "?cat=recent")]
+    if cat:
+        if cat not in ws.CATEGORY_MAP:
+            raise ws.WorkspaceError(f"未知集合：{cat}")
+        label, emoji = ws.CATEGORY_MAP[cat][0], ws.CATEGORY_MAP[cat][1]
+        return ws.list_collection(cat), [(f"{emoji} {label}（智能集合）", f"?cat={cat}")]
+    return ws.list_dir(path, sort), ws.breadcrumbs(path)
+
+
 @router.get("/list")
-def list_fragment(request: Request, user: User, path: str = ""):
-    """HTMX 片段：切换目录只换中栏。"""
-    entries = _list_or_404(request, path)
-    return render_partial(request, "files/_list.html", {
-        "entries": entries, "path": path, "crumbs": ws.breadcrumbs(path),
+def list_fragment(request: Request, user: User, path: str = "", cat: str = "",
+                  sort: str = "name", view: str = "grid"):
+    """HTMX 片段（兼容保留）；页面导航主走 hx-boost 整页。"""
+    try:
+        entries, crumbs = _listing(request, path, cat, sort)
+    except ws.WorkspaceError as exc:
+        _fail(request, exc, path or cat or "/")
+        return
+    return render_partial(request, "files/_content.html", {
+        "entries": entries, "path": path, "cat": cat, "sort": sort,
+        "view": view, "crumbs": crumbs,
         "is_admin": user["role"] == "admin",
     })
 
@@ -146,9 +169,9 @@ def move(request: Request, admin: Admin, path: str = Form(...)):
                  ip=client_ip(request))
     parent = path.rsplit("/", 1)[0] if "/" in path else ""
     entries = _list_or_404(request, parent)
-    resp = render_partial(request, "files/_list.html", {
-        "entries": entries, "path": parent, "crumbs": ws.breadcrumbs(parent),
-        "is_admin": True,
+    resp = render_partial(request, "files/_content.html", {
+        "entries": entries, "path": parent, "cat": "", "sort": "name", "view": "grid",
+        "crumbs": ws.breadcrumbs(parent), "is_admin": True,
     })
     toast(resp, f"已归档：{rel}")
     return resp

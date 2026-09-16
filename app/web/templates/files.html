@@ -3,27 +3,13 @@
 {% block title %}文件工作台{% endblock %}
 {% block topbar_title %}产出 / <strong>文件工作台</strong>{% endblock %}
 {% block content %}
-<style>
-  .wb-shell { display:grid; grid-template-columns:200px minmax(0,1fr) 430px; gap:16px; align-items:start; }
-  @media (max-width:1100px){ .wb-shell { grid-template-columns:1fr; } .wb-side{ display:none; } }
-  .wb-tree a { display:flex; gap:8px; align-items:center; padding:7px 10px; border-radius:8px;
-               color:var(--text-2, #444); font-size:13px; text-decoration:none; }
-  .wb-tree a:hover { background:rgba(0,0,0,.05); }
-  .wb-preview-body { max-height:70vh; overflow:auto; }
-  .wb-preview-body img { max-width:100%; border-radius:8px; }
-  .wb-preview-body pre { white-space:pre-wrap; word-break:break-all; margin:0; font-size:12.5px; }
-  .wb-row { cursor:pointer; }
-  .wb-row:hover td { background:rgba(29,78,216,.05); }
-  .chip-line { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
-</style>
 
 <div class="page-header">
   <div>
     <h2>文件工作台</h2>
     <p class="page-desc">
-      Agent 产物的固定去处 ·
       <code>{{ ws_status.root if ws_status.root else '未配置' }}</code>
-      （与工程规范层同一 workspace 契约）
+      · 侧栏「智能集合」按类型聚合全部文件，不复制、不搬家
     </p>
     {% if inspect and inspect.available %}
     <div class="chip-line">
@@ -45,7 +31,7 @@
   {% else %}
     <div class="empty-state">
       <p><strong>工作区尚未初始化</strong><br>
-      <span class="text-muted">将按工程规范创建 projects / downloads / scratch / archive 目录树与示例项目。</span></p>
+      <span class="text-muted">将创建 OS 风格目录树：projects / downloads / documents / pictures / videos / scratch / archive。</span></p>
       {% if is_admin %}
       <form method="post" action="/files/init" style="margin-top:12px;">
         {{ csrf() }}
@@ -59,29 +45,45 @@
 </div></div>
 {% else %}
 
-<div class="wb-shell">
-  {# ---------------- 左：快捷树 ---------------- #}
-  <div class="card wb-side">
-    <div class="card-header"><h3>目录树</h3></div>
-    <div class="card-body wb-tree">
-      <a hx-get="/files/list?path=" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('grid') }} 工作区根</a>
-      <a hx-get="/files/list?path=projects" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('folder') }} projects 产出</a>
-      <a hx-get="/files/list?path=downloads" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('download') }} downloads 材料</a>
-      <a hx-get="/files/list?path=scratch" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('branch') }} scratch 实验</a>
-      <a hx-get="/files/list?path=archive" hx-target="#wb-list" hx-swap="outerHTML">{{ icon('box') }} archive 归档</a>
-    </div>
-  </div>
+{%- set qs = '&sort=' ~ sort ~ '&view=' ~ view -%}
+<div class="osfm" id="osfm-root" data-admin="{{ '1' if is_admin else '0' }}" hx-boost="true">
+  {# ---------------- 侧栏：位置 + 智能集合 ---------------- #}
+  <aside class="osfm-side">
+    <div class="osfm-side-title">位置</div>
+    <a class="osfm-loc {% if not cat and not path %}active{% endif %}"
+       href="/files?{{ qs[1:] }}">{{ icon('grid') }} <span>工作区根</span></a>
+    {% for name, n in locs %}
+    <a class="osfm-loc {% if not cat and path == name %}active{% endif %}"
+       href="/files?path={{ name }}{{ qs }}">
+      {% if name == 'projects' %}{{ icon('folder') }}
+      {% elif name == 'downloads' %}{{ icon('download') }}
+      {% elif name == 'scratch' %}{{ icon('branch') }}
+      {% elif name == 'archive' %}{{ icon('box') }}
+      {% else %}{{ icon('file') }}{% endif %}
+      <span>{{ {'projects':'项目 projects','downloads':'下载 downloads','documents':'文档 documents','pictures':'图片 pictures','videos':'视频 videos','scratch':'草稿 scratch','archive':'归档 archive'}.get(name, name) }}</span><em class="osfm-n">{{ n }}</em></a>
+    {% endfor %}
 
-  {# ---------------- 中：列表（_list.html 根元素自带 #wb-list） ---------------- #}
-  {% include "files/_list.html" %}
+    <div class="osfm-side-title">媒体与类型</div>
+    <a class="osfm-loc {% if cat == 'recent' %}active{% endif %}" href="/files?cat=recent{{ qs }}">
+      {{ icon('rotate') }} <span>最近使用</span></a>
+    {% for key, label, emoji, n in counts %}
+    <a class="osfm-loc {% if cat == key %}active{% endif %}" href="/files?cat={{ key }}{{ qs }}">
+      <span class="osfm-emoji">{{ emoji }}</span> <span>{{ label }}</span><em class="osfm-n">{{ n }}</em></a>
+    {% endfor %}
+  </aside>
 
-  {# ---------------- 右：预览 ---------------- #}
-  <div class="card">
-    <div class="card-header"><h3>预览</h3></div>
+  {# ---------------- 中栏：工具条 + 内容 ---------------- #}
+  <section class="osfm-main">
+    <div id="osfm-content">{% include "files/_content.html" %}</div>
+  </section>
+
+  {# ---------------- 右栏：预览（Quick Look） ---------------- #}
+  <aside class="card osfm-preview">
+    <div class="card-header"><h3>{{ icon('search') }} 预览</h3></div>
     <div class="card-body wb-preview-body" id="wb-preview">
-      <div class="empty-state"><p class="text-muted">点击文件名即可预览<br>md / 代码 / 图片 / pdf 支持内联</p></div>
+      <div class="empty-state"><p class="text-muted">单击选中，双击打开预览<br>图片 / 视频 / 音频 / 文本 / pdf 内联显示</p></div>
     </div>
-  </div>
+  </aside>
 </div>
 {% endif %}
 {% endblock %}
