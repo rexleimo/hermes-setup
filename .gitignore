@@ -18,6 +18,7 @@ data/
 # AIOS / 工具运行时产物（不入库）
 .aios/
 .contextdb-enable
+.zcode/
 
 # 编辑器
 .DS_Store
