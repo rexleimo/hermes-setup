@@ -29,7 +29,7 @@ def clean_db():
     db.init_db()
     for table in ("users", "sessions", "audit_log", "login_attempts",
                   "app_settings", "provider_meta", "provider_models",
-                  "fallback_chain", "job_runs"):
+                  "fallback_chain", "job_runs", "mcp_meta"):
         db.execute(f"DELETE FROM {table}")
     yield
 

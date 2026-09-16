@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag with context %}
+{% block title %}MCP 服务{% endblock %}
+{% block topbar_title %}扩展生态 / <strong>MCP 服务</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>MCP 服务</h2>
+    <p class="page-desc">管理 config.yaml 的 mcp_servers：本地 stdio 进程与远程 HTTP 端点，MCP 是 Hermes 生态的主要扩展面</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-primary" href="/mcp/new">{{ icon('plus') }} 手动添加</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body flush">
+    {% if servers %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr>
+        <th>服务</th><th>类型</th><th>目标</th><th>状态</th><th>信任</th><th style="text-align:right;">操作</th>
+      </tr></thead>
+      <tbody>
+      {% for s in servers %}
+      <tr id="mcp-{{ s.name }}">
+        <td>
+          <div class="cell-main">{{ s.name }}</div>
+          {% if s.managed_label %}<div class="cell-sub">{{ s.managed_label }}</div>
+          {% elif s.note %}<div class="cell-sub">{{ s.note }}</div>{% endif %}
+        </td>
+        <td>{{ tag({'stdio': 'stdio 本地', 'http': 'HTTP 远程', 'sse': 'SSE 远程'}[s.transport], 'info') }}</td>
+        <td class="mono" style="font-size:12px; max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ s.target }}</td>
+        <td>
+          {% if s.enabled %}{{ tag('已启用', 'ok') }}{% else %}{{ tag('已停用', 'muted') }}{% endif %}
+          {% if s.secret_env_keys or s.secret_header_keys %}{{ tag('密钥在 .env', 'muted') }}{% endif %}
+        </td>
+        <td>{% if s.trust == 'untrusted' %}{{ tag('untrusted', 'warn') }}{% else %}{{ tag('full', 'muted') }}{% endif %}</td>
+        <td>
+          <div class="table-actions">
+            <form method="post" action="/mcp/{{ s.name }}/toggle" class="inline-form">
+              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+              <input type="hidden" name="enable" value="{{ '0' if s.enabled else '1' }}">
+              <button class="btn btn-ghost btn-sm" title="{{ '停用' if s.enabled else '启用' }}">
+                {{ icon('zap') }} {{ '停用' if s.enabled else '启用' }}</button>
+            </form>
+            <a class="btn btn-ghost btn-sm" href="/mcp/{{ s.name }}">{{ icon('pen') }} 管理</a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    <div class="empty-state">
+      {{ icon('box') }}
+      <h4>还没有配置 MCP 服务</h4>
+      <p>从下方官方热门目录一键添加，或手动配置任意 stdio / HTTP 服务</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card" style="margin-top:18px;">
+  <div class="card-header">
+    <h3>官方热门目录</h3>
+    <span class="card-extra text-muted">来自本机 Hermes Agent 自带的官方精选目录（optional-mcps，Nous 审核）</span>
+  </div>
+  <div class="card-body">
+    {% if catalog %}
+    <div class="catalog-grid">
+      {% for e in catalog %}
+      <div class="catalog-card {% if e.id in installed %}done{% endif %}" id="catalog-{{ e.id }}">
+        <div class="catalog-head">
+          <span class="cell-main">{{ e.id }}</span>
+          {% if e.hot %}{{ tag('热门', 'warn') }}{% endif %}
+          {% if e.id in installed %}{{ tag('已添加', 'ok') }}{% endif %}
+        </div>
+        <p class="catalog-desc">{{ e.description }}</p>
+        <div class="flex" style="gap:6px; flex-wrap:wrap;">
+          {{ tag(e.transport_label, 'info') }}
+          {% if e.auth_type == 'oauth' %}{{ tag('OAuth', 'muted') }}
+          {% elif e.transport == 'stdio' %}{{ tag('本地运行', 'muted') }}{% else %}{{ tag('无需认证', 'muted') }}{% endif %}
+        </div>
+        <div class="catalog-foot">
+          {% if e.id in installed %}
+          <a class="btn btn-ghost btn-sm" href="/mcp/{{ e.id }}">{{ icon('pen') }} 查看</a>
+          {% else %}
+          <form method="post" action="/mcp/catalog/{{ e.id }}/add" class="inline-form">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+            <button class="btn btn-secondary btn-sm">{{ icon('download') }} 一键添加</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      {{ icon('info') }}
+      <h4>官方目录不可用</h4>
+      <p>未找到本机 Hermes Agent 源码目录（{{ 'agent_repo/optional-mcps' }}）。请先在「服务管理」安装 Hermes Agent，或手动添加 MCP 服务。</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="alert alert-info" style="margin-top:18px;">{{ icon('info') }}
+  配置写入 <code>config.yaml</code> 的 <code>mcp_servers.*</code>；密钥类环境变量与 Header 只写
+  <code>~/.hermes/.env</code>（600 权限），配置中以 <code>${VAR}</code> 占位符引用，Hermes 连接时解析。
+  变更后重启 Gateway 生效。</div>
+{% endblock %}

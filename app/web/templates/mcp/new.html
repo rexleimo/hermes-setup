@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag, field with context %}
+{% block title %}添加 MCP 服务{% endblock %}
+{% block topbar_title %}扩展生态 / <strong>添加 MCP 服务</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>添加 MCP 服务</h2>
+    <p class="page-desc">stdio = 本地启动的进程；http = 远程端点（可选 SSE 传输）。写入 config.yaml 的 mcp_servers.*</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-secondary" href="/mcp">{{ icon('arrow-right') }} 返回列表</a></div>
+</div>
+
+{% if error %}<div class="alert alert-danger">{{ icon('alert') }} {{ error }}</div>{% endif %}
+
+{% if entry %}
+<div class="alert alert-info">{{ icon('info') }}
+  正在从官方目录添加 <strong>{{ entry.id }}</strong>：{{ entry.description }}
+  {% if entry.post_install %}<br><span class="text-muted">{{ entry.post_install }}</span>{% endif %}
+</div>
+{% endif %}
+
+<form method="post" action="/mcp/new" class="card form-card">
+  <div class="card-body">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="form-row">
+      {{ field('name', '服务名称', form.name or (entry.id if entry else ''), required=True,
+               help='写入 mcp_servers.<名称>；字母开头，可含数字、连字符、下划线') }}
+      {{ field('transport', '传输类型', transport, kind='select', required=True,
+               options=['stdio', 'http'],
+               help='stdio：Hermes 以子进程启动；http：远程 HTTP / SSE 端点') }}
+    </div>
+
+    <div data-visible-if-field="transport" data-visible-if-value="stdio">
+      {{ field('command', '启动命令', form.command or (entry.command if entry else ''),
+               placeholder='如 npx / uvx / /path/to/server',
+               help='stdio 类型必填；无需写 shell，参数逐行填在下方') }}
+      {{ field('args_text', '参数（每行一个）', form.args_text or (entry.args | join('\n') if entry else ''),
+               kind='textarea', placeholder='-y\n@modelcontextprotocol/server-xxx') }}
+      {{ field('env_text', '环境变量（明文，写入 config.yaml）', form.env_text, kind='textarea',
+               placeholder='DEBUG=1\nLOG_LEVEL=info', help='每行一个 KEY=value；密钥请用下面的密钥区') }}
+    </div>
+
+    <div data-visible-if-field="transport" data-visible-if-value="http">
+      {{ field('url', '服务 URL', form.url or (entry.url if entry else ''),
+               placeholder='https://mcp.example.com/mcp',
+               help='http 类型必填；以 http:// 或 https:// 开头') }}
+      {{ field('headers_text', 'Headers（明文，写入 config.yaml）', form.headers_text, kind='textarea',
+               placeholder='X-Custom-Header=value') }}
+      <div class="form-item">
+        <label class="form-label">使用 SSE 传输</label>
+        <label class="switch"><input type="checkbox" name="use_sse" value="1">
+          <span class="switch-slider"></span></label>
+        <p class="form-help">端点只支持旧版 SSE 协议时开启；默认走 Streamable HTTP</p>
+      </div>
+      <div class="form-item">
+        <label class="form-label">OAuth 认证</label>
+        <label class="switch"><input type="checkbox" name="auth_oauth" value="1"
+               {% if entry and entry.auth_type == 'oauth' %}checked{% endif %}>
+          <span class="switch-slider"></span></label>
+        <p class="form-help">开启后首次连接会打开浏览器做 OAuth 2.1 授权（如 Notion / Linear）</p>
+      </div>
+    </div>
+
+    <div class="form-row">
+      {{ field('secret_env_text', '环境变量密钥（写入 .env）', form.secret_env_text, kind='textarea',
+               placeholder='API_KEY=sk-xxx', help='每行 KEY=value；值只进 ~/.hermes/.env，配置中引用 ${VAR}') }}
+      {{ field('secret_headers_text', 'Header 密钥（写入 .env）', form.secret_headers_text, kind='textarea',
+               placeholder='Authorization=Bearer xxx', help='同上，Header 值只进 .env') }}
+    </div>
+
+    <div class="form-row">
+      {{ field('timeout', '工具调用超时（秒，默认 300）', form.timeout, kind='int', placeholder='300') }}
+      {{ field('trust', '信任级别', form.trust or 'full', kind='select', options=['full', 'untrusted'],
+               help='untrusted：该服务的写操作每次都要经过审批（安全默认）') }}
+    </div>
+
+    <div class="form-item">
+      <label class="form-label">添加后立即启用</label>
+      <label class="switch"><input type="checkbox" name="enabled" value="1" checked>
+        <span class="switch-slider"></span></label>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">{{ icon('check') }} 保存</button>
+      <a class="btn btn-secondary" href="/mcp">取消</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

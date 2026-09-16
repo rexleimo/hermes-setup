@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS provider_models (
     UNIQUE (provider_id, model_id)
 );
 
+CREATE TABLE IF NOT EXISTS mcp_meta (
+    name       TEXT PRIMARY KEY,   -- mcp_servers.<name> 键名
+    note       TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS fallback_chain (
     position  INTEGER PRIMARY KEY,
     provider  TEXT NOT NULL,

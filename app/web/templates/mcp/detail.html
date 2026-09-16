@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag, field with context %}
+{% block title %}{{ s.name }}{% endblock %}
+{% block topbar_title %}扩展生态 / <strong>MCP 服务 / {{ s.name }}</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>{{ s.name }}</h2>
+    <p class="page-desc">
+      {{ {'stdio': 'stdio 本地进程', 'http': 'HTTP 远程' + ('（SSE）' if s.transport == 'sse' else ''), 'sse': 'SSE 远程'}[s.transport] }}
+      {% if s.managed_label %}· {{ s.managed_label }}{% endif %}
+      {% if s.note %}· {{ s.note }}{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary" href="/mcp">{{ icon('arrow-right') }} 返回列表</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:18px;">
+  <div class="card-body">
+    <div class="flex" style="gap:8px; flex-wrap:wrap; align-items:center;">
+      {% if s.enabled %}{{ tag('已启用', 'ok') }}{% else %}{{ tag('已停用', 'muted') }}{% endif %}
+      {% if s.trust == 'untrusted' %}{{ tag('untrusted：写操作需审批', 'warn') }}{% else %}{{ tag('trust: full', 'muted') }}{% endif %}
+      {% if s.auth_oauth %}{{ tag('OAuth 2.1', 'info') }}{% endif %}
+      {% if s.timeout %}{{ tag('超时 ' ~ s.timeout ~ 's', 'muted') }}{% endif %}
+    </div>
+    <p class="mono" style="margin:12px 0 0; font-size:12.5px; word-break:break-all;">
+      {% if s.transport == 'stdio' %}
+        {{ s.command }}{% for a in s.args %} {{ a }}{% endfor %}
+      {% else %}
+        {{ s.url }}
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<form method="post" action="/mcp/{{ s.name }}/update" class="card form-card">
+  <div class="card-body">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="form-row">
+      {{ field('transport', '传输类型', 'http' if s.transport != 'stdio' else 'stdio',
+               kind='select', required=True, options=['stdio', 'http']) }}
+      <div class="form-item">
+        <label class="form-label">使用 SSE 传输</label>
+        <label class="switch"><input type="checkbox" name="use_sse" value="1"
+               {% if s.transport == 'sse' %}checked{% endif %}>
+          <span class="switch-slider"></span></label>
+      </div>
+    </div>
+
+    <div data-visible-if-field="transport" data-visible-if-value="stdio">
+      {{ field('command', '启动命令', s.command, placeholder='如 npx / uvx / /path/to/server') }}
+      {{ field('args_text', '参数（每行一个）', s.args_text, kind='textarea') }}
+      {{ field('env_text', '环境变量（明文，写入 config.yaml）', s.env_plain_text, kind='textarea',
+               help='每行一个 KEY=value；已有密钥不受影响') }}
+    </div>
+
+    <div data-visible-if-field="transport" data-visible-if-value="http">
+      {{ field('url', '服务 URL', s.url, placeholder='https://mcp.example.com/mcp') }}
+      {{ field('headers_text', 'Headers（明文，写入 config.yaml）', s.headers_plain_text, kind='textarea') }}
+      <div class="form-item">
+        <label class="form-label">OAuth 认证</label>
+        <label class="switch"><input type="checkbox" name="auth_oauth" value="1"
+               {% if s.auth_oauth %}checked{% endif %}>
+          <span class="switch-slider"></span></label>
+      </div>
+    </div>
+
+    {% if s.env_secrets or s.headers_secrets %}
+    <div class="alert alert-info">{{ icon('lock') }}
+      已有 {{ s.env_secrets | length + s.headers_secrets | length }} 个密钥引用（值在 ~/.hermes/.env，不回显）：
+      {% for k, v in s.env_secrets.items() %}<code>{{ k }} → {{ v }}</code> {% endfor %}
+      {% for k, v in s.headers_secrets.items() %}<code>{{ k }} → {{ v }}</code> {% endfor %}
+      需更换时在下方密钥区填入同名键的新值即可。</div>
+    {% endif %}
+
+    <div class="form-row">
+      {{ field('secret_env_text', '新增/更换 环境变量密钥（写入 .env）', '', kind='textarea',
+               placeholder='API_KEY=sk-xxx', help='留空 = 不改动；填入则覆盖同名密钥') }}
+      {{ field('secret_headers_text', '新增/更换 Header 密钥（写入 .env）', '', kind='textarea',
+               placeholder='Authorization=Bearer xxx') }}
+    </div>
+
+    <div class="form-row">
+      {{ field('timeout', '工具调用超时（秒，默认 300）', s.timeout or '', kind='int', placeholder='300') }}
+      {{ field('trust', '信任级别', s.trust, kind='select', options=['full', 'untrusted'],
+               help='untrusted：该服务的写操作每次都要经过审批') }}
+    </div>
+
+    <div class="form-item">
+      <label class="form-label">启用</label>
+      <label class="switch"><input type="checkbox" name="enabled" value="1"
+             {% if s.enabled %}checked{% endif %}>
+        <span class="switch-slider"></span></label>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">{{ icon('check') }} 保存</button>
+      <a class="btn btn-secondary" href="/mcp">取消</a>
+    </div>
+  </div>
+</form>
+
+{% if s.name != 'agentmemory' %}
+<form method="post" action="/mcp/{{ s.name }}/delete" class="card" style="margin-top:18px;"
+      data-confirm="删除后 Hermes 将无法再调用该 MCP 服务的工具，且不可恢复。" data-confirm-word="{{ s.name }}">
+  <div class="card-body">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="confirm" value="" data-confirm-field>
+    <div class="flex" style="justify-content:space-between; align-items:center;">
+      <div>
+        <h3 style="margin:0;">删除此 MCP 服务</h3>
+        <p class="page-desc" style="margin:4px 0 0;">从 config.yaml 移除条目，并清理写入 .env 的密钥变量</p>
+      </div>
+      <button class="btn btn-danger" type="submit">{{ icon('trash') }} 删除</button>
+    </div>
+  </div>
+</form>
+{% else %}
+<div class="alert alert-info" style="margin-top:18px;">{{ icon('info') }}
+  agentmemory 由「记忆系统」模块托管，如需移除请到对应页面关闭 AgentMemory。</div>
+{% endif %}
+{% endblock %}

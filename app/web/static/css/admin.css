@@ -932,3 +932,24 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 .wb-preview-body pre { white-space:pre-wrap; word-break:break-all; margin:0; font-size:12px;
   background:#f7f7f7; padding:10px; border-radius:6px; color:#222; }
 .chip-line { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+
+/* ------------------------------------------------------------------
+   目录卡片墙（MCP 官方目录 / 技能库 / 插件目录共用）
+   ------------------------------------------------------------------ */
+.catalog-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(255px,1fr)); gap:14px; }
+.catalog-card {
+  background:var(--bg-elevated); border:1px solid var(--border);
+  border-radius:var(--radius); padding:14px 16px;
+  display:flex; flex-direction:column; gap:10px;
+  transition:box-shadow .15s, transform .15s;
+}
+.catalog-card:hover { box-shadow:var(--shadow-pop); transform:translateY(-1px); }
+.catalog-card.done { opacity:.78; }
+.catalog-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.catalog-desc {
+  margin:0; font-size:12.5px; line-height:1.55; color:var(--text-secondary, #5b6472);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  min-height:2.9em;
+}
+.catalog-foot { margin-top:auto; display:flex; align-items:center; gap:8px; }
+.mcp-target { word-break:break-all; }
