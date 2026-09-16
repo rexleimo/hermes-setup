@@ -63,10 +63,40 @@ AREAS: tuple[ConfigArea, ...] = (
     ),
     ConfigArea(
         "mcp_servers", "MCP 服务器",
-        "stdio / http 两类外部工具源，含采样（sampling）配额",
+        "stdio / http(sse) 两类外部工具源；env/headers 支持 ${VAR} 密钥引用",
         ("<id>.command", "<id>.args", "<id>.env", "<id>.url", "<id>.headers",
-         "<id>.timeout", "sampling.model", "sampling.max_rpm"),
-        "phase2", "CRUD 形态清晰，与供应商管理同构，非常适合表格化编辑。",
+         "<id>.enabled", "<id>.timeout", "<id>.trust", "<id>.auth"),
+        "integrated",
+        "「MCP 服务」页：CRUD + 启停 + 官方热门目录（optional-mcps）一键添加；"
+        "密钥只写 .env，配置中以 ${VAR} 占位符引用（官方 secret-scope 语义）。",
+    ),
+    ConfigArea(
+        "skills", "技能生态",
+        "技能启停名单、外部目录挂载、项目技能信任、安全开关",
+        ("skills.disabled", "skills.external_dirs", "skills.trusted_project_dirs",
+         "skills.template_vars", "skills.inline_shell", "skills.guard_agent_created"),
+        "integrated",
+        "「技能管理」页：skills/ 目录可视化（frontmatter 解析 + 启停/删除）+ "
+        "官方热门技能库（optional-skills）一键安装 + skills 域设置表单；"
+        "hermes-agent 必备技能拒绝禁用（与官方 ESSENTIAL_SKILLS 对齐）。",
+    ),
+    ConfigArea(
+        "plugins.enabled", "插件白名单",
+        "~/.hermes/plugins/ 目录插件 + 官方策展目录（plugin-catalog）",
+        ("plugins.enabled", "plugins.hook_callback_timeout"),
+        "integrated",
+        "「插件与 Hook」页：启停 = 增删白名单（官方信任模型，默认禁用）；"
+        "策展目录安装走官方 CLI 后台任务（sha pin / 黑名单交给官方校验）。",
+    ),
+    ConfigArea(
+        "hooks / hooks_auto_accept", "Shell Hooks",
+        "config.yaml 声明式钩子：pre_tool_call 拦截、post_tool_call 后处理、pre_llm_call 注入上下文",
+        ("hooks.<event>[].command", "hooks.<event>[].matcher", "hooks.<event>[].timeout",
+         "hooks.<event>[].fail_closed", "hooks_auto_accept"),
+        "integrated",
+        "「插件与 Hook」页：CRUD 校验对齐官方（matcher 仅工具事件、fail_closed 仅 "
+        "pre_tool_call、timeout ≤ 300）；信任白名单可撤销；gateway hooks 与 "
+        "outbound webhooks 只读盘点。详见 docs/PLUGINS_AND_HOOKS.md。",
     ),
     ConfigArea(
         "cron / cron 目录", "定时任务",
@@ -95,12 +125,6 @@ AREAS: tuple[ConfigArea, ...] = (
         "integrated",
         "「记忆系统」页：内置容量预设（默认 2200/1375 → 最高 16000/8000）、"
         "外置方案表单化自动写入；agentmemory 支持 MCP 与 Provider 插件两种形态。",
-    ),
-    ConfigArea(
-        "skills", "技能生态",
-        "自动加载清单、agent 生成技能审批、目录挂载",
-        ("auto_load", "guard_agent_created", "write_approval", "config.<plugin>.path"),
-        "evaluate", "skills/ 目录可视化（列表 + 启停）更合适，配置项反而少。",
     ),
     ConfigArea(
         "compression", "上下文压缩",

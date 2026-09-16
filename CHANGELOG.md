@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.8.0 — 2026-09-17（扩展生态：Skill 管理 + MCP 服务管理 + 插件与 Hook）
+
+### Added
+- **MCP 服务管理（`/mcp`）**：`mcp_servers.*` 的 CRUD 与启停——stdio（command/args/env）
+  与远程 HTTP/SSE（url/headers/OAuth 2.1）两类，信任分级（untrusted = 写操作走审批）、
+  超时可调；**密钥只写 `.env`（600 权限），配置中以 `${VAR}` 占位符引用**（官方
+  secret-scope 语义，连接期解析）；编辑时自动保留存量密钥引用；删除时联动清理该服务
+  写入 `.env` 的密钥变量；`agentmemory` 打「记忆系统托管」标签并拒绝在本页删除。
+  **官方热门目录一键添加**：解析本机 `agent_repo/optional-mcps/*/manifest.yaml`
+  （64 个 Nous 审核条目），热门条目徽标置顶，安装结果与官方 `hermes mcp install` 等效
+  （不落多余键，安装提示透传）。
+- **Skill 管理（`/skills`）**：`~/.hermes/skills/` 目录可视化——解析 SKILL.md
+  frontmatter（name/description/version/tags），来源标签（工程规范托管 / 官方目录 /
+  自定义）、缺 SKILL.md 的无效目录标记；启停写入 `skills.disabled`
+  （`hermes-agent` 为官方 ESSENTIAL_SKILLS 拒绝禁用）；删除需输确认词且保护工程托管技能；
+  **官方热门技能库**：解析 `agent_repo/optional-skills/`（24 类）按类目折叠展示，
+  一键安装 = copytree（与 `hermes skills install` 等效，防路径穿越与重名）；
+  **skills 配置域表单**：external_dirs（兼容 list 与 JSON 字符串两种存量写法）、
+  project_discovery / template_vars / inline_shell(+timeout) / guard_agent_created
+  （默认值不落键）、trusted_project_dirs 展示与取消信任（等效 `hermes skills untrust`）。
+- **插件与 Hook 管理（`/plugins`）**：
+  - *插件*：扫 `~/.hermes/plugins/*/plugin.yaml`，启停即增删 `plugins.enabled`
+    白名单（官方信任模型：默认禁用）；白名单残留（目录已删）识别与一键清理；
+    `plugins.hook_callback_timeout` 调优；官方策展目录 `plugin-catalog/*.yaml`
+    展示（tier/capabilities/需注入的 env）；安装走官方 CLI
+    （`hermes plugins install`，sha pin 与黑名单校验全部交给官方实现），
+    复用后台任务台账（新 kind：安装插件）。
+  - *Shell hooks*：`hooks.<event>[]` 的 CRUD，校验对齐官方——事件须在 VALID_HOOKS
+    （37 个全集随源码内置）、matcher 仅 pre/post_tool_call 且须为合法正则、
+    fail_closed 仅 pre_tool_call、timeout 1-300；同 (event, command) 覆盖即编辑；
+    `hooks_auto_accept` 开关；信任白名单（shell-hooks-allowlist.json）展示与
+    单条撤销（等效 `hermes hooks revoke`）。
+  - *只读盘点*：gateway hooks 目录（HOOK.yaml 的 name/events）、outbound webhooks。
+- **调研沉淀**：[docs/PLUGINS_AND_HOOKS.md](docs/PLUGINS_AND_HOOKS.md)——Hermes 四套
+  Hook 体系（shell hooks / plugin hooks / gateway hooks / outbound webhooks）与插件
+  信任模型的完整结论，即本次「插件机制调研」的交付物。
+
+### Changed
+- 侧栏新增「扩展生态」分组（技能管理 / MCP 服务 / 插件与 Hook），新增三个内联 SVG 图标；
+- `docs/CONFIG_CATALOG.md` 与「配置项全景」页：`mcp_servers`、`skills` 移入「已集成」，
+  新增 `plugins.enabled`、`hooks` 两域条目（已集成 6 → 11）；`docs/ARCHITECTURE.md`
+  扩展点同步勾掉 MCP；README 功能总览、目录结构、写入契约与测试计数更新；
+- `check_live.py` 增加三个新页面的探针。
+
+### Notes
+- 写入纪律不变：全部走 `config_store`（文件锁 → 备份 → 原子替换，注释保留），
+  默认值不落键，真实状态一律以 config.yaml / 文件系统为准（控制台不说谎）；
+- 本期不做：技能/插件远端 marketplace 搜索、per-platform 技能禁用
+  （`skills.platform_disabled`）、outbound webhook 编辑、gateway hooks 的
+  Python handler 编辑。
+
 ## 0.7.1 — 2026-09-17（对外面收敛：一份首页 + 真实截图）
 
 ### Added

@@ -45,6 +45,9 @@ Hermes Agent 的可视化运维中台 —— 让 [Hermes Agent](https://github.c
 | **链路与别名** | 主模型切换（`model.*`）；降级备选链可视化排序（`delegation.fallback_providers`）；模型别名管理（`model_aliases`） |
 | **消息渠道** | 14 个渠道（飞书 / 微信 / QQ / Telegram / 企业微信 / 钉钉 / Discord / Slack / Email / WhatsApp / Signal / Matrix / Webhook / API Server）卡片式管理；令牌写入 `.env`（600 权限、永不回显）；平台参数写入 `config.yaml` 的 `platforms.*`；每渠道工具集覆盖（`platform_toolsets`） |
 | **记忆系统** | 内置记忆容量调优（默认 2,200/1,375 字符 → 一键预设至 16,000/8,000，解决大项目记忆写满报错）；9 家外置记忆方案一键切换并自动写入配置：社区 AgentMemory（零代码 MCP / Provider 插件自动安装）、Mem0、Supermemory、OpenViking、Hindsight、Holographic、RetainDB、ByteRover、Honcho |
+| **MCP 服务** | `mcp_servers.*` 的 CRUD 与启停：stdio（command/args/env）与远程 HTTP/SSE（url/headers/OAuth）两类；信任分级（untrusted = 写操作走审批）；密钥只写 `.env` 并以 `${VAR}` 占位符引用；官方热门目录（optional-mcps，64 个 Nous 审核条目）一键添加 |
+| **技能管理** | `~/.hermes/skills/` 目录可视化（SKILL.md frontmatter 解析）；启停写入 `skills.disabled`（官方必备技能 `hermes-agent` 不可禁用）；官方热门技能库（optional-skills，24 类）一键安装；`skills.*` 配置域表单（外部目录 / 项目信任 / inline_shell / 安全扫描） |
+| **插件与 Hook** | Python 插件白名单启停（`plugins.enabled`，官方信任模型：默认禁用）+ 官方策展目录安装（走官方 CLI 后台任务，sha 锁定交给官方校验）；shell hooks CRUD（`hooks.<event>[]`，校验对齐官方：matcher 仅工具事件、fail_closed 仅 pre_tool_call、timeout ≤ 300）；信任白名单撤销；gateway hooks / outbound webhooks 只读盘点（机制调研见 [docs/PLUGINS_AND_HOOKS.md](docs/PLUGINS_AND_HOOKS.md)） |
 | **工程规范** | 参考 AIOS 的工程化约束层：工作区目录规范（projects/downloads/scratch/archive）+ 六条工程铁律 + 需求消化模板，通过 SOUL.md 托管块（幂等、不碰用户自有内容）、3 个官方格式技能（project-init / requirement-digest / file-placement）与 `agent.coding_instructions` 注入；支持工作区一键物理初始化与整体卸载（见 [docs/ENGINEERING_SPEC.md](docs/ENGINEERING_SPEC.md)） |
 | **配置项全景** | 对 Hermes 全部配置域的盘点与集成建议（已集成 / 建议二期 / 待评估 / 建议手改），作为后续迭代的评审入口 |
 | **安全与审计** | 详见下文「安全」与 [docs/SECURITY.md](docs/SECURITY.md)（面向部署者的加固清单） |
@@ -87,7 +90,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8420
 ## 运行测试
 
 ```bash
-uv run pytest          # 全量回归：认证 / CSRF / 限流 / 配置读写 / 进程管理 / 页面渲染（70+ 用例）
+uv run pytest          # 全量回归：认证 / CSRF / 限流 / 配置读写 / 进程管理 / 页面渲染（150+ 用例）
 ```
 
 ## 目录结构
@@ -110,12 +113,16 @@ app/
 │   ├── config_store.py     #   config.yaml（保注释 round-trip）与 .env 的原子读写
 │   ├── providers_service.py#   供应商/主模型/别名/备选链 → Hermes 配置的映射
 │   ├── channels_service.py #   platforms.* / .env / platform_toolsets 的写入
+│   ├── mcp_service.py      #   mcp_servers.* CRUD + 官方 optional-mcps 目录
+│   ├── skills_service.py   #   skills/ 目录可视化 + 官方 optional-skills 库 + skills 域
+│   ├── plugins_service.py  #   插件白名单 + plugin-catalog + 官方 CLI 安装
+│   ├── hooks_service.py    #   shell hooks CRUD + 信任白名单 + gateway hooks 盘点
 │   ├── supervisor.py       #   hermes gateway 进程控制与状态
 │   ├── installer.py        #   安装/更新后台任务
 │   └── model_catalog.py    #   各协议 list-models 拉取
 └── web/
     ├── deps.py             # 认证守卫（异常式短路）与路由级 CSRF
-    ├── routers/            # auth/dashboard/service/providers/channels/chains/audit/users/settings/catalog
+    ├── routers/            # auth/dashboard/service/providers/channels/chains/memory/engineering/mcp/skills/plugins/files/audit/users/settings/catalog
     ├── catalog_data.py     # 配置项全景数据（UI 与文档共用）
     ├── templates/          # Jinja2 模板 + 宏
     └── static/             # 设计系统 CSS / 交互 JS / 本地化 htmx
@@ -123,6 +130,7 @@ docs/
 ├── SECURITY.md             # 面向部署者的安全说明与加固清单（对外）
 ├── ARCHITECTURE.md         # 架构与设计决策（工程）
 ├── CONFIG_CATALOG.md       # Hermes 配置项深挖清单（二期排期入口）
+├── PLUGINS_AND_HOOKS.md    # 插件与 Hook 机制调研（四套 Hook + 插件信任模型）
 ├── ENGINEERING_SPEC.md     # 工程规范层设计（Agent OS 式约束）
 ├── CHANNEL_ONBOARDING_SPEC.md  # 全渠道接入助手设计
 ├── FILE_WORKBENCH_SPEC.md  # 文件管理器规格（W3-W5）
@@ -153,7 +161,13 @@ shots/                      # 截图原图（gitignore，不入库）
 - 主模型 → `model.{provider, default, base_url, api_mode, context_length}`；
 - 别名 → `model_aliases.<alias>: {model, provider, base_url?, key_env?}`；
 - 备选链 → `delegation.fallback_providers: [{provider, model, ...}]`；
-- 渠道 → `platforms.<name>.{enabled, extra}` + `.env` 令牌键 + `platform_toolsets.<name>`。
+- 渠道 → `platforms.<name>.{enabled, extra}` + `.env` 令牌键 + `platform_toolsets.<name>`；
+- MCP → `mcp_servers.<name>`（stdio / http(sse) / enabled / timeout / trust / auth），
+  密钥类 env 与 header 只写 `.env`，配置中以 `${VAR}` 占位符引用（官方连接期解析）；
+- 技能 → 启停写 `skills.disabled`，安装即复制目录进 `~/.hermes/skills/`（与官方
+  `hermes skills install` 等效）；插件 → 增删 `plugins.enabled` 白名单；
+- shell hooks → `hooks.<event>[].{command, matcher?, timeout?, fail_closed?}`，
+  校验规则与官方一致（matcher 仅工具事件、fail_closed 仅 pre_tool_call、timeout ≤ 300）。
 
 所有写入均为「备份 → 校验 → 临时文件 → 原子替换」，`config.yaml` 的注释通过
 ruamel.yaml round-trip 完整保留，备份保留最近 10 份（`config.yaml.bak-*`）。
@@ -170,6 +184,7 @@ ruamel.yaml round-trip 完整保留，备份保留最近 10 份（`config.yaml.b
 
 - [架构说明](docs/ARCHITECTURE.md) — 分层、数据流、扩展点
 - [配置项深挖](docs/CONFIG_CATALOG.md) — Hermes 全部配置域盘点与二期排期
+- [插件与 Hook 调研](docs/PLUGINS_AND_HOOKS.md) — Hermes 四套 Hook 体系与插件信任模型
 - [渠道接入助手](docs/CHANNEL_ONBOARDING_SPEC.md) — 扫码/令牌接入的设计与验收
 - [文件管理器规格](docs/FILE_WORKBENCH_SPEC.md) — W3-W5 需求、安全硬约束与里程碑
 - [Rust 评估](docs/RUST_ASSESSMENT.md) — 底层操作用 Rust 是否更优的结论

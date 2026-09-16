@@ -79,8 +79,12 @@ FastAPI 新版不再对「依赖返回 Response」短路路由，因此 `require
 ## 扩展点（二期候选，见 CONFIG_CATALOG.md）
 
 - **执行环境（terminal.*）**：schema.py 的描述符模式可直接复制出「执行环境」表单；
-- **MCP 服务器**：与供应商同构的 CRUD，写入 `mcp_servers`；
 - **SOUL.md 编辑器**：带版本备份的 Markdown 编辑，复用 config_store 的备份机制；
 - **cron 任务**：读 `~/.hermes/cron/` 目录渲染 + 通过 cronjob 工具启停；
 - **Rust 特权守护进程**：替换 `hermes/supervisor.py` 与 `config_store.py` 的实现，
   接口不变（见 RUST_ASSESSMENT.md）。
+
+> v0.8.0 已落地的扩展点：**MCP 服务器**（`mcp_service`，与供应商同构的 CRUD +
+> 官方 optional-mcps 目录）、**Skill 管理**（`skills_service`，skills/ 目录 +
+> `skills.*` 配置域）、**插件与 Shell Hooks**（`plugins_service` / `hooks_service`，
+> 白名单模型 + `hooks.*` CRUD，机制详见 PLUGINS_AND_HOOKS.md）。
