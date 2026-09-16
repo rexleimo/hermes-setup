@@ -48,6 +48,17 @@
         {{ icon('folder') }}<span>工程规范</span>
       </a>
 
+      <p class="nav-section">扩展生态</p>
+      <a class="nav-item {% if nav_active == 'skills' %}active{% endif %}" href="/skills">
+        {{ icon('sparkles') }}<span>技能管理</span>
+      </a>
+      <a class="nav-item {% if nav_active == 'mcp' %}active{% endif %}" href="/mcp">
+        {{ icon('plug') }}<span>MCP 服务</span>
+      </a>
+      <a class="nav-item {% if nav_active == 'plugins' %}active{% endif %}" href="/plugins">
+        {{ icon('puzzle') }}<span>插件与 Hook</span>
+      </a>
+
       <p class="nav-section">产出</p>
       <a class="nav-item {% if nav_active == 'workbench' %}active{% endif %}" href="/files">
         {{ icon('grid') }}<span>文件管理器</span>

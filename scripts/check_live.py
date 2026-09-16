@@ -39,7 +39,8 @@ def main() -> int:
 
     # 页面可达性
     for path in ("/", "/service", "/providers", "/channels", "/memory",
-                 "/engineering", "/chains", "/users", "/settings"):
+                 "/engineering", "/chains", "/users", "/settings",
+                 "/skills", "/mcp", "/plugins"):
         r = client.get(path)
         check(f"GET {path}", r.status_code == 200, str(r.status_code))
 
