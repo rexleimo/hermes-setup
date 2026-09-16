@@ -180,7 +180,7 @@ async def main():
                                                token=tok, base_url=bu, user_id=uid)
                     except Exception as exc:
                         ev({"type": "error", "msg": f"保存凭据失败：{exc}"}); return
-                    ev({"type": "success", "account_id": aid})
+                    ev({"type": "success", "account_id": aid, "user_id": uid})
                     return
                 await asyncio.sleep(2)
         ev({"type": "error", "msg": "二维码多次过期或超时，请重新开始扫码"})
@@ -231,7 +231,8 @@ def qr_state() -> dict:
     if job is None:
         return {"phase": "idle"}
     state = {"phase": "starting", "job_id": job["id"], "qr_url": None,
-             "account_id": None, "error": None, "job_status": job["status"]}
+             "account_id": None, "user_id": None, "error": None, "log_tail": [],
+             "job_status": job["status"]}
     log = installer.job_log(job["id"], tail=400)
     for line in log:
         if not line.startswith("EVENT "):
@@ -249,23 +250,88 @@ def qr_state() -> dict:
         elif t == "success":
             state["phase"] = "confirmed"
             state["account_id"] = d.get("account_id")
+            state["user_id"] = d.get("user_id") or state["user_id"]
         elif t == "error":
             state["phase"] = "error"
             state["error"] = d.get("msg")
     if state["phase"] == "starting" and job["status"] != "running":
         state["phase"] = "error"
-        state["error"] = state["error"] or "任务已结束但未产生二维码"
+        state["error"] = state["error"] or "扫码任务异常退出，未产生二维码"
+    if state["phase"] == "error":
+        # 小白不会去翻日志：把驱动崩溃的真实输出（traceback 尾部）直接摆进面板，
+        # 避免只剩一句无法定位的兑底文案。
+        state["log_tail"] = [ln for ln in log if not ln.startswith("EVENT ")][-8:]
     return state
 
 
-def apply_weixin_account(account_id: str, *, username: str = "system") -> list[str]:
-    """扫码成功 → 自动回填 config.yaml 并启用渠道（幂等：值相同则无变更）。"""
+def apply_weixin_account(account_id: str, user_id: str = "", *,
+                         username: str = "system") -> list[str]:
+    """扫码成功 → 自动回填 config.yaml 并启用渠道（幂等：值相同则无变更）。
+
+    关键护栏：hermes Gateway 对 dm_policy=open 且无白名单的配置会直接拒绝启动
+    （Refusing to start: ... without allow-all opt-in），小白完全无法理解也不会改。
+    扫码登录既然拿到了号主自己的 ilink_user_id，就顺手：
+      - 把号主写进 WEIXIN_ALLOWED_USERS（去重追加，不覆盖已有名单）；
+      - 把 dm_policy 收敛为 allowlist。
+    效果：网关能启动、只有号主本人能聊，零理解成本。
+    """
+    env_values: dict[str, str] = {}
+    config_values: dict[str, str] = {}
+    if user_id:
+        from app.hermes.config_store import EnvStore
+        current = EnvStore.load().get("WEIXIN_ALLOWED_USERS") or ""
+        ids = [s.strip() for s in current.split(",") if s.strip()]
+        if user_id not in ids:
+            ids.append(user_id)
+            env_values["WEIXIN_ALLOWED_USERS"] = ",".join(ids)
+    view = channels_service.get_channel("weixin")
+    if str(view.config_values.get("dm_policy") or "open") == "open":
+        config_values["dm_policy"] = "allowlist"
+    extra_values = {} if view.extra.get("account_id") == account_id \
+        else {"account_id": account_id}
+
     changes = channels_service.save_channel(
-        "weixin", enabled=True, extra_values={"account_id": account_id})
+        "weixin", enabled=True, env_values=env_values,
+        config_values=config_values, extra_values=extra_values)
+    changes += _ensure_home_channel(user_id)
+    changes += _beginner_busy_mode()
     if changes:
         audit.record("channel_onboard_backfill", username=username,
                      target="weixin", detail=f"account_id={account_id}; {changes}")
     return changes
+
+
+def _ensure_home_channel(user_id: str) -> list[str]:
+    """微信私聊的 chat_id 就是号主本人 ID。自动设 home_channel，消除
+    Gateway 每次会话都催的「📬 No home channel is set… Type /sethome」——
+    小白不知道那是什么，更不该被反复提示。"""
+    if not user_id:
+        return []
+    from app.hermes import config_store
+    cfg = config_store.load_config()
+    node = config_store.ensure_path(cfg, "platforms.weixin")
+    home = node.get("home_channel")
+    if isinstance(home, dict) and home.get("chat_id"):
+        return []
+    node["home_channel"] = {"platform": "weixin", "chat_id": user_id,
+                            "name": "Home"}
+    config_store.save_config(cfg)
+    return ["home_channel 已设为号主私聊（不再提示设置家庭频道）"]
+
+
+def _beginner_busy_mode() -> list[str]:
+    """hermes 默认 busy 模式是 interrupt：Agent 干活时发新消息会打断/接管当前
+    任务（用户看到「↪ Redirected current run」却不知道发生了什么）。小白连发
+    几条消息时，排队（queue）逐条处理更可预测，也不会误杀进行中的任务。"""
+    from app.hermes import config_store
+    cfg = config_store.load_config()
+    disp = config_store.ensure_path(cfg, "display")
+    if str(disp.get("busy_input_mode") or "") == "queue":
+        return []
+    disp["busy_input_mode"] = "queue"
+    disp["busy_text_mode"] = "queue"
+    config_store.save_config(cfg)
+    return ["busy 模式已设为排队（忙时新消息不再打断当前任务）"]
 
 
 def current_account_id() -> str:

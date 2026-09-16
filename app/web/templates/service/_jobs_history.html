@@ -1,0 +1,35 @@
+{% from "macros.html" import icon with context %}
+{% if jobs %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>任务</th><th>状态</th><th>开始时间 (UTC)</th><th>结束时间</th><th></th></tr></thead>
+  <tbody>
+  {% for j in jobs %}
+    <tr>
+      <td>{{ j.label }}<span class="text-muted"> · #{{ j.id }}</span></td>
+      <td>
+        {% if j.status == 'running' %}<span class="tag tag-info">执行中</span>
+        {% elif j.status == 'ok' %}<span class="tag tag-ok">{{ icon('check') }} 成功</span>
+        {% else %}<span class="tag tag-error">{{ icon('x') }} 失败{% if j.exit_code is not none %} (exit {{ j.exit_code }}){% endif %}</span>{% endif %}
+      </td>
+      <td class="mono" style="font-size:12px;">{{ j.started_at or '—' }}</td>
+      <td class="mono" style="font-size:12px;">{{ j.finished_at or '进行中…' }}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost btn-sm"
+                onclick="document.getElementById('job-log-{{ j.id }}').classList.remove('hidden')"
+                hx-get="/service/jobs/{{ j.id }}/log"
+                hx-target="#job-log-body-{{ j.id }}" hx-swap="innerHTML">
+          {{ icon('terminal') }} 查看输出
+        </button>
+      </td>
+    </tr>
+    <tr id="job-log-{{ j.id }}" class="hidden">
+      <td colspan="5" style="padding:0 8px 10px;">
+        <pre class="log-view" id="job-log-body-{{ j.id }}" style="max-height:260px;"></pre>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p class="text-muted" style="margin:0;">还没有执行过任何后台任务。点上面的按钮安装、更新或扫码接入后，这里会留下完整记录。</p>
+{% endif %}

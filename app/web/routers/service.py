@@ -20,6 +20,19 @@ def service_page(request: Request, user: User):
     return _service_view(request)
 
 
+def _job_panel_ctx() -> dict:
+    """任务面板上下文（整页与 HTMX 片段共用；_job_panel.html 需要 job/job_lines/done，
+    此前整页上下文只给了 active_job，导致有运行中任务时 /service 直接 500）。"""
+    job = installer.active_job() or installer.last_job()
+    return {
+        "active_job": installer.active_job(),
+        "last_job": installer.last_job(),
+        "job": job,
+        "job_lines": installer.job_log(job["id"]) if job else [],
+        "done": job is None or job["status"] != "running",
+    }
+
+
 def _service_view(request: Request, error: str = "", code: int = 200):
     paths = detect()
     st = supervisor.status(paths)
@@ -28,12 +41,12 @@ def _service_view(request: Request, error: str = "", code: int = 200):
         "status": st,
         "paths": paths,
         "version": supervisor.version(paths),
-        "active_job": installer.active_job(),
-        "last_job": installer.last_job(),
         "gateway_log": supervisor.tail_log(paths.gateway_log, 120),
         "errors_log": supervisor.tail_log(paths.errors_log, 60),
         "install_cmd": installer.INSTALL_CMD,
+        "jobs": installer.job_history(),
         "error": error,
+        **_job_panel_ctx(),
         **_readiness(),
     }, status_code=code)
 
@@ -110,11 +123,21 @@ def _submit_job(request: Request, user, kind: str, command: str, message: str):
 
 @router.get("/job")
 def job_fragment(request: Request, user: User):
-    job = installer.active_job() or installer.last_job()
-    lines = installer.job_log(job["id"]) if job else []
-    done = job is None or job["status"] != "running"
-    return render_partial(request, "service/_job_panel.html", {
-        "job": job, "job_lines": lines, "done": done,
+    return render_partial(request, "service/_job_panel.html", _job_panel_ctx())
+
+
+@router.get("/jobs/history")
+def jobs_history_fragment(request: Request, user: User):
+    """历史列表片段（运行中时每 3s 轮询，结束后定格为可回看的台账）。"""
+    return render_partial(request, "service/_jobs_history.html", {
+        "jobs": installer.job_history(),
+    })
+
+
+@router.get("/jobs/{job_id}/log")
+def job_log_fragment(request: Request, user: User, job_id: int):
+    return render_partial(request, "service/_job_log_lines.html", {
+        "job_lines": installer.job_log(job_id, tail=200),
     })
 
 

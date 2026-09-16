@@ -728,6 +728,20 @@ input[type="checkbox"].check {
 .guide-strip .g-step { display: inline-flex; align-items: center; gap: 6px; }
 .guide-strip .g-arrow { color: #93b4f5; }
 
+/* 接入引导卡片（渠道页：分步 + 可点击直达链接） */
+.guide-card { margin-bottom: 16px; }
+.guide-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
+.guide-steps li { font-size: 13.5px; line-height: 1.6; }
+.guide-steps li::marker { color: var(--brand-600); font-weight: 600; }
+.guide-link {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px;
+  padding: 2px 10px; border-radius: 999px; font-size: 12.5px; white-space: nowrap;
+  background: var(--brand-50); border: 1px solid #c9d9fb; color: var(--brand-700);
+  text-decoration: none;
+}
+.guide-link:hover { background: var(--brand-100, #e3edfd); border-color: var(--brand-500); }
+.guide-link .icon { width: 12px; height: 12px; }
+
 /* 工具类 */
 .text-muted { color: var(--text-3); }
 .text-danger { color: var(--error); }
@@ -769,6 +783,8 @@ input[type="checkbox"].check {
 .ob-dot.warn { color: #fff; background: #d97706; }
 .ob-dot.warn .icon { width: 12px; height: 12px; }
 .ob-log { max-height: 140px; overflow: auto; margin: 4px 0 8px; font-size: 12px; }
+.ob-errlog { margin: 6px 0; }
+.ob-errlog summary { cursor: pointer; font-size: 12.5px; color: var(--text-3); }
 .ob-qr-wrap { display: flex; gap: 20px; align-items: flex-start; margin-top: 14px; flex-wrap: wrap; }
 .ob-qr { padding: 10px; background: #fff; border: 1px solid var(--border);
   border-radius: var(--radius); line-height: 0; }

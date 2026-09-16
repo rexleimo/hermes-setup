@@ -19,12 +19,36 @@
 {% if def.note %}<div class="alert alert-info">{{ icon('info') }} {{ def.note }}</div>{% endif %}
 
 {% if c.name != "weixin" %}
+{% if def.guide_steps %}
+{# 接入引导：每一步能直接点过去的就给可点击链接，小白不用先读文档 #}
+<div class="card guide-card">
+  <div class="card-header">
+    <h3>{{ icon('zap') }} 接入引导 <span class="text-muted" style="font-weight:400">— 跟着做就行，不用读文档</span></h3>
+    <div class="card-extra">
+      {% if def.doc %}<a class="btn btn-ghost btn-sm" href="{{ def.doc }}" target="_blank" rel="noopener">{{ icon('external') }} 补充阅读：官方文档</a>{% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    <ol class="guide-steps">
+      {% for s in def.guide_steps %}
+      <li>
+        <span class="guide-text">{{ s.text }}</span>
+        {% if s.url %}
+          <a class="guide-link" href="{{ s.url }}" target="_blank" rel="noopener">{{ s.link or '打开该页面' }} {{ icon('external') }}</a>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+</div>
+{% else %}
 <div class="guide-strip">
   {{ icon('info') }} 接入三步：
   <span class="g-step">1. 填写凭证与令牌（下方表单）</span><span class="g-arrow">→</span>
   <span class="g-step">2. 打开「启用状态」开关并保存</span><span class="g-arrow">→</span>
   <span class="g-step">3. 到服务管理启动 Gateway</span>
 </div>
+{% endif %}
 {% endif %}
 
 {% if c.name == "weixin" %}

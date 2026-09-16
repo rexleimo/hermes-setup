@@ -31,8 +31,66 @@ def test_qr_state_parses_event_log(monkeypatch):
 def test_qr_state_error_when_job_died_without_events(monkeypatch):
     monkeypatch.setattr(onboarding, "_latest_qr_job",
                         lambda: {"id": 8, "status": "failed"})
-    monkeypatch.setattr(onboarding.installer, "job_log", lambda jid, tail=60: [])
-    assert onboarding.qr_state()["phase"] == "error"
+    lines = ["Traceback (most recent call last):", "OSError: [WinError 10106] boom"]
+    monkeypatch.setattr(onboarding.installer, "job_log", lambda jid, tail=60: lines)
+    st = onboarding.qr_state()
+    assert st["phase"] == "error"
+    # 小白看不到日志文件：驱动崩溃的真实输出必须随面板状态透出
+    assert "WinError 10106" in "\n".join(st["log_tail"])
+
+
+def test_qr_state_error_event_keeps_log_tail(monkeypatch):
+    monkeypatch.setattr(onboarding, "_latest_qr_job",
+                        lambda: {"id": 9, "status": "failed"})
+    lines = _events({"type": "error", "msg": "获取二维码失败"}) + ["some noise"]
+    monkeypatch.setattr(onboarding.installer, "job_log", lambda jid, tail=60: lines)
+    st = onboarding.qr_state()
+    assert st["phase"] == "error" and st["error"] == "获取二维码失败"
+    assert st["log_tail"] == ["some noise"]  # EVENT 机器行不展示给用户
+
+
+def test_job_worker_inherits_full_environment(monkeypatch):
+    """回归：任务子进程必须继承完整环境（Windows 下硬编码 POSIX PATH 会导致
+    子进程 python Winsock 初始化失败，二维码任务直接崩溃）。"""
+    import os
+    from app.hermes import installer
+
+    captured = {}
+
+    class FakeProc:
+        returncode = 0
+
+    def fake_run(cmd, **kw):
+        captured["env"] = kw["env"]
+        return FakeProc()
+
+    class FakeThread:
+        def __init__(self, target, *a, **kw):
+            self._target = target
+        def start(self):
+            self._target()
+
+    monkeypatch.setattr(installer.subprocess, "run", fake_run)
+    monkeypatch.setattr(installer.threading, "Thread", FakeThread)
+    installer.submit("test_env", "true")
+    assert captured["env"]["PATH"] == os.environ["PATH"]
+
+
+def test_channel_pages_render_guide_with_links(logged_in):
+    """表单类渠道页必须内嵌带可点击直达链接的分步引导（小白不读文档）。"""
+    r = logged_in.get("/channels/telegram")
+    assert r.status_code == 200
+    assert "接入引导" in r.text
+    assert 'href="https://t.me/BotFather"' in r.text
+    r = logged_in.get("/channels/feishu")
+    assert 'href="https://open.feishu.cn/app"' in r.text
+    # 所有非 weixin 渠道都要有引导（weixin 走接入助手）
+    from app.hermes.schema import PLATFORMS
+    for name, d in PLATFORMS.items():
+        if name == "weixin":
+            continue
+        assert d.guide_steps, f"{name} 缺少接入引导步骤"
+        assert any(s.url for s in d.guide_steps), f"{name} 引导缺可点击链接"
 
 
 def test_apply_weixin_account_writes_config(hermes_home):
@@ -44,6 +102,29 @@ def test_apply_weixin_account_writes_config(hermes_home):
     # 重复回填不报错（写入同值），配置保持稳定
     onboarding.apply_weixin_account("abc123@im.bot")
     assert channels_service.get_channel("weixin").extra.get("account_id") == "abc123@im.bot"
+
+
+def test_apply_weixin_account_fixes_open_policy_guard(hermes_home):
+    """扫码回填必须顺手消除「dm_policy=open 无白名单 → Gateway 拒启」的地雷：
+    号主写入 WEIXIN_ALLOWED_USERS，dm_policy 收敛为 allowlist，且幂等。"""
+    from app.hermes.config_store import EnvStore
+    changes = onboarding.apply_weixin_account(
+        "abc123@im.bot", "owner@im.wechat")
+    assert changes
+    view = channels_service.get_channel("weixin")
+    assert str(view.config_values.get("dm_policy")) == "allowlist"
+    assert EnvStore.load().get("WEIXIN_ALLOWED_USERS") == "owner@im.wechat"
+    # 小白默认：自动设 home_channel（消除 📬 催促）+ busy 排队（消除 ↪ Redirected 插队）
+    from app.hermes.config_store import load_config
+    cfg = load_config()
+    home = cfg["platforms"]["weixin"].get("home_channel")
+    assert home and home["chat_id"] == "owner@im.wechat"
+    assert str(cfg["display"]["busy_text_mode"]) == "queue"
+    # 再次回填同值 → 不重复变更（幂等）
+    assert onboarding.apply_weixin_account("abc123@im.bot", "owner@im.wechat") == []
+    # 已有白名单时追加而非覆盖
+    onboarding.apply_weixin_account("abc123@im.bot", "second@im.wechat")
+    assert EnvStore.load().get("WEIXIN_ALLOWED_USERS") == "owner@im.wechat,second@im.wechat"
 
 
 def _confirmed_panel(monkeypatch):

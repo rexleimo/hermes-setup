@@ -20,6 +20,7 @@ from starlette.responses import Response
 from app import __version__
 from app.core import backup, db, maintenance, sessions as session_store
 from app.core.settings import settings
+from app.hermes import installer
 from app.web.templating import render
 
 log = logging.getLogger("hermes_console")
@@ -33,6 +34,7 @@ SESSIONLESS_PREFIXES = ("/static", "/healthz", "/favicon")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    installer.reap_orphan_jobs()
     session_store.purge_expired()
     backup.run_due_backup()
     if not settings.secret_key_persistent:

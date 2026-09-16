@@ -128,11 +128,20 @@ PRESETS: dict[str, PresetDef] = {
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
+class GuideStep:
+    """接入引导单步：文案 + 可选直达链接（小白不用读文档，点链接就能操作）。"""
+    text: str
+    url: str = ""
+    link: str = ""            # 链接文案（如「打开飞书开放平台」）
+
+
+@dataclass(frozen=True)
 class PlatformDef:
     id: str                    # platforms.<id> / 文档名
     label: str
     emoji: str = "💬"
     doc: str = ""
+    guide_steps: tuple[GuideStep, ...] = ()   # 分步接入引导（含可点击直达链接）
     env_fields: tuple[FieldDef, ...] = ()
     extra_fields: tuple[FieldDef, ...] = ()
     config_keys: tuple[FieldDef, ...] = ()   # platforms.<id> 下的直接键（enabled 之外）
@@ -147,6 +156,16 @@ PLATFORMS: dict[str, PlatformDef] = {
     "feishu": PlatformDef(
         id="feishu", label="飞书 / Lark", emoji="🕊️",
         doc="https://hermes-agent.nousresearch.com/docs/zh-Hans/user-guide/messaging/feishu",
+        guide_steps=(
+            GuideStep("打开飞书开放平台，登录后点「创建企业自建应用」，名字随意填。",
+                      "https://open.feishu.cn/app", "打开飞书开放平台"),
+            GuideStep("进入应用后，在「基本信息 → 凭证与基础信息」里复制 App ID 和 App Secret，粘贴到下方表单。",
+                      "https://open.feishu.cn/app", "凭证在哪看"),
+            GuideStep("左侧「应用能力 → 添加应用能力」，添加「机器人」。"),
+            GuideStep("「权限管理」搜索 im 开通消息收发权限；「事件与回调」订阅方式选「使用长连接接收事件」。",
+                      "https://hermes-agent.nousresearch.com/docs/zh-Hans/user-guide/messaging/feishu", "权限清单见官方文档"),
+            GuideStep("「版本管理与发布」创建版本并发布，然后回本页勾选启用、保存，再去服务管理启动 Gateway。"),
+        ),
         env_fields=(
             FieldDef("FEISHU_APP_ID", "App ID", required=True,
                      help="飞书开放平台企业自建应用 App ID"),
@@ -172,6 +191,12 @@ PLATFORMS: dict[str, PlatformDef] = {
     "telegram": PlatformDef(
         id="telegram", label="Telegram", emoji="✈️",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/telegram",
+        guide_steps=(
+            GuideStep("在手机/电脑 Telegram 里打开下面的链接，对 BotFather 发送 /newbot。",
+                      "https://t.me/BotFather", "点击打开 @BotFather"),
+            GuideStep("按它的提问依次给机器人起显示名称和用户名（必须以 bot 结尾，例如 my_hermes_bot）。"),
+            GuideStep("BotFather 会回复一串形如 123456789:AAxxxx 的令牌，整串复制粘贴到下方「Bot Token」，勾选启用并保存。"),
+        ),
         env_fields=(
             FieldDef("TELEGRAM_BOT_TOKEN", "Bot Token", kind="password", required=True,
                      help="@BotFather 创建机器人获得"),
@@ -191,6 +216,14 @@ PLATFORMS: dict[str, PlatformDef] = {
     "discord": PlatformDef(
         id="discord", label="Discord", emoji="🎮",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/discord",
+        guide_steps=(
+            GuideStep("打开 Discord 开发者后台，点右上角「New Application」建一个应用。",
+                      "https://discord.com/developers/applications", "打开开发者后台"),
+            GuideStep("进入应用后左侧选「Bot」，点「Reset Token」生成并复制 Bot Token，粘贴到下方表单。"),
+            GuideStep("同页往下找到「Privileged Gateway Intents」，把 Message Content Intent 开关打开（不开机器人收不到消息）。"),
+            GuideStep("左侧「OAuth2 → URL Generator」勾选 bot + Send Messages，复制生成的链接在浏览器打开，把机器人邀请进你的服务器。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/discord", "图文步骤见官方文档"),
+        ),
         env_fields=(
             FieldDef("DISCORD_BOT_TOKEN", "Bot Token", kind="password", required=True,
                      help="Discord Developer Portal 创建应用获得"),
@@ -207,6 +240,14 @@ PLATFORMS: dict[str, PlatformDef] = {
     "slack": PlatformDef(
         id="slack", label="Slack", emoji="#️⃣",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/slack",
+        guide_steps=(
+            GuideStep("打开 Slack 应用后台，点「Create New App → From scratch」建应用。",
+                      "https://api.slack.com/apps", "打开 Slack 应用后台"),
+            GuideStep("左侧「Socket Mode」打开开关，在「App-Level Tokens」里生成并复制一串 xapp- 开头的令牌，填入下方 App Token。"),
+            GuideStep("左侧「OAuth & Permissions」的 Bot Token Scopes 添加 chat:write 等消息权限，然后「Install App to Workspace」，复制一串 xoxb- 开头的令牌填入下方 Bot Token。"),
+            GuideStep("勾选启用并保存；再回 Slack 给自己或频道的机器人发条消息即可对话。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/slack", "权限清单见官方文档"),
+        ),
         env_fields=(
             FieldDef("SLACK_BOT_TOKEN", "Bot Token (xoxb-)", kind="password", required=True),
             FieldDef("SLACK_APP_TOKEN", "App Token (xapp-，Socket Mode)", kind="password"),
@@ -222,6 +263,14 @@ PLATFORMS: dict[str, PlatformDef] = {
     "qqbot": PlatformDef(
         id="qqbot", label="QQ 机器人", emoji="🐧",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/qqbot",
+        guide_steps=(
+            GuideStep("打开 QQ 开放平台，注册/登录后创建机器人（选「QQ 机器人」）。",
+                      "https://open.q.qq.com", "打开 QQ 开放平台"),
+            GuideStep("在「开发配置 → 基础信息」里复制 AppID 和 Bot Secret Key，填入下方平台参数区的 App ID / App Secret。"),
+            GuideStep("未过审前需在「开发管理 → 沙箱配置」把自己的 QQ 号加为体验成员，否则只有白名单内能私聊。"),
+            GuideStep("勾选启用并保存，重启 Gateway 后用沙箱 QQ 给机器人发消息验证。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/qqbot", "图文步骤见官方文档"),
+        ),
         env_fields=(
             FieldDef("QQ_ALLOWED_USERS", "私聊白名单（OpenID，逗号分隔）", kind="textarea"),
             FieldDef("QQ_GROUP_ALLOWED_USERS", "群白名单（OpenID，逗号分隔）", kind="textarea"),
@@ -244,6 +293,13 @@ PLATFORMS: dict[str, PlatformDef] = {
     "wecom": PlatformDef(
         id="wecom", label="企业微信", emoji="💼",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/wecom",
+        guide_steps=(
+            GuideStep("用有管理员权限的账号打开企业微信管理后台。",
+                      "https://work.weixin.qq.com/wework_admin/frame", "打开企业管理后台"),
+            GuideStep("按官方文档创建智能机器人，拿到 Bot ID 和 Secret（入口可能随后台改版调整，跟文档里的最新路径走）。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/wecom", "看官方创建步骤"),
+            GuideStep("把 Bot ID / Secret 粘贴到下方表单（或平台参数区），勾选启用并保存，重启 Gateway。"),
+        ),
         env_fields=(
             FieldDef("WECOM_BOT_ID", "Bot ID（env 方式）", required=True),
             FieldDef("WECOM_SECRET", "Secret（env 方式）", kind="password", required=True),
@@ -282,6 +338,14 @@ PLATFORMS: dict[str, PlatformDef] = {
     "dingtalk": PlatformDef(
         id="dingtalk", label="钉钉", emoji="🔗",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/dingtalk",
+        guide_steps=(
+            GuideStep("打开钉钉开放平台，登录后「应用开发 → 创建应用」。",
+                      "https://open-dev.dingtalk.com", "打开钉钉开放平台"),
+            GuideStep("进入应用「开发配置 → 基础信息」，复制 Client ID 和 Client Secret，粘贴到下方表单。"),
+            GuideStep("「应用能力 → 添加应用能力」加入机器人，消息接收模式选 Stream 模式。"),
+            GuideStep("「版本管理与发布」创建版本并发布，然后回本页启用保存、重启 Gateway。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/dingtalk", "图文步骤见官方文档"),
+        ),
         env_fields=(
             FieldDef("DINGTALK_CLIENT_ID", "Client ID", required=True),
             FieldDef("DINGTALK_CLIENT_SECRET", "Client Secret", kind="password", required=True),
@@ -291,6 +355,13 @@ PLATFORMS: dict[str, PlatformDef] = {
     "email": PlatformDef(
         id="email", label="Email（IMAP/SMTP）", emoji="📧",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/email",
+        guide_steps=(
+            GuideStep("在浏览器登录邮箱网页版并打开设置（QQ 邮箱：设置 → 账号；163：设置 → POP3/SMTP）。",
+                      "https://mail.qq.com", "打开 QQ 邮箱"),
+            GuideStep("找到「IMAP/SMTP 服务」并开启，按提示验证后生成一个「授权码」——先记在记事本里，它只显示一次。"),
+            GuideStep("授权码就是下方「邮箱密码 / 授权码」要填的内容（不是登录密码，填登录密码会连不上）。"),
+            GuideStep("服务器地址照抄：QQ 邮箱 IMAP imap.qq.com:993 / SMTP smtp.qq.com:465；网易 163 IMAP imap.163.com:993 / SMTP smtp.163.com:465。"),
+        ),
         env_fields=(
             FieldDef("EMAIL_ADDRESS", "邮箱地址", required=True),
             FieldDef("EMAIL_PASSWORD", "邮箱密码 / 授权码", kind="password", required=True),
@@ -303,6 +374,13 @@ PLATFORMS: dict[str, PlatformDef] = {
     "whatsapp": PlatformDef(
         id="whatsapp", label="WhatsApp", emoji="🌍",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/whatsapp",
+        guide_steps=(
+            GuideStep("WhatsApp 渠道靠 Node.js 桥接：先在运行 Gateway 的机器上安装 Node.js LTS。",
+                      "https://nodejs.org", "下载 Node.js"),
+            GuideStep("按官方文档启动配对，用手机 WhatsApp「关联设备」扫二维码完成绑定。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/whatsapp", "看官方配对步骤"),
+            GuideStep("回本页勾选启用并保存，重启 Gateway 即可收发。"),
+        ),
         env_fields=(
             FieldDef("WHATSAPP_ENABLED", "启用 WhatsApp 桥接", kind="bool", default="true"),
             FieldDef("WHATSAPP_ALLOWED_USERS", "用户白名单", kind="textarea"),
@@ -312,6 +390,12 @@ PLATFORMS: dict[str, PlatformDef] = {
     "signal": PlatformDef(
         id="signal", label="Signal", emoji="🔒",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/signal",
+        guide_steps=(
+            GuideStep("Signal 渠道需要自己跑一个 signal-cli REST 服务（同机安装并注册手机号）。",
+                      "https://github.com/AsamK/signal-cli", "signal-cli 安装说明"),
+            GuideStep("启动 REST（daemon --config 目录 --enable-rest-api）后，把服务地址与手机号填到下方表单并启用。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/signal", "看官方接入步骤"),
+        ),
         env_fields=(
             FieldDef("SIGNAL_ALLOWED_USERS", "用户白名单", kind="textarea"),
         ),
@@ -325,6 +409,13 @@ PLATFORMS: dict[str, PlatformDef] = {
     "matrix": PlatformDef(
         id="matrix", label="Matrix", emoji="🟠",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/matrix",
+        guide_steps=(
+            GuideStep("在 Element 网页端注册一个机器人账号（或用现有 homeserver 账号登录）。",
+                      "https://app.element.io", "打开 Element"),
+            GuideStep("「设置 → 帮助与关于」里点「访问令牌」旁的复制，得到 Access Token。"),
+            GuideStep("把 homeserver 地址、@用户名:域名、Access Token 填到下方表单并启用（官方文档标注 Matrix 仅支持 Linux）。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/matrix", "看官方接入步骤"),
+        ),
         env_fields=(
             FieldDef("MATRIX_HOMESERVER", "Homeserver 地址", required=True),
             FieldDef("MATRIX_USER_ID", "用户 ID", required=True, placeholder="@bot:example.org"),
@@ -336,6 +427,11 @@ PLATFORMS: dict[str, PlatformDef] = {
     "webhook": PlatformDef(
         id="webhook", label="Webhook", emoji="🪝",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/webhooks",
+        guide_steps=(
+            GuideStep("Webhook 不需要外部平台账号：把接收脚本放进当前 profile 的 scripts 目录，脚本从 stdin 读 webhook JSON。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/webhooks", "脚本格式见官方文档"),
+            GuideStep("勾选启用并保存，重启 Gateway 后由外部系统向 webhook 端点推送即可。"),
+        ),
         extra_fields=(
             FieldDef("script_timeout_seconds", "脚本超时（秒）", kind="int", default="30"),
         ),
@@ -344,6 +440,12 @@ PLATFORMS: dict[str, PlatformDef] = {
     "api_server": PlatformDef(
         id="api_server", label="API Server", emoji="🛰️",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/",
+        guide_steps=(
+            GuideStep("API Server 不需要外部平台账号：它把 Gateway 开放成 HTTP 接口，供你自建的网页/App 调用。"),
+            GuideStep("在下方「访问密钥」设一个至少 16 位的随机字符串（可反复按键盘乱敲生成），调用方请求时携带它。"),
+            GuideStep("启用保存并重启 Gateway 后，按官方文档的接口说明接入。",
+                      "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/", "接口文档"),
+        ),
         extra_fields=(
             FieldDef("key", "访问密钥（API Key）", kind="password", required=True,
                      help="至少 16 个字符；自建前端（含移动端）调用时携带"),

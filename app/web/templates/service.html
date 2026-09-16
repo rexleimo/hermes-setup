@@ -183,5 +183,19 @@
     </div>
   </div>
   {% endif %}
+
+  {# 任务台账：任何后台操作（安装/更新/扫码接入）都留痕可查，不再“跑完就消失” #}
+  <div class="card" style="margin-top:16px;">
+    <div class="card-header">
+      <h3>最近任务（操作记录）</h3>
+      <div class="card-extra">
+        <button class="btn btn-ghost btn-sm" hx-get="/service/jobs/history"
+                hx-target="#jobs-history" hx-swap="innerHTML">{{ icon('rotate') }} 刷新</button>
+      </div>
+    </div>
+    <div class="card-body" id="jobs-history">
+      {% include "service/_jobs_history.html" %}
+    </div>
+  </div>
 </div>
 {% endblock %}

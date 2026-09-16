@@ -157,9 +157,21 @@ def _panel(request: Request, user, *, err: str | None):
     acct = onboarding.current_account_id()
     if state["phase"] == "confirmed" and state["account_id"] and state["account_id"] != acct:
         try:
-            onboarding.apply_weixin_account(state["account_id"],
-                                            username=user["username"])
+            changes = onboarding.apply_weixin_account(state["account_id"],
+                                                      state.get("user_id") or "",
+                                                      username=user["username"])
             acct = state["account_id"]
+            if changes:
+                # 每次扫码都会新起一个 iLink 会话并作废旧 token；运行中的 Gateway
+                # 手里还是旧 token（Session expired 静默丢消息）。必须自动重启，
+                # 不能指望小白知道要去服务页点重启。
+                from app.hermes import supervisor
+                try:
+                    if supervisor.status().running:
+                        supervisor.restart()
+                        state["restarted"] = True
+                except Exception:
+                    state["restart_failed"] = True  # 面板提示手动重启
         except ChannelError as exc:
             err = err or f"自动回填失败：{exc}"
     return render_partial(request, "channels/_onboard.html", {

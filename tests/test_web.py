@@ -133,6 +133,83 @@ def test_all_pages_render(admin):
         assert resp.status_code == 200, f"{p} -> {resp.status_code}"
 
 
+def _insert_job(kind="weixin_qr_login", status="running"):
+    from app.core import db
+    return db.execute(
+        "INSERT INTO job_runs (kind, command, log_path, status) VALUES (?,?,?,?)",
+        (kind, "test cmd", "jobs/none.log", status))
+
+
+def test_service_page_renders_with_active_job(logged_in):
+    """回归：有运行中任务时 /service 整页必须能渲染。
+    曾经整页上下文只传 active_job 而面板模板要 job → 500，扫码任务运行期间页面直接打不开。"""
+    _insert_job()
+    resp = logged_in.get("/service")
+    assert resp.status_code == 200, resp.text
+    assert "执行中" in resp.text
+    assert logged_in.get("/service/job").status_code == 200
+
+
+def test_job_fragment_empty_without_any_job(logged_in):
+    resp = logged_in.get("/service/job")
+    assert resp.status_code == 200  # 无任务时空壳而非报错
+    assert "job-panel" in resp.text
+
+
+def test_service_install_tab_shows_job_history(logged_in):
+    """用户反馈：安装/更新页没有任何操作日志可跟踪——任务跑完面板就消失。
+    现在「最近任务」台账必须列出历史，并能展开单个任务的输出。"""
+    from app.core import db
+    job_id = _insert_job(kind="update", status="ok")
+    db.execute("UPDATE job_runs SET finished_at = datetime('now') WHERE id = ?", (job_id,))
+    resp = logged_in.get("/service")
+    assert resp.status_code == 200
+    assert "最近任务" in resp.text
+    assert "检查并更新" in resp.text  # kind → 中文标签
+    frag = logged_in.get(f"/service/jobs/{job_id}/log")
+    assert frag.status_code == 200
+    hist = logged_in.get("/service/jobs/history")
+    assert hist.status_code == 200 and "最近任务" not in hist.text  # 片段不含卡片外壳
+    assert "检查并更新" in hist.text
+
+
+def test_reap_orphan_jobs_fails_stale_running_rows():
+    """回归：进程被杀后残留的 running 行必须在新启动时回收，
+    否则 submit 永久报「已有任务在执行中」且 /service 反复轮询旧面板。"""
+    from app.core import db
+    from app.hermes import installer
+    job_id = _insert_job(kind="memory_agentmemory")
+    assert installer.active_job() is not None
+    assert installer.reap_orphan_jobs() >= 1
+    row = db.query_one("SELECT status, exit_code FROM job_runs WHERE id = ?", (job_id,))
+    assert row["status"] == "failed" and row["exit_code"] == -9
+    assert installer.active_job() is None
+
+
+def test_confirmed_backfill_autorestarts_gateway(logged_in, monkeypatch):
+    """回归：扫码回填新账号后，运行中的 Gateway 手里还是旧 token（每次扫码
+    作废旧会话），会静默丢消息。面板必须自动重启 Gateway。"""
+    from app.hermes import onboarding, supervisor
+    monkeypatch.setattr(onboarding, "qr_state", lambda: {
+        "phase": "confirmed", "job_id": 1, "qr_url": None,
+        "account_id": "newbot@im.bot", "user_id": "owner@im.wechat",
+        "error": None, "log_tail": [], "job_status": "ok"})
+    monkeypatch.setattr(onboarding, "current_account_id", lambda: "oldbot@im.bot")
+    monkeypatch.setattr(onboarding, "apply_weixin_account",
+                        lambda a, u="", **kw: ["已回填"])
+    calls = []
+    monkeypatch.setattr(supervisor, "status",
+                        lambda *a: GatewayStatusLike())
+    monkeypatch.setattr(supervisor, "restart", lambda *a, **k: calls.append("restart"))
+    resp = logged_in.get("/channels/weixin/onboard")
+    assert resp.status_code == 200
+    assert calls == ["restart"]
+
+
+class GatewayStatusLike:
+    running = True
+
+
 def test_provider_crud_via_web(admin):
     login(admin, "admin", "Sup3rSecure!x")
     token = csrf_of(admin)

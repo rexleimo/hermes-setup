@@ -36,6 +36,12 @@ Hermes Agent 的可视化运维中台 —— 让 [Hermes Agent](https://github.c
 
 ## 快速开始
 
+**小白用户：不用敲命令，双击就行 ——  Windows 双击 `start.bat`，macOS/Linux 运行 `./start.sh`。
+首次会自动装依赖、启动后自动打开浏览器；关窗口即停止。**
+
+<details>
+<summary>手动启动（开发者 / 自定义端口）</summary>
+
 ```bash
 # 1. 安装依赖（自动创建虚拟环境）
 uv sync
@@ -50,6 +56,8 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8420
 
 # 4. 打开 http://127.0.0.1:8420 —— 首次访问进入管理员初始化向导
 ```
+
+</details>
 
 首次部署建议流程（控制台内的「初始化清单」会引导这四步）：
 

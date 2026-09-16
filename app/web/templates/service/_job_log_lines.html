@@ -1,0 +1,4 @@
+{%- if job_lines -%}
+{%- for line in job_lines %}<div class="log-line">{{ line }}</div>
+{% endfor -%}
+{%- else -%}<span class="log-empty">（该任务没有留下输出记录）</span>{%- endif -%}

@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.7.0 — 2026-09-17（扫码修复 + 全渠道接入引导）
+
+### Added
+- **扫码回填小白默认两件**：① 自动设 `platforms.weixin.home_channel` 为号主私聊，
+  消除反复出现的「📬 No home channel is set… Type /sethome」催促；② 自动把
+  `display.busy_input_mode/busy_text_mode` 设为 queue，忙时发新消息不再打断当前
+  任务（消除莫名其妙的「↪ Redirected current run」）。
+- **Windows 配置保存重试**：`os.replace` 目标被 Gateway 监控句柄/杀软短暂占用时
+  抛 WinError 5，三处原子写入统一退避重试，偶发锁不再变成「保存失败」。
+- **扫码回填后自动重启 Gateway**：每次扫码都会作废上一个 iLink 会话，运行中的
+  Gateway 若持旧 token 会 `Session expired` 静默丢消息；现在面板检测到新账号回填
+  且 Gateway 在运行时自动重启，并在面板提示重启结果。
+- **任务台账（操作记录）**：「安装与更新」页新增「最近任务」卡片——后台任务（安装/更新/扫码接入等）
+  不再跑完就消失；历史列表带中文标签、状态、起止时间，点「查看输出」展开任意任务的完整日志。
+
+### Fixed
+- **网关无法启动 / 状态永远「未知」**（用户反馈，实机三连环）：
+  1. `supervisor._child_env()` 用 POSIX keep 白名单过滤环境变量，Windows 子进程缺
+     SYSTEMROOT/USERPROFILE → hermes CLI 直接 `RuntimeError: Could not determine home
+     directory`。现改为继承完整环境、仅剔除 `HERMES_CONSOLE_*` 敏感键；
+  2. `_path_with_common_bins()` 用 `:` 拼 PATH（Windows 是 `;`）→ 子进程找不到 node；
+     另补 Windows 常见 npm 全局目录；
+  3. CLI 输出按本地 GBK 解码崩溃（中文 Windows）→ 固定 `encoding=utf-8`；
+     `signal.kill` 在 Windows 不存在 → `_pid_alive` 改 OpenProcess 查询（绝不可用
+     os.kill(pid,0)，Windows 上会直接杀掉目标进程）；
+  4. 真正的启动拦路虎：扫码回填后 weixin `dm_policy: open` 且无白名单，hermes 安全
+     护栏拒绝启动（Refusing to start）——**现在扫码成功即自动把号主写入
+     WEIXIN_ALLOWED_USERS 并把 dm_policy 收敛为 allowlist**（幂等、不覆盖已有名单）；
+     护栏拦截时页面给出「【控制台解读】」人话提示，不再静默显示未知；
+  5. 状态关键词补充 `no gateway process detected` 等实机输出，不再误判未知。
+- **有任务运行时 `/service` 页 500 无法使用**（用户反馈）：整页上下文只传 `active_job`，
+  而内嵌的 `_job_panel.html` 读的是 `job`/`job_lines`/`done`——扫码任务真能跑满几分钟
+  之后这个潜伏 bug 必现（此前任务秒挂所以从未触发）。整页与 HTMX 片段改用同一个
+  上下文构造函数；无任务时面板返空壳不再抛 UndefinedError。
+- **孤儿任务永久卡 running**：服务被强杀时正在跑的 job 行停在 running，既堵死后续
+  `submit`（「已有任务在执行中」）又让 /service 反复轮询旧面板。现在启动时
+  `reap_orphan_jobs()` 自动回收（标 failed/-9，日志追加中断说明）。
+- **扫码任务在 Windows 上必挂、二维码永远不显示**（用户反馈：「任务已结束但未产生二维码」）：
+  `installer.submit` 把子进程环境整体替换为硬编码 POSIX PATH，导致 hermes venv 的 python
+  无法初始化 Winsock（WinError 10106），扫码驱动 `import asyncio` 即崩溃。现改为继承完整环境，
+  同时修复安装/更新/依赖类任务在 Windows 下的同类问题；真机验证驱动已能稳定输出二维码。
+- **接入助手错误不再吞日志**：失败时面板直接展示驱动真实报错（log_tail，EVENT 机器行过滤）
+  + 一键反馈链接，小白无需翻 `data/jobs/*.log`。
+
+### Added
+- **小白一键启动**：`start.bat`（Windows 双击即用）/ `start.sh`（macOS · Linux）——
+  自动检测并安装 uv、自动 `uv sync`、启动后 3 秒自动打开浏览器，关窗即停；
+  README 快速开始改为「双击优先」，原命令行步骤折叠为开发者选项。
+- **全渠道「接入引导」步骤卡**（小程序化理解成本目标）：`PlatformDef.guide_steps` 声明化，
+  飞书/Telegram/Discord/Slack/QQ/企业微信/钉钉/Email/WhatsApp/Signal/Matrix/Webhook/API Server
+  逐渠道内嵌分步指引，每步能直达的就给可点击链接（如 @BotFather、飞书开放平台、
+  Discord Developer Portal），官方文档降为「补充阅读」；单测断言除 weixin（走接入助手）外
+  所有渠道必须有带链接的引导。
+
 ## 0.6.0 — 2026-09-16（更名 + 图标体系）
 
 ### Changed

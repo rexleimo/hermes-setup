@@ -92,10 +92,26 @@ def save_config(data: CommentedMap, paths: HermesPaths | None = None) -> Path:
                 _yaml.dump(data, fh)
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.replace(tmp, paths.config_yaml)
+            _replace_with_retry(tmp, paths.config_yaml)
         finally:
             tmp.unlink(missing_ok=True)
     return backup
+
+
+def _replace_with_retry(src: Path, dst: Path, attempts: int = 10) -> None:
+    """Windows 上 os.replace 的坑：目标文件被 Gateway 监控/读取句柄短暂占用，
+    或杀软扫描时，会抛 WinError 5（拒绝访问）。POSIX 下不存在此问题；
+    这里短暂退避重试，而不是把偶发锁当成保存失败吓到用户。"""
+    import time
+    last: OSError | None = None
+    for i in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError as exc:
+            last = exc
+            time.sleep(0.2 * (i + 1))
+    raise last  # type: ignore[misc]
 
 
 def backups(paths: HermesPaths | None = None) -> list[Path]:
@@ -176,7 +192,7 @@ def save_json(paths: HermesPaths | None, rel: str, updates: dict, *,
             fh.write("\n")
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, target)
+        _replace_with_retry(tmp, target)
     finally:
         tmp.unlink(missing_ok=True)
     return backup
@@ -256,7 +272,7 @@ class EnvStore:
                 fh.write(content)
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.replace(tmp, self.path)
+            _replace_with_retry(tmp, self.path)
         finally:
             tmp.unlink(missing_ok=True)
 

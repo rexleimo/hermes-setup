@@ -1,4 +1,8 @@
 {% from "macros.html" import icon with context %}
+{% if not job %}
+{# 没有任何任务时返回空壳，不报错 #}
+<div id="job-panel"></div>
+{% else %}
 <div id="job-panel">
   <div class="card">
     <div class="card-header">
@@ -25,3 +29,4 @@
     </div>
   </div>
 </div>
+{% endif %}

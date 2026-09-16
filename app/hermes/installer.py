@@ -6,6 +6,7 @@ data/jobs/<id>.log；前端轮询 `/service/job` 片段展示进度。同一时�
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 from datetime import datetime
@@ -30,9 +31,49 @@ def active_job() -> dict | None:
     return dict(row) if row else None
 
 
+def reap_orphan_jobs() -> int:
+    """服务启动时回收孤儿任务：上次进程被杀时正在跑的任务会永久停在 running，
+    既堵死 submit（，已有任务在执行中），又让 /service 页反复轮询旧面板。
+    在进程启动、线程必然不存在时调用，把它们标为失败。"""
+    rows = db.query("SELECT id FROM job_runs WHERE status = 'running'")
+    for r in rows:
+        db.execute(
+            "UPDATE job_runs SET status = 'failed', exit_code = -9, "
+            "finished_at = datetime('now') WHERE id = ?", (r["id"],))
+        path = settings.jobs_dir / f"job-{r['id']}.log"
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write("\n[console] 服务重启，任务已中断\n")
+        except OSError:
+            pass
+    return len(rows)
+
+
 def last_job() -> dict | None:
     row = db.query_one("SELECT * FROM job_runs ORDER BY id DESC LIMIT 1")
     return dict(row) if row else None
+
+
+# kind → 小白能看懂的中文标签（新增后台任务时在这里补一行）
+JOB_KIND_LABELS = {
+    "install": "安装 Hermes",
+    "update": "检查并更新",
+    "install_messaging": "安装微信依赖",
+    "weixin_qr_login": "微信扫码接入",
+}
+
+
+def job_history(limit: int = 15) -> list[dict]:
+    """最近后台任务（含已结束）：此前任务一结束面板就消失，无任何历史可回溯。"""
+    rows = db.query(
+        "SELECT id, kind, command, status, started_at, finished_at, exit_code "
+        "FROM job_runs ORDER BY id DESC LIMIT ?", (int(limit),))
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["label"] = JOB_KIND_LABELS.get(d["kind"], d["kind"])
+        out.append(d)
+    return out
 
 
 def job_log(job_id: int, tail: int = 60) -> list[str]:
@@ -63,8 +104,12 @@ def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = Non
                    (str(log_path.relative_to(settings.data_dir)), job_id))
 
     def _worker() -> None:
-        env = {"PATH": "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-               "HOME": __import__("os").path.expanduser("~")}
+        # 继承控制台进程的完整环境（PATH/HOME/SYSTEMROOT 等）。
+        # 不能整体替换成硬编码 POSIX PATH：Windows 下会导致子进程 python
+        # 找不到 System32，Winsock 初始化失败（WinError 10106），
+        # 扫码驱动在 import asyncio 时即崩溃、二维码永远出不来。
+        env = dict(os.environ)
+        env.setdefault("HOME", os.path.expanduser("~"))
         try:
             with open(log_path, "w", encoding="utf-8") as fh:
                 proc = subprocess.run(

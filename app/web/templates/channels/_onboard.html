@@ -49,10 +49,25 @@
         {% elif state.phase == 'scaned' %}
           <p>{{ icon('check') }} 已扫码 —— 请在手机上点「<b>确认登录</b>」。</p>
         {% elif state.phase == 'confirmed' %}
-          <p><b>微信已连接 ✓</b> 账号 ID 已自动写入配置并启用渠道。<br>
-             <span class="text-muted">下一步：到「服务管理」启动 Gateway，即可收发消息。</span></p>
+          <p><b>微信已连接 ✓</b> 账号 ID 已自动写入配置并启用渠道；
+             号主已自动加入白名单（只有你能和它聊，陌生人加不进来）。<br>
+             {% if state.restarted %}
+             <span class="text-muted">Gateway 已自动重启加载新会话，直接去微信发消息即可（旧扫码会话已作废，重新扫码后也会自动重启）。</span>
+             {% elif state.restart_failed %}
+             <span class="text-danger"><b>Gateway 自动重启失败</b>，请到「服务管理」手动点重启，否则收不到消息。</span>
+             {% else %}
+             <span class="text-muted">下一步：到「服务管理」启动 Gateway，即可收发消息。</span>
+             {% endif %}</p>
         {% elif state.phase == 'error' %}
           <p class="text-muted">{{ state.error }}</p>
+          {% if state.log_tail %}
+          <details class="ob-errlog" open>
+            <summary>具体错误输出（点右侧箭头可收起）</summary>
+            <pre class="code-view ob-log">{{ state.log_tail | join('\n') }}</pre>
+          </details>
+          {% endif %}
+          <p class="form-help">不确定怎么修？把上面这段文字截图发给助手/反馈：
+            <a href="https://github.com/rexleimo/hermes-setup/issues/new" target="_blank" rel="noopener">点此提交问题反馈 →</a></p>
         {% endif %}
 
         {% if state.account_id %}

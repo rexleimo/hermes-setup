@@ -46,6 +46,9 @@ def _run_cli(paths: HermesPaths, *args: str) -> tuple[int, str]:
         proc = subprocess.run(
             [paths.bin, *args],
             capture_output=True, text=True, timeout=CLI_TIMEOUT,
+            # hermes CLI 输出 UTF-8；中文 Windows 默认 GBK 会在解码线程直接报错、
+            # 把输出吞成空串，状态探测因此永远「未知」。固定按 UTF-8 读。
+            encoding="utf-8", errors="replace",
             env={**_child_env(), "PATH": _path_with_common_bins()},
         )
     except subprocess.TimeoutExpired as exc:
@@ -57,42 +60,54 @@ def _run_cli(paths: HermesPaths, *args: str) -> tuple[int, str]:
 
 
 def _path_with_common_bins() -> str:
-    """构造子进程 PATH：常见安装位置 + 用户 node 版本管理器 + 继承的系统 PATH。
+    """构造子进程 PATH：常见安装位置 + 继承的系统 PATH。
 
-    很多用户的 hermes 启动器依赖 node（nvm/volta 安装），默认 PATH 里没有会导致
-    `hermes gateway status` 报 "exec: node: not found"。
+    必须用 os.pathsep（Windows 是 ';'）拼接；早期用 ':' 在 Windows 上会把整个
+    PATH 拼成一个非法条目，导致 `hermes gateway status` 找不到 node。
     """
     import os
 
-    extras = _extra_bins()
+    extras = [str(p) for p in _extra_bins()]
     inherited = os.environ.get("PATH", "")
-    inherited_parts = inherited.split(":") if inherited else []
-    parts = list(dict.fromkeys([*extras, *inherited_parts]))
-    return ":".join(p for p in parts if p)
+    parts = list(dict.fromkeys([*extras, *inherited.split(os.pathsep)]))
+    return os.pathsep.join(p for p in parts if p)
 
 
-def _extra_bins() -> list[str]:
+def _extra_bins() -> list[Path]:
+    """只补真实存在的目录（不存在的条目会污染子进程查找）。"""
     import os
+    import sys
 
     home = Path.home()
-    extras = ["/usr/local/bin", "/opt/homebrew/bin", str(home / ".local" / "bin"),
-              "/usr/bin", "/bin"]
-    nvm_base = home / ".nvm" / "versions" / "node"
-    if nvm_base.exists():
-        versions = sorted(nvm_base.glob("*/bin"), key=lambda p: p.name)
-        if versions:
-            extras.append(str(versions[-1]))
-    for candidate in (home / ".volta" / "bin", home / ".asdf" / "shims",
-                      home / ".bun" / "bin"):
-        if candidate.exists():
-            extras.append(str(candidate))
-    return extras
+    if sys.platform == "win32":
+        candidates = [home / "AppData" / "Roaming" / "npm",
+                      Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "nodejs",
+                      home / ".bun" / "bin"]
+    else:
+        candidates = [Path("/usr/local/bin"), Path("/opt/homebrew/bin"),
+                      home / ".local" / "bin", Path("/usr/bin"), Path("/bin")]
+        nvm_base = home / ".nvm" / "versions" / "node"
+        if nvm_base.exists():
+            versions = sorted(nvm_base.glob("*/bin"), key=lambda p: p.name)
+            if versions:
+                candidates.append(versions[-1])
+        candidates += [home / ".volta" / "bin", home / ".asdf" / "shims",
+                       home / ".bun" / "bin"]
+    return [c for c in candidates if c.exists()]
 
 
 def _child_env() -> dict[str, str]:
-    """给 hermes 子进程一个干净但可用的环境（避免继承控制台自身的敏感变量）。"""
-    keep = ("PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "USER", "SHELL")
-    return {k: v for k, v in __import__("os").environ.items() if k in keep}
+    """给 hermes 子进程可用环境：继承完整环境，仅剔除控制台自身敏感键。
+
+    不能再用 POSIX keep 白名单：Windows 子进程依赖 SYSTEMROOT/USERPROFILE/
+    LOCALAPPDATA 等，缺失会让 hermes CLI 无法解析家目录
+    （RuntimeError: Could not determine home directory），
+    Gateway 状态探测与启停全部失败。
+    """
+    import os
+
+    return {k: v for k, v in os.environ.items()
+            if not k.upper().startswith("HERMES_CONSOLE")}
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +126,9 @@ def status(paths: HermesPaths | None = None) -> GatewayStatus:
             st.sources["cli"] = out[:400]
             # 注意顺序：先匹配否定词（"not running" 包含 "running"）
             negative = any(k in text for k in
-                           ("not running", "stopped", "inactive", "未运行", "已停止"))
-            positive = any(k in text for k in ("running", "active"))
+                           ("not running", "stopped", "inactive", "未运行", "已停止",
+                            "no gateway process", "not started", "exited", "未启动", "没有运行"))
+            positive = any(k in text for k in ("running", "active", "is up", "已启动"))
             if negative:
                 st.running = False
             elif positive:
@@ -151,8 +167,28 @@ def status(paths: HermesPaths | None = None) -> GatewayStatus:
 
 
 def _pid_alive(pid: int) -> bool:
+    import sys
+
+    if sys.platform == "win32":
+        # Windows 没有 signal.kill；且 os.kill(pid, 0) 在 Windows 上会变成
+        # TerminateProcess（直接杀掉目标进程！），绝不可用。改走 OpenProcess 查询。
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+
     try:
-        import os
         import signal as _signal
         _signal.kill(pid, 0)
         return True
@@ -168,8 +204,27 @@ def start(paths: HermesPaths | None = None) -> str:
     paths = paths or detect()
     code, out = _run_cli(paths, "gateway", "start")
     if code != 0:
-        raise SupervisorError(out or f"hermes gateway start 退出码 {code}")
+        raise SupervisorError(_explain_failure(out) or f"hermes gateway start 退出码 {code}")
+    # 退出码 0 但进程秒退（安全护栏拒绝启动）也要说清楚，不能让小白面对沉默的「状态未知」
+    if "refusing to start" in out.lower() or "exiting cleanly" in out.lower():
+        raise SupervisorError(_explain_failure(out))
     return out or "网关启动指令已下发"
+
+
+_GUARD_HINTS = (
+    ("refusing to start", "渠道安全护栏拦截了启动：某个渠道白名单为空但策略是 open。"
+     "微信渠道重新扫一次码即可自动修复（接入助手会自动把号主写进白名单）；"
+     "其他渠道请在渠道页配好白名单后重试。"),
+    ("no such file or directory", "找不到启动文件，建议到「安装与更新」重新安装。"),
+)
+
+
+def _explain_failure(out: str) -> str:
+    low = (out or "").lower()
+    for key, hint in _GUARD_HINTS:
+        if key in low:
+            return f"{out}\n\n【控制台解读】{hint}" if out else hint
+    return out or ""
 
 
 def stop(paths: HermesPaths | None = None) -> str:

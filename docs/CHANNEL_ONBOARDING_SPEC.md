@@ -39,12 +39,30 @@
 
 - [x] /channels/weixin 顶部出现「接入助手」，本机显示"依赖已就绪"+"开始扫码连接"
 - [x] 非 weixin 渠道 onboard → 404；未登录 → 302；operator POST → 403
-- [x] EVENT 流解析、confirmed→自动回填 config.yaml 单测覆盖（tests/test_onboarding.py，7 项）
+- [x] EVENT 流解析、confirmed→自动回填 config.yaml 单测覆盖（tests/test_onboarding.py）
 - [ ] 真机微信扫码全链路（需用户手机配合，逻辑与 hermes 官方向导同源）
 
-## M2 计划（未实现，先立项）
+## M1.1 热修（v0.7.0，用户反馈：任务结束但二维码没出来）
 
-1. **白名单免查 ID**：从 gateway.log 解析近期私聊发送者（id+昵称），页面上一键加入 `allow_from`——用户永远不需要理解"iLink 用户 ID 长什么样"。
-2. **表单渠道内嵌分步指引**（feishu/dingtalk/qq/wecom）：`PlatformDef` 增加 `guide_steps: tuple[GuideStep]`（去哪、点什么、复制什么→填哪个框），detail 页渲染步骤卡，官方文档降为"补充阅读"。
-3. **onboarding 能力声明化**：`PlatformDef.onboarding = "qr" | "guide"`，模板按能力渲染，去掉 weixin 硬编码。
-4. 其他扫码类（whatsapp 等）套用同一驱动模式。
+**根因**：`installer.submit` 把子进程环境整体替换成硬编码 POSIX PATH（不含
+System32）。Windows 下 venv python 因此无法初始化 Winsock
+（`OSError: [WinError 10106]`），扫码驱动在 `import asyncio` 即崩溃，日志里
+没有任何 `EVENT` 行，面板只剩兑底文案「任务已结束但未产生二维码」。
+
+- `installer.submit`：改为继承控制台进程完整环境（`dict(os.environ)` + HOME 兑底），
+  同时修复 install/update/deps/qr 全部任务类型在 Windows 下的同类问题；
+- `qr_state()`：error 阶段附带 `log_tail`（剔除 EVENT 机器行的日志尾部），
+  `_onboard.html` 直接展示真实报错 + 一键反馈链接——小白不需要会翻日志；
+- 真机验证：驱动在 hermes venv 内稳定输出 `EVENT {"type":"qr",...}`。
+
+## M2 进展
+
+1. **白名单免查 ID**：未实现。
+2. ✅ **表单渠道内嵌分步指引**（v0.7.0）：`PlatformDef.guide_steps: tuple[GuideStep]`
+   （text + 可选 url/link），detail 页渲染「接入引导」步骤卡；所有需要外部平台
+   操作的渠道（飞书/Telegram/Discord/Slack/QQ/企业微信/钉钉/Email/WhatsApp/
+   Signal/Matrix/Webhook/API Server）均带可点击直达链接（如 t.me/BotFather、
+   open.feishu.cn/app），官方文档降为右上角「补充阅读」；单测断言除 weixin 外
+   所有渠道必须有带链接的引导。
+3. **onboarding 能力声明化**：部分完成（guide 已声明化；qr 仍按 weixin 硬编码）。
+4. 其他扫码类（whatsapp 等）套用同一驱动模式：未实现。
