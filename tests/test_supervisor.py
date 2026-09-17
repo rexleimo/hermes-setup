@@ -232,3 +232,16 @@ def test_path_join_uses_os_pathsep():
     assert os.pathsep in joined
     if os.name == "nt":
         assert ":/usr/local/bin" not in joined  # 不应出现 POSIX 拼接残留
+
+
+@posix_only
+def test_pid_alive_posix_current_and_dead(tmp_path):
+    """回归：POSIX 分支曾误写 signal.kill（不存在）→ 状态查询 500。
+    当前进程必须判活；已退出进程必须判死；且绝不抛异常。"""
+    import subprocess as _sp
+    import sys as _sys
+
+    assert supervisor._pid_alive(os.getpid()) is True
+    p = _sp.Popen([_sys.executable, "-c", "pass"])
+    p.wait()
+    assert supervisor._pid_alive(p.pid) is False

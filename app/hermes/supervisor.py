@@ -224,10 +224,21 @@ def _pid_alive(pid: int) -> bool:
             kernel32.CloseHandle(handle)
 
     try:
-        import signal as _signal
-        _signal.kill(pid, 0)
+        # 正确函数是 os.kill(pid, 0)：signal 模块没有 kill（曾误写 signal.kill，
+        # Windows 走 ctypes 分支掩盖了它，Linux 上一旦 gateway_state.json 带 pid
+        # 出现就 AttributeError → 所有状态查询 500，实机踩过）。
+        import os as _os
+
+        _os.kill(pid, 0)
         return True
-    except (OSError, ProcessLookupError):
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True   # 存在但非本用户进程：也算活着
+    except OSError:
+        return False
+    except Exception:
+        # 该函数绝不允许抛异常把状态页拖垮
         return False
 
 

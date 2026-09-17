@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.25 — 2026-09-17（Linux 状态查询 500 修复：_pid_alive 误用 signal.kill）
+
+### Fixed
+- **Linux 上一切状态查询 500**（实机 traceback 实锤）：`_pid_alive` 的 POSIX 分支
+  误写 `signal.kill(pid, 0)`——**signal 模块没有 kill 这个函数**（正确是
+  `os.kill(pid, 0)`）。Windows 走 ctypes 分支掩盖了它；Linux 上一旦
+  `gateway_state.json` 带 pid 出现，`/service` 页面、状态碎片、所有操作
+  全部 500——"点了没反应"的又一个真凶。现改 `os.kill(pid, 0)`，并按
+  ProcessLookupError→死 / PermissionError→活 / 兜底不抛异常 三段处理，
+  该函数绝不允许再把状态页拖垮。
+- 回归测试：当前进程判活、已退出进程判死（POSIX；修复前该用例直接
+  AttributeError）。
+
 ## 0.8.24 — 2026-09-17（后台任务 stdin 断开：交互提问不再卡死网关安装）
 
 ### Fixed
