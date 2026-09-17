@@ -1,0 +1,9 @@
+.venv/
+data/
+shots/
+.git/
+__pycache__/
+.pytest_cache/
+.env
+*.log
+.aios/
