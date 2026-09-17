@@ -6,11 +6,13 @@ Windows 上 bash 解析到 WSL 存根，装不出原生 hermes；且默认家目
 """
 from __future__ import annotations
 
+import re
 import sys
 from urllib.parse import urlparse
 
 from app.hermes import installer
 from app.hermes import paths as paths_mod
+from tests.conftest import login
 
 
 def test_install_cmd_platform_contract():
@@ -77,11 +79,32 @@ def test_build_checks_has_git_row(hermes_home):
 
 def test_service_page_shows_platform_install_method(admin):
     """服务页展示平台对应的安装方式与可复制命令（注意 HTML 转义）。"""
-    from tests.conftest import login
-
     login(admin, "admin", "Sup3rSecure!x")
     resp = admin.get("/service")
     assert resp.status_code == 200
     assert installer.INSTALL_METHOD_LABEL in resp.text
     needle = "install.ps1" if sys.platform == "win32" else "install.sh"
     assert needle in resp.text
+
+
+def test_install_update_jobs_use_jobs_dir_cwd(admin, monkeypatch):
+    """安装/更新任务的工作目录必须是 jobs_dir，不能污染仓库目录。"""
+    from app.core.settings import settings as console_settings
+
+    calls = {}
+
+    def fake_submit(kind, command, *, shell=True, cwd=None):
+        calls[kind] = cwd
+        return 99
+
+    monkeypatch.setattr(installer, "submit", fake_submit)
+    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: True)
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    assert admin.post("/service/install", data={"_csrf": token},
+                      follow_redirects=False).status_code == 200
+    assert admin.post("/service/update", data={"_csrf": token},
+                      follow_redirects=False).status_code == 200
+    assert calls["install"] == str(console_settings.jobs_dir)
+    assert calls["update"] == str(console_settings.jobs_dir)

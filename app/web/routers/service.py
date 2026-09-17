@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Form, Request
 
 from app.core import audit
+from app.core.settings import settings
 from app.hermes import installer, supervisor
 from app.hermes.paths import detect
 from app.web.deps import Admin, User, client_ip, csrf_guard
@@ -122,7 +123,10 @@ def _submit_job(request: Request, user, kind: str, command: str, message: str):
                      detail="网络预检未通过", ip=client_ip(request))
         return _reject(request, installer.NETWORK_HINT)
     try:
-        installer.submit(kind, command)
+        # 工作目录固定为 jobs_dir：此前继承控制台进程目录（即仓库根），
+        # 曾出现子进程杂物（如 PowerShell 模块缓存 Microsoft/）落到仓库里。
+        # 官方安装器全用绝对路径，换目录不影响安装结果。
+        installer.submit(kind, command, cwd=str(settings.jobs_dir))
     except installer.JobBusy as exc:
         return _reject(request, str(exc))
     audit.record(f"job_{kind}", username=user["username"], detail=command,
