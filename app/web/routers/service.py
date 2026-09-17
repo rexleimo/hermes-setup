@@ -29,12 +29,14 @@ def _job_panel_ctx() -> dict:
         "active_job": installer.active_job(),
         "last_job": installer.last_job(),
         "job": job,
-        "job_lines": installer.job_log(job["id"]) if job else [],
+        # 全量输出（安装日志一两百行）：用户要看见进度，不能只给尾巴
+        "job_lines": installer.job_log(job["id"], tail=500) if job else [],
         "done": job is None or job["status"] != "running",
     }
 
 
-def _service_view(request: Request, error: str = "", code: int = 200):
+def _service_view(request: Request, error: str = "", code: int = 200,
+                  show_force_install: bool = False):
     paths = detect()
     st = supervisor.status(paths)
     return render(request, "service.html", {
@@ -49,6 +51,7 @@ def _service_view(request: Request, error: str = "", code: int = 200):
         "agent_repo_dir": str(resolve_agent_repo(paths) or paths.agent_repo),
         "jobs": installer.job_history(),
         "error": error,
+        "show_force_install": show_force_install,
         **_job_panel_ctx(),
         **_readiness(),
     }, status_code=code)
@@ -104,8 +107,9 @@ def service_action(request: Request, user: User, action: str = Form(...),
 
 
 @router.post("/install")
-def install(request: Request, user: Admin):
-    return _submit_job(request, user, "install", installer.INSTALL_CMD, "开始安装 Hermes Agent")
+def install(request: Request, user: Admin, force: str = Form("")):
+    return _submit_job(request, user, "install", installer.INSTALL_CMD,
+                       "开始安装 Hermes Agent", force=bool(force.strip()))
 
 
 @router.post("/update")
@@ -113,16 +117,21 @@ def update(request: Request, user: Admin):
     return _submit_job(request, user, "update", installer.UPDATE_CMD, "开始更新 Hermes Agent")
 
 
-def _submit_job(request: Request, user, kind: str, command: str, message: str):
+def _submit_job(request: Request, user, kind: str, command: str, message: str,
+                force: bool = False):
     paths = detect()
     # 安装走平台原生通道，预检目标必须与实际安装源同域；更新沿用 GitHub 预检。
     preflight_url = (installer.INSTALL_PREFLIGHT_URL if kind == "install"
                      else "https://raw.githubusercontent.com")
-    if kind in ("install", "update") and not installer.network_reachable(preflight_url):
-        # 必败预检：任务失败小白看不懂日志，不如提交前就用大白话拦下
+    if kind in ("install", "update") and not force and not installer.network_reachable(preflight_url):
+        # 必败预检：任务失败小白看不懂日志，不如提交前就用大白话拦下。
+        # 但探针只是参谋：给"仍要执行"口子，决策权留给用户。
         audit.record(f"job_{kind}", username=user["username"], outcome="failed",
                      detail="网络预检未通过", ip=client_ip(request))
-        return _reject(request, installer.NETWORK_HINT)
+        return _reject(request, installer.NETWORK_HINT,
+                       show_force_install=(kind == "install"))
+    if force:
+        message = message + "（已跳过网络预检）"
     try:
         # 工作目录固定为 jobs_dir：此前继承控制台进程目录（即仓库根），
         # 曾出现子进程杂物（如 PowerShell 模块缓存 Microsoft/）落到仓库里。
@@ -184,13 +193,15 @@ def pill_fragment(request: Request, user: User):
 
 # ---------------------------------------------------------------------------
 
-def _reject(request: Request, message: str, code: int = 400):
+def _reject(request: Request, message: str, code: int = 400,
+            show_force_install: bool = False):
     if is_htmx(request):
         from fastapi.responses import HTMLResponse
 
         return HTMLResponse(
             f"<div class='alert alert-danger'>{message}</div>", status_code=code)
-    return _service_view(request, error=message, code=code)
+    return _service_view(request, error=message, code=code,
+                         show_force_install=show_force_install)
 
 
 def _after_change(request: Request, paths, message: str):

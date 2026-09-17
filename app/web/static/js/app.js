@@ -33,6 +33,14 @@
   });
 
   // ------------------------------------------------------------------
+  // 任务日志自动滚到底（安装 / 更新进度实时可见）
+  // ------------------------------------------------------------------
+  document.body.addEventListener("htmx:afterSwap", function () {
+    var log = document.getElementById("job-log");
+    if (log) log.scrollTop = log.scrollHeight;
+  });
+
+  // ------------------------------------------------------------------
   // 确认弹窗（data-confirm：纯文案确认；data-confirm-word：输词确认）
   // ------------------------------------------------------------------
   var modal = document.getElementById("confirm-modal");

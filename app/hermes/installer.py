@@ -51,16 +51,24 @@ class JobBusy(Exception):
 def network_reachable(url: str = "https://raw.githubusercontent.com",
                       timeout: float = 5.0) -> bool:
     """安装/更新前的网络预检：官方脚本与更新包都从 GitHub 下载，
-    国内网络直连常失败——提前 5 秒探测，避免小白盯着必败的任务跑几分钟。"""
+    国内网络直连常失败——提前探测，避免小白盯着必败的任务跑几分钟。
+
+    HEAD 优先（省流量）；部分网络对 HEAD 不友好（能 GET 不能 HEAD），
+    失败时回退 GET 首字节再判一次，避免"网络明明通的，预检却报不通"。"""
     import urllib.request
 
-    try:
-        req = urllib.request.Request(url, method="HEAD",
-                                     headers={"User-Agent": "hermes-console"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return 200 <= resp.status < 400
-    except Exception:
-        return False
+    def _try(method: str) -> bool:
+        try:
+            req = urllib.request.Request(url, method=method,
+                                         headers={"User-Agent": "hermes-console"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if method == "GET":
+                    resp.read(1)
+                return 200 <= resp.status < 400
+        except Exception:
+            return False
+
+    return _try("HEAD") or _try("GET")
 
 
 NETWORK_HINT = (

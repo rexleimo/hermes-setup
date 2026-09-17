@@ -108,3 +108,65 @@ def test_install_update_jobs_use_jobs_dir_cwd(admin, monkeypatch):
                       follow_redirects=False).status_code == 200
     assert calls["install"] == str(console_settings.jobs_dir)
     assert calls["update"] == str(console_settings.jobs_dir)
+
+
+def test_network_reachable_head_falls_back_to_get(monkeypatch):
+    """部分网络能 GET 不能 HEAD：预检必须回退再探一次，避免误报不通。"""
+    import urllib.request
+
+    calls = []
+
+    class FakeResp:
+        status = 200
+
+        def read(self, n=-1):
+            return b"x"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(req.get_method())
+        if req.get_method() == "HEAD":
+            raise OSError("head blocked")
+        return FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert installer.network_reachable("https://example.test/x") is True
+    assert calls == ["HEAD", "GET"]
+
+
+def test_install_preflight_reject_offers_force(admin, monkeypatch):
+    """预检拦截时必须给出「仍要执行」口子，不能只报错不给路。"""
+    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    resp = admin.post("/service/install", data={"_csrf": token},
+                      follow_redirects=False)
+    assert resp.status_code == 400
+    assert "仍要执行" in resp.text
+    assert 'name="force"' in resp.text
+
+
+def test_install_force_bypasses_preflight(admin, monkeypatch):
+    """force=1 绕过预检直接提交任务（决策权留给用户）。"""
+    calls = {}
+
+    def fake_submit(kind, command, *, shell=True, cwd=None):
+        calls["kind"] = kind
+        return 42
+
+    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(installer, "submit", fake_submit)
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    resp = admin.post("/service/install",
+                      data={"_csrf": token, "force": "1"},
+                      follow_redirects=False)
+    assert resp.status_code == 200
+    assert calls.get("kind") == "install"

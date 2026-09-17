@@ -3,7 +3,14 @@
 {% block title %}服务管理{% endblock %}
 {% block topbar_title %}运维 / <strong>服务管理</strong>{% endblock %}
 {% block content %}
-{% if error %}<div class="alert alert-danger" style="margin:0 0 14px;">{{ icon('alert') }} {{ error }}</div>{% endif %}
+{% if error %}<div class="alert alert-danger" style="margin:0 0 14px;">{{ icon('alert') }} {{ error }}
+  {% if show_force_install %}
+  <form method="post" action="/service/install" style="margin-top:10px;">
+    {{ csrf() }}<input type="hidden" name="force" value="1">
+    <button class="btn btn-secondary btn-sm" type="submit">网络探针可能是误报，仍要执行安装</button>
+  </form>
+  {% endif %}
+</div>{% endif %}
 <div class="page-header">
   <div>
     <h2>服务管理</h2>
@@ -23,6 +30,12 @@
   <button class="tab-btn" data-tab="logs">{{ icon('terminal') }} 运行日志</button>
   <button class="tab-btn" data-tab="install">{{ icon('download') }} 安装与更新</button>
 </div>
+
+{# 运行中的任务面板：放在页签外，任何页签都能看见进度（此前藏在「安装与更新」页签里，
+   提交任务后页面回到概览页签，看起来像“什么都没发生”） #}
+{% if active_job %}
+{% include "service/_job_panel.html" %}
+{% endif %}
 
 {# ================================================================ 概览 #}
 <div data-tab-group="service" data-tab-panel="overview">
@@ -129,12 +142,6 @@
 
 {# ================================================================ 安装与更新 #}
 <div data-tab-group="service" data-tab-panel="install" class="hidden">
-  {% if active_job %}
-  <div hx-get="/service/job" hx-trigger="every 2s" hx-swap="outerHTML">
-    {% include "service/_job_panel.html" %}
-  </div>
-  {% endif %}
-
   {% if paths.installed %}
   <div class="card">
     <div class="card-header"><h3>更新 Hermes Agent</h3></div>

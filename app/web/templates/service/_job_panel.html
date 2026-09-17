@@ -3,7 +3,10 @@
 {# 没有任何任务时返回空壳，不报错 #}
 <div id="job-panel"></div>
 {% else %}
-<div id="job-panel">
+{# 运行中：面板根节点自带轮询（outerHTML 换掉自己后还能继续刷）；
+   结束后去掉触发属性，定格为终态。 #}
+<div id="job-panel"{% if job['status'] == 'running' %}
+     hx-get="/service/job" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
   <div class="card">
     <div class="card-header">
       <h3>{% if job['kind'] == 'install' %}安装任务{% elif job['kind'] == 'update' %}更新任务{% else %}后台任务{% endif %}</h3>
@@ -16,7 +19,7 @@
     </div>
     <div class="card-body">
       <p class="mono text-muted" style="margin:0 0 10px; font-size:12px;">$ {{ job['command'] }}</p>
-      <pre class="log-view" style="max-height:300px;">{%- if job_lines -%}
+      <pre class="log-view" id="job-log" style="max-height:420px;">{%- if job_lines -%}
 {%- for line in job_lines %}<div class="log-line">{{ line }}</div>
 {% endfor %}{%- else -%}<span class="log-empty">等待输出…</span>{%- endif -%}</pre>
       {% if done %}
