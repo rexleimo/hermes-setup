@@ -2,10 +2,12 @@
 # ============================================================
 # Hermes Console 一键启动（macOS / Linux）
 # 首次运行自动装依赖；启动成功后自动打开浏览器。Ctrl+C 停止。
+# 服务器对外：HERMES_CONSOLE_HOST=0.0.0.0 ./start.sh（先配好密钥/HTTPS/白名单）
 # ============================================================
 set -euo pipefail
 cd "$(dirname "$0")"
-PORT="${PORT:-8420}"
+PORT="${PORT:-${HERMES_CONSOLE_PORT:-8420}}"
+HOST="${HOST:-${HERMES_CONSOLE_HOST:-127.0.0.1}}"
 ISSUES="https://github.com/rexleimo/hermes-setup/issues"
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -50,11 +52,15 @@ EOF
   exit 1
 fi
 
-echo "[2/2] 启动控制台 http://127.0.0.1:${PORT} （Ctrl+C 停止）"
-# 3 秒后自动打开浏览器（macOS open / Linux xdg-open，有哪个用哪个）
+if [ "$HOST" != "127.0.0.1" ] && [ "$HOST" != "localhost" ]; then
+echo "[警告] 监听地址为 ${HOST}（非本机回环），管理后台将暴露给网络："
+echo "  请务必设置 HERMES_CONSOLE_SECRET，并前置 HTTPS 且用 HERMES_CONSOLE_ALLOWED_IPS 限制来源。"
+fi
+echo "[2/2] 启动控制台 http://${HOST}:${PORT} （Ctrl+C 停止）"
+# 3 秒后自动打开浏览器（macOS open / Linux xdg-open，有哪个用哪个；无桌面环境自动跳过）
 ( sleep 3
-  if command -v open >/dev/null 2>&1; then open "http://127.0.0.1:${PORT}"
-  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "http://127.0.0.1:${PORT}"
+  if command -v open >/dev/null 2>&1; then open "http://${HOST}:${PORT}"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "http://${HOST}:${PORT}"
   fi ) &
 
-exec uv run uvicorn app.main:app --host 127.0.0.1 --port "$PORT"
+exec uv run uvicorn app.main:app --host "$HOST" --port "$PORT"

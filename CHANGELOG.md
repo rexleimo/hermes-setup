@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.4 — 2026-09-17（启动脚本支持监听地址覆盖：服务器对外服务）
+
+### Added
+- **start.sh / start.bat 支持 HOST / PORT 覆盖**：`HOST`（默认 127.0.0.1）、`PORT`
+  （默认 8420）均可经环境变量覆盖，并回退读取 `HERMES_CONSOLE_HOST/PORT`
+  （与应用设置同名）；服务器上 `HERMES_CONSOLE_HOST=0.0.0.0 ./start.sh` 即可对外提供服务；
+  非回环监听时启动脚本显式警告密钥/HTTPS/白名单三件套。
+
+### Tests
+- 新增 tests/test_start_scripts.py（2 项，锁启动脚本的变量契约）。
+
 ## 0.8.3 — 2026-09-17（root 安装的 bin 包裹脚本解析 + 仓库目录显示修正）
 
 ### Fixed

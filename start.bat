@@ -3,10 +3,14 @@ rem ============================================================
 rem  Hermes Console 一键启动（Windows · 双击即用，无需终端经验）
 rem  首次运行自动装依赖；启动成功后自动打开浏览器。
 rem  关闭本窗口即停止控制台。
+rem  服务器对外：先 set HERMES_CONSOLE_HOST=0.0.0.0 再双击（先配好密钥/HTTPS/白名单）
 rem ============================================================
 setlocal
 cd /d "%~dp0"
+if not defined PORT set PORT=%HERMES_CONSOLE_PORT%
 if not defined PORT set PORT=8420
+if not defined HOST set HOST=%HERMES_CONSOLE_HOST%
+if not defined HOST set HOST=127.0.0.1
 
 rem ---- 找 uv（没有就用 python 现装一个；官方源失败自动换国内镜像重试） ----
 where uv >nul 2>nul
@@ -47,6 +51,10 @@ if errorlevel 1 (
 )
 
 rem ---- 延迟 3 秒自动打开浏览器，然后前台启动服务 ----
-echo [2/2] 启动控制台 http://127.0.0.1:%PORT% （关窗即停）
-start "" cmd /c "timeout /t 3 /nobreak >nul & start http://127.0.0.1:%PORT%"
-uv run uvicorn app.main:app --host 127.0.0.1 --port %PORT%
+if /i not "%HOST%"=="127.0.0.1" if /i not "%HOST%"=="localhost" (
+  echo [警告] 监听地址为 %HOST%（非本机回环），管理后台将暴露给网络：
+  echo   请务必设置 HERMES_CONSOLE_SECRET，并前置 HTTPS 且用 HERMES_CONSOLE_ALLOWED_IPS 限制来源。
+)
+echo [2/2] 启动控制台 http://%HOST%:%PORT% （关窗即停）
+start "" cmd /c "timeout /t 3 /nobreak >nul & start http://%HOST%:%PORT%"
+uv run uvicorn app.main:app --host %HOST% --port %PORT%

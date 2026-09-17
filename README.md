@@ -92,7 +92,9 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8420
 4. **服务管理 → 启动 Gateway**。
 
 生产部署：用 systemd 托管 uvicorn，前置 Nginx/Caddy 做 HTTPS（开启 `HERMES_CONSOLE_SECURE_COOKIES=1`），
-并用 `HERMES_CONSOLE_ALLOWED_IPS` 限制管理来源。
+并用 `HERMES_CONSOLE_ALLOWED_IPS` 限制管理来源。需局域网/公网直连时以
+`HERMES_CONSOLE_HOST=0.0.0.0` 启动（密钥、HTTPS、白名单缺一不可；`start.sh` /
+`start.bat` 会显式警告）。
 
 ## 升级与卸载
 
