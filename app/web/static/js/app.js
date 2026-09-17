@@ -106,24 +106,29 @@
       formWrap.classList.add("hidden");
     }
     pendingForm = opts.submit;
-    modal.showModal();
+    if (!modal.open) modal.showModal();   // 双击防抖：已打开时不再 showModal（否则抛错）
     if (confirmWord) input.focus();
   }
 
   document.getElementById("confirm-accept").addEventListener("click", function () {
-    var typed = "";
-    if (confirmWord) {
-      typed = document.getElementById("confirm-input").value.trim();
-      if (typed !== confirmWord) {
-        showToast("确认词不匹配，未执行操作", "warning");
+    try {
+      var typed = "";
+      if (confirmWord) {
+        typed = document.getElementById("confirm-input").value.trim();
+        if (typed !== confirmWord) {
+          showToast("确认词不匹配，未执行操作", "warning");
+          return;
+        }
+      }
+      modal.close();
+      if (!pendingForm) {
+        showToast("未找到待提交的表单，请重试", "warning");
         return;
       }
-    }
-    modal.close();
-    if (pendingForm) {
-      var field = pendingForm.querySelector("[data-confirm-field]");
-      if (field) field.value = typed;
-      pendingForm();
+      pendingForm(typed);
+    } catch (err) {
+      // 任何异常都必须可见：不再出现"点了没反应"
+      showToast("提交失败：" + err, "error");
     }
   });
 
@@ -131,15 +136,17 @@
   document.addEventListener("submit", function (e) {
     var form = e.target;
     if (!(form instanceof HTMLFormElement) || form.dataset.confirm === undefined) return;
-    if (form.dataset.confirmed === "1") { delete form.dataset.confirmed; return; }
     e.preventDefault();
     openConfirm({
       message: form.dataset.confirm,
       word: form.dataset.confirmWord || "",
-      submit: function () {
-        form.dataset.confirmed = "1";
-        if (form.requestSubmit) form.requestSubmit();
-        else form.submit();
+      submit: function (typed) {
+        // 确认后直接原生提交（form.submit）：不再走 requestSubmit 的二次 submit
+        // 事件往返——跨浏览器/时序下偶发的"确认后无反应"由此根除；
+        // 确认词就地写入隐藏字段（data-confirm-field），服务端校验用。
+        var field = form.querySelector("[data-confirm-field]");
+        if (field) field.value = typed || "";
+        form.submit();
       }
     });
   }, true);

@@ -52,6 +52,7 @@
           <form method="post" action="/service/action" data-confirm="确认停止 Gateway？停机期间所有消息渠道将不可用。"
                 data-confirm-word="停止">
             {{ csrf() }}<input type="hidden" name="action" value="stop">
+            <input type="hidden" name="confirm" value="" data-confirm-field>
             <button class="btn btn-danger-outline" type="submit" style="width:100%;" {% if not paths.installed %}disabled{% endif %}>
               {{ icon('stop') }} <span class="btn-label">停止 Gateway</span><span class="spinner"></span>
             </button>
@@ -59,6 +60,7 @@
           <form method="post" action="/service/action" data-confirm="确认重启 Gateway？将短暂中断服务。"
                 data-confirm-word="重启">
             {{ csrf() }}<input type="hidden" name="action" value="restart">
+            <input type="hidden" name="confirm" value="" data-confirm-field>
             <button class="btn btn-secondary" type="submit" style="width:100%;" {% if not paths.installed %}disabled{% endif %}>
               {{ icon('rotate') }} <span class="btn-label">重启</span><span class="spinner"></span>
             </button>
