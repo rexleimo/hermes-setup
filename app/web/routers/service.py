@@ -78,7 +78,9 @@ def _readiness() -> dict:
 @router.post("/action")
 def service_action(request: Request, user: User, action: str = Form(...),
                    confirm: str = Form("")):
-    """start / stop / restart；危险动作需在表单中输入动作名确认。"""
+    """start / stop / restart：全部转为后台任务——输出实时进终端 + 任务面板 + 日志文件，
+    可取消、可回查；页面即时返回不再"卡死"，且每一步都有流水可看。
+    （此前是同步调用：阻塞页面且没有任何日志，实机踩坑。）"""
     paths = detect()
     ip = client_ip(request)
     username = user["username"]
@@ -92,23 +94,21 @@ def service_action(request: Request, user: User, action: str = Form(...),
                          detail="确认词不匹配", ip=ip)
             return _reject(request, "请输入正确的确认词以继续")
 
+    label = {"start": "启动", "stop": "停止", "restart": "重启"}[action]
     try:
-        output = {"start": supervisor.start, "stop": supervisor.stop,
-                  "restart": supervisor.restart}[action](paths)
-    except supervisor.SupervisorError as exc:
+        installer.submit(f"gateway_{action}",
+                         installer.gateway_action_job(action),
+                         cwd=str(settings.jobs_dir))
+    except installer.JobBusy as exc:
         audit.record(f"gateway_{action}", username=username, outcome="failed",
                      detail=str(exc), ip=ip)
-        if is_htmx(request):
-            resp = render_partial(request, "service/_status_brief.html", {
-                "status": supervisor.status(paths), "paths": paths,
-                "version": supervisor.version(paths),
-            }, status_code=502)
-            toast(resp, f"{DANGER_WORDS.get(action, action)} 失败：{exc}", level="error")
-            return resp
-        return _service_view(request, error=str(exc), code=502)
+        return _reject(request, str(exc))
 
-    audit.record(f"gateway_{action}", username=username, detail=output[:300], ip=ip)
-    return _after_change(request, paths, f"已{DANGER_WORDS.get(action, '执行')} Gateway")
+    audit.record(f"gateway_{action}", username=username,
+                 detail="已提交后台任务", ip=ip)
+    return _after_change(
+        request, paths,
+        f"已提交「{label} Gateway」任务——输出见页面顶部任务面板（终端同步打印）")
 
 
 @router.post("/install")

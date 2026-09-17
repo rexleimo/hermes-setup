@@ -135,6 +135,48 @@ def test_restart_falls_back_even_when_stop_fails(tmp_path, monkeypatch):
     assert "started" in out
 
 
+def test_timeout_message_includes_partial_output(tmp_path, monkeypatch):
+    """超时不能只说一句"超时"：必须带出已捕获的输出（它当时在做什么）。"""
+    import subprocess as _sp
+
+    def fake_run(cmd, **kw):
+        raise _sp.TimeoutExpired(cmd, 180,
+                                 output=b"\xe2\x9c\x93 Enabled linger for ubuntu\n"
+                                        b"Installing systemd service...",
+                                 stderr=b"")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    import pytest
+    with pytest.raises(supervisor.SupervisorError) as ei:
+        supervisor._run_cli(_stub_paths(tmp_path), "gateway", "install")
+    msg = str(ei.value)
+    assert "命令超时" in msg and "180" in msg
+    assert "Enabled linger" in msg and "Installing systemd service" in msg
+
+
+def test_slow_commands_get_longer_timeout(tmp_path, monkeypatch):
+    """install 用 180 秒、start 用 120 秒；状态查询仍是 20 秒。"""
+    captured = {}
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        captured["timeout"] = kw.get("timeout")
+        return FakeCompleted()
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    paths = _stub_paths(tmp_path)
+    supervisor._run_cli(paths, "gateway", "status")
+    assert captured["timeout"] == supervisor.CLI_TIMEOUT
+    supervisor._run_cli(paths, "gateway", "start")
+    assert captured["timeout"] == 120
+    supervisor._run_cli(paths, "gateway", "install")
+    assert captured["timeout"] == 180
+
+
 @posix_only
 def test_start_stop_restart(tmp_path):
     paths = _paths(tmp_path, make_stub_bin(tmp_path))

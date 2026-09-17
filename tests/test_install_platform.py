@@ -229,6 +229,65 @@ def test_cancel_unknown_job():
     assert installer.cancel(99999) == "任务不存在"
 
 
+def test_gateway_action_submits_background_job(admin, monkeypatch):
+    """网关启停必须是后台任务（有流水可看），不再是同步阻塞调用。"""
+    calls = {}
+
+    def fake_submit(kind, command, *, shell=True, cwd=None):
+        calls["kind"] = kind
+        calls["command"] = command
+        return 11
+
+    monkeypatch.setattr(installer, "submit", fake_submit)
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    resp = admin.post("/service/action",
+                      data={"_csrf": token, "action": "start"},
+                      follow_redirects=False)
+    assert resp.status_code == 200
+    assert calls["kind"] == "gateway_start"
+    assert "gateway_action.py" in calls["command"]
+    assert "已提交" in resp.text
+
+
+def test_gateway_stop_requires_confirm_word(admin, monkeypatch):
+    """危险动作仍要确认词；确认后同样走后台任务。"""
+    calls = {}
+
+    def fake_submit(kind, command, *, shell=True, cwd=None):
+        calls["kind"] = kind
+        return 12
+
+    monkeypatch.setattr(installer, "submit", fake_submit)
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    bad = admin.post("/service/action",
+                     data={"_csrf": token, "action": "stop", "confirm": "瞎写"},
+                     follow_redirects=False)
+    assert bad.status_code == 400 and "确认词" in bad.text
+    ok = admin.post("/service/action",
+                    data={"_csrf": token, "action": "stop", "confirm": "停止"},
+                    follow_redirects=False)
+    assert ok.status_code == 200
+    assert calls["kind"] == "gateway_stop"
+
+
+def test_gateway_driver_script_is_valid():
+    """驱动脚本必须可编译（py_compile），且包含 supervisor 调用（自动注册链路依托它）。"""
+    import py_compile
+
+    from app.core.settings import settings
+
+    cmd = installer.gateway_action_job("start")
+    script = settings.jobs_dir / "gateway_action.py"
+    py_compile.compile(str(script), doraise=True)
+    text = script.read_text(encoding="utf-8")
+    assert "supervisor" in text and "detect" in text
+    assert "gateway_action.py" in cmd
+
+
 def test_job_output_reaches_console_and_log(monkeypatch):
     """任务输出必须双通道：终端实时回显（用户能看见在跑）+ 日志文件落盘。"""
     import io

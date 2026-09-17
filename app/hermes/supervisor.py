@@ -17,6 +17,32 @@ from app.hermes.paths import HermesPaths, detect
 
 CLI_TIMEOUT = 20
 
+# 慢命令单独放宽：systemd 用户会话冷启动 / 首次注册服务能耗时几十秒，
+# 用状态查询那套 20 秒硬限制会把"正在进行"误判成"卡死"（实机踩过）。
+_CLI_TIMEOUTS: dict[tuple[str, ...], int] = {
+    ("gateway", "install"): 180,
+    ("gateway", "start"): 120,
+    ("gateway", "stop"): 120,
+    ("gateway", "restart"): 120,
+    ("update",): 300,
+}
+
+
+def _timeout_for(args: tuple[str, ...]) -> int:
+    for prefix, t in _CLI_TIMEOUTS.items():
+        if args[:len(prefix)] == prefix:
+            return t
+    return CLI_TIMEOUT
+
+
+def _decode_partial(exc: subprocess.TimeoutExpired) -> str:
+    chunks: list[str] = []
+    for v in (exc.stdout, exc.stderr):
+        if not v:
+            continue
+        chunks.append(v.decode("utf-8", "replace") if isinstance(v, bytes) else str(v))
+    return "\n".join(chunks)
+
 
 class SupervisorError(Exception):
     pass
@@ -42,17 +68,22 @@ class GatewayStatus:
 def _run_cli(paths: HermesPaths, *args: str) -> tuple[int, str]:
     if not paths.bin:
         raise SupervisorError("未找到 hermes 可执行文件，请先安装或到「系统设置」指定路径")
+    timeout = _timeout_for(tuple(args))
     try:
         proc = subprocess.run(
             [paths.bin, *args],
-            capture_output=True, text=True, timeout=CLI_TIMEOUT,
+            capture_output=True, text=True, timeout=timeout,
             # hermes CLI 输出 UTF-8；中文 Windows 默认 GBK 会在解码线程直接报错、
             # 把输出吞成空串，状态探测因此永远「未知」。固定按 UTF-8 读。
             encoding="utf-8", errors="replace",
             env={**_child_env(), "PATH": _path_with_common_bins()},
         )
     except subprocess.TimeoutExpired as exc:
-        raise SupervisorError(f"命令超时：hermes {' '.join(args)}") from exc
+        # 超时要带出已捕获的输出：用户和我们都得知道它当时"在做什么"
+        partial = _decode_partial(exc).strip()
+        tail = f"\n已捕获输出（截尾）：\n{partial[-600:]}" if partial else "\n（该命令未输出任何内容）"
+        raise SupervisorError(
+            f"命令超时：hermes {' '.join(args)}（{timeout} 秒内未完成）{tail}") from exc
     except OSError as exc:
         raise SupervisorError(f"无法执行 hermes：{exc}") from exc
     output = (proc.stdout or "") + (proc.stderr or "")

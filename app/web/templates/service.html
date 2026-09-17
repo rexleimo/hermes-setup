@@ -66,7 +66,8 @@
             </button>
           </form>
           {% else %}
-          <form method="post" action="/service/action">
+          <form method="post" action="/service/action"
+                data-confirm="启动 Gateway？首次启动会自动注册系统服务，最长约 1 分钟——请勿重复点击，输出会在终端与任务面板同步显示。">
             {{ csrf() }}<input type="hidden" name="action" value="start">
             <button class="btn btn-primary btn-lg" type="submit" style="width:100%;" {% if not paths.installed %}disabled{% endif %}>
               {{ icon('play') }} <span class="btn-label">启动 Gateway</span><span class="spinner"></span>

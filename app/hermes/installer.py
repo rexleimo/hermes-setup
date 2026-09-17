@@ -300,7 +300,46 @@ JOB_KIND_LABELS = {
     "weixin_qr_login": "微信扫码接入",
     "plugin_install": "安装插件",
     "browser_install": "补装浏览器组件",
+    "gateway_start": "启动 Gateway",
+    "gateway_stop": "停止 Gateway",
+    "gateway_restart": "重启 Gateway",
 }
+
+# 网关动作驱动脚本：由控制台以「后台任务」方式运行（输出实时进终端 + 任务面板 + 日志文件，
+# 可取消、可回查）。此前是同步调用——阻塞页面、且没有任何流水日志。
+GATEWAY_ACTION_DRIVER = '''# console-managed: 网关动作驱动（start / stop / restart）
+import sys
+
+sys.path.insert(0, __ROOT__)
+
+from app.hermes import supervisor  # noqa: E402
+from app.hermes.paths import detect  # noqa: E402
+
+action = sys.argv[1] if len(sys.argv) > 1 else ""
+if action not in ("start", "stop", "restart"):
+    print(f"[console] 未知动作：{action}")
+    sys.exit(2)
+
+try:
+    out = getattr(supervisor, action)(detect())
+except supervisor.SupervisorError as exc:
+    print(str(exc))
+    sys.exit(1)
+print(out or f"已执行 {action}")
+'''
+
+
+def gateway_action_job(action: str) -> str:
+    """生成网关动作的后台任务命令（驱动脚本写入 jobs 目录）。"""
+    import json
+    from pathlib import Path
+
+    root = str(Path(__file__).resolve().parents[2])   # 控制台仓库根
+    script = settings.jobs_dir / "gateway_action.py"
+    script.write_text(
+        GATEWAY_ACTION_DRIVER.replace("__ROOT__", json.dumps(root)),
+        encoding="utf-8")
+    return f'"{sys.executable}" "{script}" {action}'
 
 
 def job_history(limit: int = 15) -> list[dict]:
