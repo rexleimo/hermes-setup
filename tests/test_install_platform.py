@@ -269,6 +269,33 @@ def test_cancel_endpoint_shows_notice(admin, monkeypatch):
     assert "已取消任务" in resp.text
 
 
+def test_install_health_reports_missing_pieces(tmp_path):
+    """安装完整性体检：半成品（有二进制、缺 venv）不能报"全部完成"。"""
+    from app.hermes.paths import HermesPaths
+
+    home = tmp_path / "home"
+    home.mkdir()
+    stub = home / "bin" / "hermes"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.touch()
+    # 只有二进制、没有 hermes-agent 仓库/venv
+    health = installer.install_health(HermesPaths(home=home, bin=str(stub)))
+    by_label = {c["label"]: c for c in health}
+    assert by_label["可执行文件（hermes）"]["ok"] is True
+    assert by_label["源码与虚拟环境"]["ok"] is False
+    assert by_label["源码与虚拟环境"]["hint"]
+    # 补齐仓库 + venv 后转绿
+    repo = home / "hermes-agent"
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / "pyproject.toml").touch()
+    py = repo / "venv" / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.touch()
+    health2 = installer.install_health(HermesPaths(home=home, bin=str(stub)))
+    by2 = {c["label"]: c for c in health2}
+    assert by2["源码与虚拟环境"]["ok"] is True
+
+
 def test_browser_installed_detection(tmp_path, monkeypatch):
     """浏览器引擎探测：目录为空 → False；出现 chromium-* → True。"""
     if sys.platform == "win32":
@@ -345,9 +372,12 @@ def test_browser_backfill_submits_smart_script(admin, hermes_home, monkeypatch):
         monkeypatch.setattr(installer, "submit", fake_submit)
         login(admin, "admin", "Sup3rSecure!x")
         page = admin.get("/service").text
-        # 组件状态常驻可见：装没装、去哪装，不靠猜
-        assert "组件状态" in page
+        # 安装完整性体检常驻可见：装到哪一步、缺什么、怎么补，不靠猜
+        assert "安装完整性" in page
+        assert "可执行文件（hermes）" in page
+        assert "源码与虚拟环境" in page
         assert "安装 / 补装浏览器组件" in page
+        assert "继续 / 修复安装" in page
         token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
         resp = admin.post("/service/browser", data={"_csrf": token},
                           follow_redirects=False)

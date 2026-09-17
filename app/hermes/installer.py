@@ -157,6 +157,45 @@ def browser_cli_installed(hermes_home) -> bool:
                ("browser-use", "browser-use.exe", "browser-use.cmd"))
 
 
+def install_health(paths) -> list[dict]:
+    """安装完整性体检：逐项给出「完成/未完成 + 怎么补」。
+
+    背景：早前只用"hermes 可执行文件存在"判定"已安装"，而该文件在安装早期就会
+    生成——下载中断、venv 半成品、网关未注册都会被说成"安装好了"。现在逐项如实
+    呈现；修复动作 = 幂等重跑安装 / 补装浏览器 / 启动网关时自动注册服务。"""
+    from app.hermes.paths import resolve_agent_repo
+
+    checks: list[dict] = []
+
+    def add(label: str, ok: bool, hint: str = "") -> None:
+        checks.append({"label": label, "ok": bool(ok), "hint": hint})
+
+    add("可执行文件（hermes）", paths.installed,
+        "未找到——点「继续 / 修复安装」")
+    repo = resolve_agent_repo(paths)
+    venv_python = False
+    if repo is not None:
+        venv_python = any(c.exists() for c in (
+            repo / "venv" / "bin" / "python",
+            repo / "venv" / "Scripts" / "python.exe"))
+    add("源码与虚拟环境", repo is not None and venv_python,
+        "安装可能在下载 / 建环境阶段被中断——点「继续 / 修复安装」")
+    if sys.platform == "linux":
+        from pathlib import Path
+
+        try:
+            unit_ok = any((Path.home() / ".config" / "systemd" / "user")
+                          .glob("hermes-gateway*.service"))
+        except OSError:
+            unit_ok = False
+        add("网关服务已注册", unit_ok, "点「启动 Gateway」会自动注册并启动")
+    add("浏览器引擎（Chromium）", browser_installed(),
+        "点「安装 / 补装浏览器组件」（自动切国内镜像）")
+    add("Browser Use CLI", browser_cli_installed(paths.home),
+        "同上，补装脚本会一并安装")
+    return checks
+
+
 def browser_install_job() -> str | None:
     """生成浏览器组件补装命令（脚本写入 jobs 目录）；平台不支持/未安装时返回 None。
 

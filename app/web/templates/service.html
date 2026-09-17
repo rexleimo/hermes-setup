@@ -167,26 +167,34 @@
     </div>
   </div>
   <div class="card" style="margin-top:16px;">
-    <div class="card-header"><h3>组件状态</h3></div>
+    <div class="card-header"><h3>安装完整性</h3></div>
     <div class="card-body">
       <dl class="kv" style="margin-bottom:14px;">
-        <dt>浏览器引擎（Chromium）</dt>
-        <dd>{% if browser_engine_ok %}<span class="tag tag-ok">已安装</span>
-          {% else %}<span class="tag tag-warn">未安装</span>{% endif %}</dd>
-        <dt>Browser Use CLI</dt>
-        <dd>{% if browser_cli_ok %}<span class="tag tag-ok">已安装</span>
-          {% else %}<span class="tag tag-warn">未安装</span>{% endif %}</dd>
+        {% for item in install_health %}
+        <dt>{{ item.label }}</dt>
+        <dd>{% if item.ok %}<span class="tag tag-ok">完成</span>
+          {% else %}<span class="tag tag-warn">未完成</span>
+          {% if item.hint %}<span class="text-muted" style="font-size:12px;">{{ item.hint }}</span>{% endif %}
+          {% endif %}</dd>
+        {% endfor %}
       </dl>
-      <p class="text-muted" style="margin:0 0 12px;">浏览器自动化（Browser Use）是 Agent 的核心能力。
-        未安装或想修复时点下面按钮：<b>官方源优先，慢或不通会自动切国内镜像</b>，无需手动配置；
-        进度见页面顶部任务面板。</p>
       {% if user['role'] == 'admin' %}
-      <form method="post" action="/service/browser" data-confirm="开始安装 / 补装浏览器组件？">
-        {{ csrf() }}
-        <button class="btn btn-secondary" type="submit">
-          {{ icon('download') }} <span class="btn-label">安装 / 补装浏览器组件</span><span class="spinner"></span>
-        </button>
-      </form>
+      <div class="flex" style="gap:10px; flex-wrap:wrap;">
+        <form method="post" action="/service/install" data-confirm="继续 / 修复安装？重跑官方安装（幂等），补齐缺失的部分。">
+          {{ csrf() }}
+          <button class="btn btn-secondary" type="submit">
+            {{ icon('download') }} <span class="btn-label">继续 / 修复安装</span><span class="spinner"></span>
+          </button>
+        </form>
+        <form method="post" action="/service/browser" data-confirm="安装 / 补装浏览器组件？">
+          {{ csrf() }}
+          <button class="btn btn-secondary" type="submit">
+            {{ icon('download') }} <span class="btn-label">安装 / 补装浏览器组件</span><span class="spinner"></span>
+          </button>
+        </form>
+      </div>
+      <p class="form-help" style="margin-top:10px;">两个按钮都是幂等的，随时可点；
+        进度见页面顶部任务面板（可取消、可重试），浏览器组件会自动切国内镜像。</p>
       {% else %}
       <p class="text-muted">请联系管理员执行安装。</p>
       {% endif %}

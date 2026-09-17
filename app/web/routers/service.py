@@ -55,9 +55,8 @@ def _service_view(request: Request, error: str = "", code: int = 200,
         "error": error,
         "notice": notice,
         "show_force_install": show_force_install,
-        # 组件状态常驻展示：浏览器组件（核心能力）装没装、去哪装，永远一眼可见
-        "browser_engine_ok": installer.browser_installed(),
-        "browser_cli_ok": installer.browser_cli_installed(paths.home),
+        # 安装完整性逐项体检：装没装完，如实呈现（不再用"二进制存在"糊弄）
+        "install_health": installer.install_health(paths),
         **_job_panel_ctx(),
         **_readiness(),
     }, status_code=code)
