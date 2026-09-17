@@ -442,6 +442,10 @@ if action not in ("start", "stop", "restart"):
     print(f"[console] 未知动作：{action}")
     sys.exit(2)
 
+# 先给一行进度：网关首次启动会先注册系统服务（最长约 3 分钟），
+# 免得用户盯着"没有输出"以为卡死。
+print(f"[console] 正在执行 hermes gateway {action}（首次会自动注册系统服务，"
+      "最长约 3 分钟，请稍候）...", flush=True)
 try:
     out = getattr(supervisor, action)(detect())
 except supervisor.SupervisorError as exc:

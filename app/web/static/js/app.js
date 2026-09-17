@@ -50,6 +50,7 @@
     logEl.addEventListener("scroll", function () {
       stick = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
     });
+    var firstLines = true;
     function appendLines(lines) {
       var empty = logEl.querySelector(".log-empty");
       if (empty) empty.remove();
@@ -66,6 +67,11 @@
       var d;
       try { d = JSON.parse(e.data); } catch (err) { return; }
       if (d.type === "lines") {
+        if (firstLines) {
+          // SSE 从位移 0 推送；首屏已由服务端渲染过同一批行——首帧先清空再追加，避免重复
+          logEl.innerHTML = "";
+          firstLines = false;
+        }
         appendLines(d.lines || []);
       } else if (d.type === "job") {
         var title = document.getElementById("job-title");
