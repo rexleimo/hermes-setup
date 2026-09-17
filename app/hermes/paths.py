@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -108,8 +109,9 @@ def resolve_agent_repo(paths: HermesPaths) -> Path | None:
     """定位 hermes-agent 源码目录：直连路径优先，否则从可执行文件反推。
 
     root/FHS 安装把仓库放在 /usr/local/lib/hermes-agent（而非家目录下），
-    且 /usr/local/bin/hermes 通常是个软链——必须 resolve() 后再逐级上找，
-    否则 MCP/技能/插件目录与 venv 探测在 root 机上全部落空。
+    且 /usr/local/bin/hermes 可能是软链或 bash 包裹脚本——逐级上找、
+    包裹脚本 exec 行解析、官方固定落点三层兜底，否则 MCP/技能/插件目录
+    与 venv 探测在 root 机上全部落空。
     """
     direct = paths.agent_repo
     if direct.exists():
@@ -117,6 +119,46 @@ def resolve_agent_repo(paths: HermesPaths) -> Path | None:
     if paths.bin:
         real = Path(paths.bin).resolve()
         for cand in (real.parent, real.parent.parent, real.parent.parent.parent):
-            if (cand / "pyproject.toml").exists() or (cand / "gateway").is_dir():
+            if _looks_like_repo(cand):
                 return cand
+        shim_repo = _repo_from_shim(real)
+        if shim_repo is not None:
+            return shim_repo
+    if sys.platform != "win32":
+        for cand in _FHS_REPO_CANDIDATES:
+            p = Path(cand)
+            if _looks_like_repo(p):
+                return p
     return None
+
+
+# root/FHS 安装的固定落点（官方 install.sh：root 走 /usr/local/lib）。
+_FHS_REPO_CANDIDATES = ("/usr/local/lib/hermes-agent", "/opt/hermes-agent")
+
+# 官方 root 安装的 bin 是 bash 包裹脚本而非软链，形如：
+#   exec "/usr/local/lib/hermes-agent/venv/bin/python" "/usr/local/lib/hermes-agent/hermes" "$@"
+_SHIM_RE = re.compile(r'"([^"]+)/venv/bin/python"\s+"([^"]+)/hermes"')
+
+
+def _looks_like_repo(p: Path) -> bool:
+    try:
+        return (p / "pyproject.toml").exists() or (p / "gateway").is_dir()
+    except OSError:
+        return False
+
+
+def _repo_from_shim(path: Path) -> Path | None:
+    """从官方 bash 包裹脚本的 exec 行反推仓库目录（带标记校验，防误判）。"""
+    try:
+        if path.stat().st_size > 65536:
+            return None
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = _SHIM_RE.search(text)
+    if not m:
+        return None
+    # 注意：group(2) 经贪婪回溯后恰好就是仓库目录本身（字面量吃掉了末尾 /hermes"），
+    # 不要再 .parent()——否则会指到仓库的上级。
+    repo = Path(m.group(2))
+    return repo if _looks_like_repo(repo) else None

@@ -140,7 +140,7 @@
     <div class="card-header"><h3>更新 Hermes Agent</h3></div>
     <div class="card-body">
       <div class="alert alert-success">{{ icon('check') }} 当前已安装 {% if version %}（<code>{{ version }}</code>）{% endif %}，
-        安装目录 <code>{{ paths.agent_repo }}</code>。</div>
+        安装目录 <code>{{ agent_repo_dir }}</code>。</div>
       {% if user['role'] == 'admin' %}
       <form method="post" action="/service/update" data-confirm="执行 hermes update？升级过程约 1-3 分钟，期间 Gateway 不受影响。">
         {{ csrf() }}
@@ -168,7 +168,7 @@
         <div class="step" data-step-num="3"><span class="step-num">3</span> 回到概览启动 Gateway</div>
       </div>
       <div class="alert alert-info">{{ icon('info') }}
-        将执行官方安装脚本，安装到 <code>{{ paths.agent_repo }}</code>，全程约 1-5 分钟，输出实时显示。</div>
+        将执行官方安装脚本，安装到 <code>{{ agent_repo_dir }}</code>，全程约 1-5 分钟，输出实时显示。</div>
       <div class="alert alert-warn">{{ icon('alert') }}
         安装包从官方源下载。若提示网络失败，请开代理或换网络后重试；
         可先到 <a href="/diagnose">运行体检</a> 检查网络连通性。</div>

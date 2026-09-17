@@ -33,10 +33,15 @@ DEPS_MODULES = ("aiohttp", "cryptography")
 
 def agent_python(paths: HermesPaths | None = None) -> Path | None:
     paths = paths or detect()
-    repo = paths.agent_repo
-    cands = [repo / "venv" / "Scripts" / "python.exe",   # Windows 标准布局
-             repo / "venv" / "bin" / "python"]           # POSIX 标准布局
-    if paths.bin:  # 非标准安装位：从 hermes 可执行文件反推 venv（先解软链，FHS 下 bin 是链接）
+    repos = [paths.agent_repo]
+    resolved = resolve_agent_repo(paths)
+    if resolved is not None and resolved != paths.agent_repo:
+        repos.append(resolved)
+    cands: list[Path] = []
+    for repo in repos:
+        cands += [repo / "venv" / "Scripts" / "python.exe",   # Windows 标准布局
+                  repo / "venv" / "bin" / "python"]           # POSIX 标准布局
+    if paths.bin:  # 非标准安装位：从 hermes 可执行文件反推 venv（先解软链）
         b = Path(paths.bin).resolve()
         cands += [b.parent / "python.exe", b.parent / "python"]
     for cand in cands:

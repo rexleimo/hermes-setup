@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from app.core import audit
 from app.core.settings import settings
 from app.hermes import installer, supervisor
-from app.hermes.paths import detect
+from app.hermes.paths import detect, resolve_agent_repo
 from app.web.deps import Admin, User, client_ip, csrf_guard
 from app.web.htmx import is_htmx, toast
 from app.web.templating import render, render_partial
@@ -46,6 +46,7 @@ def _service_view(request: Request, error: str = "", code: int = 200):
         "errors_log": supervisor.tail_log(paths.errors_log, 60),
         "install_cmd": installer.INSTALL_CMD,
         "install_method": installer.INSTALL_METHOD_LABEL,
+        "agent_repo_dir": str(resolve_agent_repo(paths) or paths.agent_repo),
         "jobs": installer.job_history(),
         "error": error,
         **_job_panel_ctx(),

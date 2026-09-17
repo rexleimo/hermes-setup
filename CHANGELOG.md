@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.3 — 2026-09-17（root 安装的 bin 包裹脚本解析 + 仓库目录显示修正）
+
+### Fixed
+- **官方 root 安装的 bin 是 bash 包裹脚本而非软链**：`resolve()` 解不出仓库，
+  反推仍落空（Ubuntu 干净容器 root 安装实测复现）。现增加两层兜底：解析包裹脚本
+  `exec` 行（带仓库标记校验，防误判），以及官方固定落点 `/usr/local/lib/hermes-agent`、
+  `/opt/hermes-agent`。
+- **venv 解释器同样吃反推仓库**：FHS 下直连 venv 不存在，`agent_python` 会报
+  "未找到 hermes venv"；现与仓库反推共用候选，扫码/依赖链路在 root 机上可达。
+- **服务页"安装目录"显示修正**：改用反推结果，FHS 机器不再显示错误的家目录拼接。
+
+### Tests
+- tests/test_agent_repo.py 补到 10 项（软链/FHS 用例部分仅 POSIX）。
+
 ## 0.8.2 — 2026-09-17（Linux root 安装布局兼容 + start.sh 可执行位）
 
 ### Fixed
@@ -13,7 +27,7 @@
   覆盖反推结果的一行。
 
 ### Tests
-- 新增 tests/test_agent_repo.py（7 项；软链用例仅 POSIX，其余全平台）。
+- 新增 tests/test_agent_repo.py（10 项；软链/FHS 用例部分仅 POSIX）。
 - Ubuntu 24.04 干净容器端到端验证：一键安装 exit 0（约 3.5 分钟），检测链
   `installed=True`，`hermes update --check` 只读验证通过。
 
