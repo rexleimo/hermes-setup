@@ -3,6 +3,7 @@
 {% block title %}服务管理{% endblock %}
 {% block topbar_title %}运维 / <strong>服务管理</strong>{% endblock %}
 {% block content %}
+{% if notice %}<div class="alert alert-success" style="margin:0 0 14px;">{{ icon('check') }} {{ notice }}</div>{% endif %}
 {% if error %}<div class="alert alert-danger" style="margin:0 0 14px;">{{ icon('alert') }} {{ error }}
   {% if show_force_install %}
   <form method="post" action="/service/install" style="margin-top:10px;">
@@ -165,6 +166,25 @@
       {% endif %}
     </div>
   </div>
+  {% if browser_missing %}
+  <div class="card" style="margin-top:16px;">
+    <div class="card-header"><h3>浏览器组件未安装</h3></div>
+    <div class="card-body">
+      <p class="text-muted" style="margin:0 0 12px;">安装时跳过了浏览器组件（或安装未完成），
+        AI 的浏览器工具暂时不可用。点下面按钮一次性补装（重跑官方安装，约 170MB 下载）。</p>
+      {% if user['role'] == 'admin' %}
+      <form method="post" action="/service/browser" data-confirm="开始补装浏览器组件？">
+        {{ csrf() }}
+        <button class="btn btn-secondary" type="submit">
+          {{ icon('download') }} <span class="btn-label">补装浏览器组件</span><span class="spinner"></span>
+        </button>
+      </form>
+      {% else %}
+      <p class="text-muted">请联系管理员执行补装。</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
   {% else %}
   <div class="card">
     <div class="card-header"><h3>安装 Hermes Agent</h3></div>
@@ -182,6 +202,12 @@
       {% if user['role'] == 'admin' %}
       <form method="post" action="/service/install" data-confirm="开始安装 Hermes Agent？">
         {{ csrf() }}
+        {% if supports_skip_browser %}
+        <label style="display:flex;gap:8px;align-items:center;margin:0 0 14px;color:var(--text-muted);font-size:13px;">
+          <input type="checkbox" name="skip_browser" value="1">
+          网络困难时勾选：跳过浏览器组件（约 170MB 下载；装好后可一键补装）
+        </label>
+        {% endif %}
         <button class="btn btn-primary btn-lg" type="submit">
           {{ icon('download') }} <span class="btn-label">开始安装</span><span class="spinner"></span>
         </button>

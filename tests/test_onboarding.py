@@ -60,7 +60,10 @@ def test_job_worker_inherits_full_environment(monkeypatch):
     class FakeProc:
         returncode = 0
 
-    def fake_run(cmd, **kw):
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_popen(cmd, **kw):
         captured["env"] = kw["env"]
         return FakeProc()
 
@@ -70,7 +73,7 @@ def test_job_worker_inherits_full_environment(monkeypatch):
         def start(self):
             self._target()
 
-    monkeypatch.setattr(installer.subprocess, "run", fake_run)
+    monkeypatch.setattr(installer.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(installer.threading, "Thread", FakeThread)
     installer.submit("test_env", "true")
     assert captured["env"]["PATH"] == os.environ["PATH"]

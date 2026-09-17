@@ -170,3 +170,102 @@ def test_install_force_bypasses_preflight(admin, monkeypatch):
                       follow_redirects=False)
     assert resp.status_code == 200
     assert calls.get("kind") == "install"
+
+
+def test_install_skip_browser_flag_by_platform(admin, monkeypatch):
+    """跳过浏览器组件：POSIX 拼 --skip-browser，Windows 不拼（无此开关）。"""
+    calls = {}
+
+    def fake_submit(kind, command, *, shell=True, cwd=None):
+        calls["command"] = command
+        return 6
+
+    monkeypatch.setattr(installer, "submit", fake_submit)
+    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: True)
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    resp = admin.post("/service/install",
+                      data={"_csrf": token, "skip_browser": "1"},
+                      follow_redirects=False)
+    assert resp.status_code == 200
+    if sys.platform == "win32":
+        assert "--skip-browser" not in calls["command"]
+    else:
+        assert calls["command"].endswith("--skip-browser")
+
+
+def test_cancel_unknown_job():
+    assert installer.cancel(99999) == "任务不存在"
+
+
+def test_cancel_running_job_kills_tree_and_settles_state():
+    """取消必须把整个进程树杀掉，并把状态/日志收尾（卡死任务的自救口子）。"""
+    import time as _time
+
+    from app.core import db
+
+    cmd = f'"{sys.executable}" -c "import time; time.sleep(60)"'
+    job_id = installer.submit("install", cmd, shell=True)
+    deadline = _time.monotonic() + 10
+    while _time.monotonic() < deadline and job_id not in installer._procs:
+        _time.sleep(0.1)
+    assert job_id in installer._procs, "任务进程未登记，无法取消"
+    assert installer.cancel(job_id) == "已取消任务"
+
+    deadline = _time.monotonic() + 15
+    row = None
+    while _time.monotonic() < deadline:
+        row = db.query_one(
+            "SELECT status, exit_code FROM job_runs WHERE id = ?", (job_id,))
+        if row and row["status"] != "running":
+            break
+        _time.sleep(0.2)
+    assert row["status"] == "failed"
+    assert row["exit_code"] is not None
+    assert any("手动取消" in line for line in installer.job_log(job_id))
+
+
+def test_cancel_endpoint_shows_notice(admin, monkeypatch):
+    """取消端点对普通表单提交也要有可见反馈（notice 横幅）。"""
+    monkeypatch.setattr(installer, "cancel", lambda job_id: "已取消任务")
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    resp = admin.post("/service/job/cancel",
+                      data={"_csrf": token, "job_id": "1"},
+                      follow_redirects=False)
+    assert resp.status_code == 200
+    assert "已取消任务" in resp.text
+
+
+def test_browser_installed_detection(tmp_path, monkeypatch):
+    """浏览器引擎探测：目录为空 → False；出现 chromium-* → True。"""
+    if sys.platform == "win32":
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        base = tmp_path / "ms-playwright"
+    else:
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
+        base = tmp_path / ".cache" / "ms-playwright"
+    assert installer.browser_installed() is False
+    (base / "chromium-1234").mkdir(parents=True)
+    assert installer.browser_installed() is True
+
+
+def test_job_panel_fragment_live_and_cancellable(admin):
+    """运行中任务的片段：带轮询 + 带取消按钮 + 日志可见。"""
+    from app.core import db
+    from app.core.settings import settings
+
+    db.execute("INSERT INTO job_runs (kind, command, log_path, status) "
+               "VALUES (?,?,?,?)",
+               ("install", "cmd", "jobs/job-x.log", "running"))
+    job_id = db.query_one("SELECT id FROM job_runs ORDER BY id DESC LIMIT 1")["id"]
+    (settings.jobs_dir / f"job-{job_id}.log").write_text(
+        "line1\nline2\n", encoding="utf-8")
+    login(admin, "admin", "Sup3rSecure!x")
+    frag = admin.get("/service/job").text
+    assert "取消任务" in frag
+    assert 'hx-get="/service/job"' in frag and "every 2s" in frag
+    assert "line2" in frag

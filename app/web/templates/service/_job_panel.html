@@ -1,4 +1,4 @@
-{% from "macros.html" import icon with context %}
+{% from "macros.html" import icon, csrf with context %}
 {% if not job %}
 {# 没有任何任务时返回空壳，不报错 #}
 <div id="job-panel"></div>
@@ -22,6 +22,15 @@
       <pre class="log-view" id="job-log" style="max-height:420px;">{%- if job_lines -%}
 {%- for line in job_lines %}<div class="log-line">{{ line }}</div>
 {% endfor %}{%- else -%}<span class="log-empty">等待输出…</span>{%- endif -%}</pre>
+      {% if job['status'] == 'running' %}
+      <form method="post" action="/service/job/cancel" style="margin-top:12px;"
+            data-confirm="确定取消这个任务吗？正在下载/安装的内容会中断。">
+        {{ csrf() }}<input type="hidden" name="job_id" value="{{ job['id'] }}">
+        <button class="btn btn-danger-outline btn-sm" type="submit">
+          {{ icon('stop') }} 卡住了？取消任务
+        </button>
+      </form>
+      {% endif %}
       {% if done %}
       <div class="flex" style="margin-top:12px;">
         <button class="btn btn-secondary btn-sm" hx-get="/service" hx-target="body">

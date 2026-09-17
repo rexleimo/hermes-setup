@@ -16,6 +16,7 @@ from app.core import db
 from app.core.settings import settings
 
 _lock = threading.Lock()
+_procs: dict[int, subprocess.Popen] = {}
 
 # 平台原生的官方安装通道（service.py 的「开始安装」按钮与页面复制框共用）。
 # Windows 绝不能用 `curl | bash`：bash 在 Windows 上解析到 WSL 存根（或根本没有），
@@ -42,6 +43,23 @@ INSTALL_PREFLIGHT_URL = (
     else "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
 )
 UPDATE_CMD = "hermes update"
+
+
+def browser_installed() -> bool:
+    """Playwright 浏览器引擎（Chromium）是否已装：按各平台默认缓存目录探测。
+    探测失败按"未安装"处理——补装按钮多显示一次无害，漏显示才有害。"""
+    from pathlib import Path
+
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Caches" / "ms-playwright"
+    else:
+        base = Path.home() / ".cache" / "ms-playwright"
+    try:
+        return any(p.name.startswith("chromium") for p in base.iterdir())
+    except OSError:
+        return False
 
 
 class JobBusy(Exception):
@@ -111,6 +129,7 @@ JOB_KIND_LABELS = {
     "install_messaging": "安装微信依赖",
     "weixin_qr_login": "微信扫码接入",
     "plugin_install": "安装插件",
+    "browser_install": "补装浏览器组件",
 }
 
 
@@ -141,6 +160,56 @@ def job_log(job_id: int, tail: int = 60) -> list[str]:
         return []
 
 
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """终止整个进程树：POSIX 用独立进程组 + killpg（sh → curl/bash 子孙一起走）；
+    Windows 用 taskkill /T /F。"""
+    if os.name == "posix":
+        import signal as _signal
+
+        try:
+            os.killpg(os.getpgid(proc.pid), _signal.SIGTERM)
+        except OSError:
+            return
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), _signal.SIGKILL)
+            except OSError:
+                pass
+    else:
+        try:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            proc.kill()
+
+
+def cancel(job_id: int) -> str:
+    """取消运行中的任务（连同它的子进程）。返回面向用户的中文结果。"""
+    row = db.query_one("SELECT status FROM job_runs WHERE id = ?", (job_id,))
+    if row is None:
+        return "任务不存在"
+    if row["status"] != "running":
+        return "任务已结束，无需取消"
+    with _lock:
+        proc = _procs.get(job_id)
+    if proc is None or proc.poll() is not None:
+        # 进程已退出但状态行还没收尾（竞态）：直接把状态纠正掉
+        db.execute(
+            "UPDATE job_runs SET status = 'failed', exit_code = -15, "
+            "finished_at = datetime('now') WHERE id = ? AND status = 'running'",
+            (job_id,))
+        return "任务已停止"
+    try:
+        with open(settings.jobs_dir / f"job-{job_id}.log", "a", encoding="utf-8") as fh:
+            fh.write("\n[console] 任务已被手动取消\n")
+    except OSError:
+        pass
+    _kill_tree(proc)
+    return "已取消任务"
+
+
 def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = None) -> int:
     """提交后台任务；返回 job id。"""
     with _lock:
@@ -161,21 +230,32 @@ def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = Non
         # 扫码驱动在 import asyncio 时即崩溃、二维码永远出不来。
         env = dict(os.environ)
         env.setdefault("HOME", os.path.expanduser("~"))
+        code = -2
         try:
             with open(log_path, "w", encoding="utf-8") as fh:
-                proc = subprocess.run(
+                kwargs: dict = {}
+                if os.name == "posix":
+                    # 独立进程组：取消 / 超时时能整树终止（sh → curl/bash 子孙进程）
+                    kwargs["start_new_session"] = True
+                proc = subprocess.Popen(
                     command, shell=shell, stdout=fh, stderr=subprocess.STDOUT,
-                    env=env, timeout=1800, cwd=cwd,
+                    env=env, cwd=cwd, **kwargs,
                 )
-            code = proc.returncode
-        except subprocess.TimeoutExpired:
-            code = -1
-            with open(log_path, "a", encoding="utf-8") as fh:
-                fh.write("\n[console] 任务超时（30 分钟）\n")
+                with _lock:
+                    _procs[job_id] = proc
+                try:
+                    code = proc.wait(timeout=1800)
+                except subprocess.TimeoutExpired:
+                    _kill_tree(proc)
+                    with open(log_path, "a", encoding="utf-8") as fh:
+                        fh.write("\n[console] 任务超时（30 分钟），已终止\n")
+                    code = -1
         except OSError as exc:
-            code = -2
             with open(log_path, "a", encoding="utf-8") as fh:
                 fh.write(f"\n[console] 启动失败：{exc}\n")
+        finally:
+            with _lock:
+                _procs.pop(job_id, None)
         db.execute(
             "UPDATE job_runs SET status = ?, exit_code = ?, finished_at = datetime('now') "
             "WHERE id = ?",

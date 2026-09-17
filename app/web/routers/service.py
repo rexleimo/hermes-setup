@@ -1,6 +1,8 @@
 """服务管理：Hermes 安装 / 更新、Gateway 启停、日志与任务输出。"""
 from __future__ import annotations
 
+import sys
+
 from fastapi import APIRouter, Depends, Form, Request
 
 from app.core import audit
@@ -36,7 +38,7 @@ def _job_panel_ctx() -> dict:
 
 
 def _service_view(request: Request, error: str = "", code: int = 200,
-                  show_force_install: bool = False):
+                  show_force_install: bool = False, notice: str = ""):
     paths = detect()
     st = supervisor.status(paths)
     return render(request, "service.html", {
@@ -51,7 +53,11 @@ def _service_view(request: Request, error: str = "", code: int = 200,
         "agent_repo_dir": str(resolve_agent_repo(paths) or paths.agent_repo),
         "jobs": installer.job_history(),
         "error": error,
+        "notice": notice,
         "show_force_install": show_force_install,
+        # 跳过浏览器组件仅 POSIX 安装器支持；补装按钮只在"已装但缺浏览器"时出现
+        "supports_skip_browser": sys.platform != "win32",
+        "browser_missing": paths.installed and not installer.browser_installed(),
         **_job_panel_ctx(),
         **_readiness(),
     }, status_code=code)
@@ -107,9 +113,29 @@ def service_action(request: Request, user: User, action: str = Form(...),
 
 
 @router.post("/install")
-def install(request: Request, user: Admin, force: str = Form("")):
-    return _submit_job(request, user, "install", installer.INSTALL_CMD,
+def install(request: Request, user: Admin, force: str = Form(""),
+            skip_browser: str = Form("")):
+    command = installer.INSTALL_CMD
+    if skip_browser.strip() and sys.platform != "win32":
+        # 网络困难时跳过 Playwright/Chromium 下载（约 170MB）；后续可一键补装
+        command = f"{command} --skip-browser"
+    return _submit_job(request, user, "install", command,
                        "开始安装 Hermes Agent", force=bool(force.strip()))
+
+
+@router.post("/browser")
+def browser_backfill(request: Request, user: Admin):
+    """补装浏览器组件：重跑官方安装（幂等，补齐 Playwright/Chromium）。"""
+    return _submit_job(request, user, "browser_install", installer.INSTALL_CMD,
+                       "开始补装浏览器组件")
+
+
+@router.post("/job/cancel")
+def cancel_job(request: Request, user: Admin, job_id: int = Form(...)):
+    result = installer.cancel(job_id)
+    audit.record("job_cancel", username=user["username"],
+                 detail=f"job={job_id} {result}", ip=client_ip(request))
+    return _after_change(request, detect(), result)
 
 
 @router.post("/update")
@@ -213,4 +239,4 @@ def _after_change(request: Request, paths, message: str):
         toast(resp, message)
         resp.headers["HX-Push-Url"] = "false"
         return resp
-    return _service_view(request)
+    return _service_view(request, notice=message)
