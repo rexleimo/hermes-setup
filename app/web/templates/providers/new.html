@@ -74,10 +74,18 @@
                 <div class="rc-body">
                   <div class="rc-title">{{ preset.label }}</div>
                   <div class="rc-desc mono" style="font-size:11.5px;">{{ preset.base_url or preset.env_key }}</div>
+                  {% if preset.signup %}
+                  <a class="rc-signup" href="{{ preset.signup }}" target="_blank" rel="noopener"
+                     onclick="event.stopPropagation();">{{ icon('external') }} 获取 API Key</a>
+                  {% elif preset.id == 'lmstudio' %}
+                  <div class="rc-signup text-muted">本地运行，无需 API Key</div>
+                  {% endif %}
                 </div>
               </label>
               {% endfor %}
             </div>
+            <p class="form-help" style="margin:-8px 0 14px;">{{ icon('info') }}
+              还没有 API Key？先点卡片上的「获取 API Key」去官方控制台注册创建，再回到这里填入。</p>
             <div class="form-grid">
               {{ field('name', '显示名称（可选）', form.get('name',''), placeholder='留空使用预设名') }}
               {{ field('api_key', 'API Key', '', kind='password', required=True,

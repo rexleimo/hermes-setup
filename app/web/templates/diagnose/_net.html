@@ -1,0 +1,21 @@
+{% from "macros.html" import icon, tag with context %}
+<div id="diag-net">
+  <div class="table-wrap"><table class="table">
+    <tbody>
+    {% for r in results %}
+    <tr>
+      <td style="width:92px;">
+        {% if r.ok %}{{ tag('连通', 'ok') }}{% else %}{{ tag('不通', 'error') }}{% endif %}
+      </td>
+      <td>
+        <div class="cell-main">{{ r.label }}</div>
+        {% if not r.ok %}<div class="cell-sub">{{ r.hint }}</div>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% if all_ok %}
+  <div class="alert alert-success" style="margin:10px 0 0;">{{ icon('check') }} 三条下载链路都通，安装与更新不会因网络失败。</div>
+  {% endif %}
+</div>

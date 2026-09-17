@@ -58,8 +58,8 @@ def create_app() -> FastAPI:
     from app.web.routers import (
         audit as audit_router, auth as auth_router, catalog as catalog_router,
         chains as chains_router, channels as channels_router,
-        dashboard as dashboard_router, engineering as engineering_router,
-        files as files_router,
+        dashboard as dashboard_router, diagnose as diagnose_router,
+        engineering as engineering_router, files as files_router, help as help_router,
         mcp as mcp_router, memory as memory_router,
         plugins as plugins_router, providers as providers_router,
         service as service_router, settings as settings_router,
@@ -83,6 +83,8 @@ def create_app() -> FastAPI:
     app.include_router(users_router.router)
     app.include_router(settings_router.router)
     app.include_router(catalog_router.router)
+    app.include_router(diagnose_router.router)
+    app.include_router(help_router.router)
 
     # ------------------------------------------------------------------
     # 中间件（add 顺序与执行顺序相反：最后 add 的最外层）

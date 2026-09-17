@@ -378,6 +378,9 @@ input[type="checkbox"].check {
 }
 .rc-title { font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
 .rc-desc { font-size: 12px; color: var(--text-3); margin-top: 5px; line-height: 1.5; }
+.rc-signup { display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+  margin-top: 8px; color: var(--brand-600); font-weight: 500; }
+.rc-signup:hover { text-decoration: underline; }
 
 /* ------------------------------------------------------------
    8. 表格

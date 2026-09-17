@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag with context %}
+{% block title %}帮助与常见问题{% endblock %}
+{% block topbar_title %}<strong>帮助与常见问题</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>帮助与常见问题</h2>
+    <p class="page-desc">第一次用？先花 30 秒看「它是怎么工作的」；出问题了直接翻下面的常见问题</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-secondary" href="/diagnose">{{ icon('shield') }} 运行体检</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>{{ icon('zap') }} 它是怎么工作的（30 秒版）</h3></div>
+  <div class="card-body">
+    <div class="guide-strip">
+      <span class="g-step">你（微信 / 飞书 / QQ…）</span><span class="g-arrow">→</span>
+      <span class="g-step">消息渠道</span><span class="g-arrow">→</span>
+      <span class="g-step">Gateway 网关</span><span class="g-arrow">→</span>
+      <span class="g-step">Hermes Agent</span><span class="g-arrow">→</span>
+      <span class="g-step">模型供应商（AI 大脑）</span>
+    </div>
+    <p class="form-help" style="margin:12px 0 0;">
+      你在聊天软件里发消息，<b>渠道</b>把它交给常驻后台的 <b>Gateway</b>，Gateway 唤醒 <b>Agent</b> 去干活，
+      Agent 调用<b>模型供应商</b>的 AI 来思考，结果原路发回给你。本控制台管理的就是这整条链路的安装与配置 ——
+      对应的初始化四步：<b>装 Agent → 配主模型 → 启用渠道 → 启动 Gateway</b>（仪表盘有进度清单）。</p>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-header"><h3>{{ icon('book') }} 概念速查</h3></div>
+  <div class="card-body flush">
+    <div class="table-wrap"><table class="table">
+      <tbody>
+      <tr><td style="width:150px;" class="cell-main">Gateway（网关）</td>
+        <td class="cell-sub">常驻后台的服务，负责收发各渠道消息并驱动 Agent。「启动 Gateway」就是启动它。</td></tr>
+      <tr><td class="cell-main">模型供应商</td><td class="cell-sub">提供 AI 模型的服务方（GLM / Kimi / OpenRouter…），需要在它官网注册并创建 API Key。</td></tr>
+      <tr><td class="cell-main">主模型</td><td class="cell-sub">Agent 默认用哪个模型思考和回答，在「模型供应商」里设置。</td></tr>
+      <tr><td class="cell-main">备选链</td><td class="cell-sub">主模型超时或故障时，按顺序顶上的备用模型列表。</td></tr>
+      <tr><td class="cell-main">消息渠道</td><td class="cell-sub">你在哪里跟 Agent 聊天：微信、飞书、QQ、Telegram 等 14 个。</td></tr>
+      <tr><td class="cell-main">工具集</td><td class="cell-sub">允许 Agent 在某个渠道使用哪些工具；对外的渠道建议只给 safe 集合。</td></tr>
+      <tr><td class="cell-main">记忆系统</td><td class="cell-sub">Agent 跨会话记住信息的地方；内置容量小，大项目可一键切换外置方案。</td></tr>
+      <tr><td class="cell-main">MCP 服务</td><td class="cell-sub">给 Agent 外挂工具的标准接口（联网搜索、读数据库…），在「MCP 服务」页添加。</td></tr>
+      <tr><td class="cell-main">技能（Skill）</td><td class="cell-sub">教 Agent 做某类任务的「说明书」包，放在 <code>~/.hermes/skills/</code>。</td></tr>
+      <tr><td class="cell-main">插件与 Hook</td><td class="cell-sub">深度定制 Agent 行为的代码扩展；官方安全模型默认禁用，按白名单开启。</td></tr>
+      <tr><td class="cell-main">白名单（dm_policy）</td><td class="cell-sub">谁可以私聊你的 Agent。建议 allowlist 只放自己，防止陌生人消耗你的额度。</td></tr>
+      <tr><td class="cell-main">config.yaml / .env</td><td class="cell-sub">Hermes 的两份配置文件。密钥等敏感信息只写 <code>.env</code>，控制台永不回显。</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-header"><h3>{{ icon('alert') }} 常见问题</h3></div>
+  <div class="card-body">
+    {% set faqs = [
+      ("Windows 双击 start.bat 弹出「Windows 已保护你的电脑」",
+       "这是系统对未签名脚本的常规拦截，不是病毒。点「更多信息」→「仍要运行」即可继续。"
+       "杀毒软件如果拦截，选择「允许」并加入信任。"),
+      ("macOS 双击 start.sh 没有反应",
+       ".sh 脚本在 macOS 上不能双击运行。打开「终端」（启动台搜索 Terminal），"
+       "把 start.sh 从访达拖进终端窗口，按回车即可。"),
+      ("安装或更新一直失败 / 卡住",
+       "九成是网络无法访问 GitHub（安装包从那里下载）。开代理或换个网络重试；"
+       "可以先到「运行体检」看具体哪条链路不通，按提示处理。"),
+      ("忘记管理员密码",
+       "到这台机器的项目目录里重置：Windows 双击 reset-password.bat；"
+       "macOS / Linux 在终端运行 bash scripts/reset_password.sh。"
+       "按提示输入用户名（直接回车默认 admin），然后用新密码回浏览器登录。"),
+      ("端口被占用 / 想换个端口",
+       "macOS / Linux：PORT=9090 ./start.sh；Windows：先在文件夹地址栏输入 cmd 回车，"
+       "执行 set PORT=9090 后运行 start.bat。浏览器地址也要换成新端口。"),
+      ("如何升级控制台（重要：先看数据目录）",
+       "你的账号、审计、快照都存在「控制台数据目录」—— 新安装默认在 ~/.hermes-console，"
+       "旧安装可能在项目内的 data/（见「平台管理 → 系统设置」页底部）。"
+       "升级三步：关掉控制台 → 用新版替换代码目录（绝对不要动数据目录）→ 重新启动。用 git 拉取更新的同理。"),
+      ("如何彻底卸载",
+       "① 关掉控制台窗口（或停掉 systemd 服务）；② 删除项目目录；"
+       "③ 删除控制台数据目录（~/.hermes-console 或项目内 data/）；"
+       "④ 如果不再使用 Agent，删除 ~/.hermes（Agent 配置、日志、技能都在里面）。"),
+      ("发消息给 Agent 没有回复",
+       "打开「运行体检」按顺序看三项：Gateway 是否在跑、渠道是否启用且凭证齐全、"
+       "主模型与 API Key 是否有效。三项都正常还不回，去「服务管理 → 运行日志」看 errors.log 的最后几行。"),
+      ("配置改坏了怎么办",
+       "每次保存前控制台都会自动备份：config.yaml 保留最近 10 份（config.yaml.bak-时间戳）；"
+       "平台数据库每天自动快照。数据库坏了：平台管理 → 系统设置 → 数据快照，点「恢复」即可"
+       "（恢复前会自动再备份当前状态）。"),
+    ] %}
+    {% for q, a in faqs %}
+    <details style="border:1px dashed var(--border-strong); border-radius:8px; padding:10px 14px; background:var(--bg-subtle); margin-bottom:10px;">
+      <summary style="cursor:pointer; font-weight:600;">{{ loop.index }}. {{ q }}</summary>
+      <p class="form-help" style="margin:8px 0 0; font-size:13.5px;">{{ a }}</p>
+    </details>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-header"><h3>{{ icon('external') }} 更多</h3></div>
+  <div class="card-body">
+    <p class="form-help" style="margin:0;">
+      问题没解决？带上「运行体检 → 复制诊断报告」的内容
+      <a href="https://github.com/rexleimo/hermes-setup/issues" target="_blank" rel="noopener">到 GitHub 提 Issue</a>；
+      安全漏洞请勿公开提交，见 <a href="https://github.com/rexleimo/hermes-setup/blob/main/docs/SECURITY.md" target="_blank" rel="noopener">安全披露说明</a>。
+      上游项目：<a href="https://github.com/NousResearch/hermes-agent" target="_blank" rel="noopener">Hermes Agent</a>。</p>
+  </div>
+</div>
+{% endblock %}

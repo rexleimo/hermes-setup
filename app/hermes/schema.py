@@ -90,36 +90,49 @@ class PresetDef:
     protocol: str              # PROTOCOLS key
     base_url: str = ""
     env_key: str = ""          # 官方约定的 .env 键名
-    docs: str = ""
+    docs: str = ""             # 官方文档
+    signup: str = ""           # 创建 API Key 的控制台入口（小白第一次没有 Key）
 
 
 PRESETS: dict[str, PresetDef] = {
     "openrouter": PresetDef("openrouter", "OpenRouter", "openai_chat",
-                            "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+                            "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY",
+                            signup="https://openrouter.ai/settings/keys"),
     "anthropic": PresetDef("anthropic", "Anthropic 官方", "anthropic_messages",
-                           "https://api.anthropic.com", "ANTHROPIC_API_KEY"),
+                           "https://api.anthropic.com", "ANTHROPIC_API_KEY",
+                           signup="https://console.anthropic.com/settings/keys"),
     "gemini": PresetDef("gemini", "Google Gemini", "google_gemini",
-                        "", "GOOGLE_API_KEY"),
+                        "", "GOOGLE_API_KEY",
+                        signup="https://aistudio.google.com/apikey"),
     "deepseek": PresetDef("deepseek", "DeepSeek", "openai_chat",
-                          "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
+                          "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY",
+                          signup="https://platform.deepseek.com/api_keys"),
     "zai": PresetDef("zai", "Z.ai / 智谱 GLM", "openai_chat",
-                     "https://api.z.ai/api/paas/v4", "GLM_API_KEY"),
+                     "https://api.z.ai/api/paas/v4", "GLM_API_KEY",
+                     signup="https://z.ai/manage-apikey/apikey-list"),
     "kimi-coding": PresetDef("kimi-coding", "Kimi / Moonshot", "openai_chat",
-                             "https://api.moonshot.cn/v1", "KIMI_API_KEY"),
+                             "https://api.moonshot.cn/v1", "KIMI_API_KEY",
+                             signup="https://platform.moonshot.cn/console/api-keys"),
     "minimax": PresetDef("minimax", "MiniMax", "openai_chat",
-                         "https://api.minimax.io/v1", "MINIMAX_API_KEY"),
+                         "https://api.minimax.io/v1", "MINIMAX_API_KEY",
+                         signup="https://platform.minimax.io/user-center/basic-information/interface-key"),
     "minimax-cn": PresetDef("minimax-cn", "MiniMax 国内", "openai_chat",
-                            "https://api.minimaxi.com/v1", "MINIMAX_CN_API_KEY"),
+                            "https://api.minimaxi.com/v1", "MINIMAX_CN_API_KEY",
+                            signup="https://platform.minimaxi.com/user-center/basic-information/interface-key"),
     "deepinfra": PresetDef("deepinfra", "DeepInfra", "openai_chat",
-                           "https://api.deepinfra.com/v1/openai", "DEEPINFRA_API_KEY"),
+                           "https://api.deepinfra.com/v1/openai", "DEEPINFRA_API_KEY",
+                           signup="https://deepinfra.com/dash/api_keys"),
     "nvidia": PresetDef("nvidia", "NVIDIA NIM", "openai_chat",
-                        "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY"),
+                        "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY",
+                        signup="https://build.nvidia.com/settings/api-keys"),
     "lmstudio": PresetDef("lmstudio", "LM Studio（本地）", "openai_chat",
                           "http://127.0.0.1:1234/v1", "LM_API_KEY"),
     "ollama-cloud": PresetDef("ollama-cloud", "Ollama Cloud", "openai_chat",
-                              "https://ollama.com/v1", "OLLAMA_API_KEY"),
+                              "https://ollama.com/v1", "OLLAMA_API_KEY",
+                              signup="https://ollama.com/settings/keys"),
     "bedrock": PresetDef("bedrock", "AWS Bedrock", "aws_bedrock",
-                         "", "AWS_ACCESS_KEY_ID"),
+                         "", "AWS_ACCESS_KEY_ID",
+                         signup="https://console.aws.amazon.com/iam/"),
 }
 
 

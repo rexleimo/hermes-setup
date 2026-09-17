@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% from "macros.html" import icon, tag with context %}
+{% block title %}运行体检{% endblock %}
+{% block topbar_title %}运维 / <strong>运行体检</strong>{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>运行体检</h2>
+    <p class="page-desc">逐项检查控制台与 Agent 的运行条件。出了问题先来这里 —— 每一项都直接告诉你下一步做什么</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-ghost" href="/help">{{ icon('info') }} 帮助与常见问题</a>
+    <a class="btn btn-secondary" href="/diagnose">{{ icon('rotate') }} 重新体检</a>
+  </div>
+</div>
+
+{% if fails %}
+<div class="alert alert-danger">{{ icon('alert') }} 发现 {{ fails }} 项异常（标红）。按每行右侧的按钮处理，处理完回本页重新体检。</div>
+{% elif warns %}
+<div class="alert alert-warn">{{ icon('alert') }} 没有致命问题；{{ warns }} 项待办多为「还没配置完」的正常状态，按右侧按钮逐个完成即可。</div>
+{% else %}
+<div class="alert alert-success">{{ icon('check') }} 全部通过，一切正常。</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header"><h3>本机检查</h3></div>
+  <div class="card-body flush">
+    <div class="table-wrap"><table class="table" id="diag-local">
+      <tbody>
+      {% for c in checks %}
+      <tr>
+        <td style="width:92px;">
+          {% if c.state == 'ok' %}{{ tag('正常', 'ok') }}
+          {%- elif c.state == 'warn' %}{{ tag('待办', 'warn') }}
+          {%- else %}{{ tag('异常', 'error') }}{% endif %}
+        </td>
+        <td>
+          <div class="cell-main">{{ c.label }}</div>
+          {% if c.detail %}<div class="cell-sub">{{ c.detail }}</div>{% endif %}
+        </td>
+        <td style="text-align:right; width:130px;">
+          {% if c.href %}<a class="btn btn-ghost btn-sm" href="{{ c.href }}">{{ c.action_label }} {{ icon('arrow-right') }}</a>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-header">
+    <h3>网络连通</h3>
+    <div class="card-extra">
+      <button class="btn btn-ghost btn-sm" id="copy-report" type="button">{{ icon('copy') }} 复制诊断报告</button>
+    </div>
+  </div>
+  <div class="card-body">
+    <p class="form-help" style="margin:0 0 10px;">安装与更新都要从境外站点下载，国内网络不通是新手最常见的故障。
+      探测约需几秒钟，请稍候。</p>
+    <div hx-get="/diagnose/network" hx-trigger="load" hx-swap="outerHTML">
+      <span class="text-muted">正在探测…</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("click", function (ev) {
+  var btn = ev.target.closest("#copy-report");
+  if (!btn) return;
+  var lines = ["Hermes Console 诊断报告 " + new Date().toISOString()];
+  document.querySelectorAll("#diag-local tbody tr").forEach(function (tr) {
+    var tds = tr.querySelectorAll("td");
+    if (tds.length >= 2) lines.push("[" + tds[0].innerText.trim() + "] " + tds[1].innerText.trim().replace(/\n/g, "："));
+  });
+  var net = document.querySelectorAll("#diag-net tbody tr");
+  if (net.length) lines.push("-- 网络 --");
+  net.forEach(function (tr) {
+    var tds = tr.querySelectorAll("td");
+    if (tds.length >= 2) lines.push("[" + tds[0].innerText.trim() + "] " + tds[1].innerText.trim().replace(/\n/g, "："));
+  });
+  navigator.clipboard.writeText(lines.join("\n")).then(function () {
+    btn.innerText = "已复制";
+    setTimeout(function () { btn.innerHTML = btn.dataset.orig || btn.innerHTML; }, 1500);
+  });
+  btn.dataset.orig = btn.innerHTML;
+});
+</script>
+{% endblock %}

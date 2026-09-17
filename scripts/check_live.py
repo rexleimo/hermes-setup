@@ -40,9 +40,27 @@ def main() -> int:
     # 页面可达性
     for path in ("/", "/service", "/providers", "/channels", "/memory",
                  "/engineering", "/chains", "/users", "/settings",
-                 "/skills", "/mcp", "/plugins"):
+                 "/skills", "/mcp", "/plugins", "/diagnose", "/help"):
         r = client.get(path)
         check(f"GET {path}", r.status_code == 200, str(r.status_code))
+
+    # 小白可用性：体检页要素 + 帮助页 FAQ + 设置页数据目录/恢复入口
+    diag = client.get("/diagnose").text
+    check("体检页本机检查表", "本机检查" in diag and "网络连通" in diag)
+    net = client.get("/diagnose/network").text
+    check("体检页网络探测片段", "连通" in net or "不通" in net)
+    help_page = client.get("/help").text
+    check("帮助页忘记密码 FAQ", "忘记管理员密码" in help_page)
+    check("帮助页升级/卸载指引", "如何升级控制台" in help_page
+          and "如何彻底卸载" in help_page)
+    settings_page = client.get("/settings").text
+    check("设置页展示控制台数据目录", "控制台数据目录" in settings_page)
+    check("设置页快照恢复入口", "/settings/backup/restore" in settings_page)
+
+    # 供应商：预设卡片带「获取 API Key」注册链接
+    new_page = client.get("/providers/new").text
+    check("预设供应商注册链接", "获取 API Key" in new_page
+          and "openrouter.ai/settings/keys" in new_page)
 
     # 行为回归：连字符用户名必须通过校验（临时账号，验后即删）
     page = client.get("/users").text
@@ -70,6 +88,13 @@ def main() -> int:
 
     ss.destroy(session.id)
     client.close()
+
+    # 登录页（未认证视角）：忘记密码自助入口
+    anon = httpx.Client(base_url=BASE, timeout=15)
+    r = anon.get("/login")
+    check("登录页忘记密码提示", r.status_code == 200
+          and "忘记密码" in r.text and "reset-password" in r.text)
+    anon.close()
 
     if failures:
         print(f"\n{len(failures)} 项未通过: {failures}")

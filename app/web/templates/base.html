@@ -30,6 +30,9 @@
       <a class="nav-item {% if nav_active == 'service' %}active{% endif %}" href="/service">
         {{ icon('server') }}<span>服务管理</span>
       </a>
+      <a class="nav-item {% if nav_active == 'diagnose' %}active{% endif %}" href="/diagnose">
+        {{ icon('shield') }}<span>运行体检</span>
+      </a>
 
       <p class="nav-section">配置</p>
       <a class="nav-item {% if nav_active == 'providers' %}active{% endif %}" href="/providers">
@@ -70,6 +73,11 @@
       </a>
       <a class="nav-item {% if nav_active == 'platform' %}active{% endif %}" href="/users">
         {{ icon('users') }}<span>平台管理</span>
+      </a>
+
+      <p class="nav-section">帮助</p>
+      <a class="nav-item {% if nav_active == 'help' %}active{% endif %}" href="/help">
+        {{ icon('info') }}<span>帮助与常见问题</span>
       </a>
     </nav>
     <div class="sidebar-foot">
