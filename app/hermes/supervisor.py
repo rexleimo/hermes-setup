@@ -200,9 +200,25 @@ def _pid_alive(pid: int) -> bool:
 # 控制动作
 # ---------------------------------------------------------------------------
 
+def _service_missing(out: str) -> bool:
+    """识别"网关服务尚未注册"这一特定失败（Linux 首次使用 / 换机）：
+    hermes gateway start 会输出 '✗ Gateway service is not installed'
+    + 'Run: hermes gateway install'。"""
+    low = (out or "").lower()
+    return "not installed" in low and "gateway install" in low
+
+
 def start(paths: HermesPaths | None = None) -> str:
     paths = paths or detect()
     code, out = _run_cli(paths, "gateway", "start")
+    if code != 0 and _service_missing(out):
+        # 首启自动注册服务（幂等）：{user scope} systemd 单元 + linger，
+        # 目标是把"先 install 再 start"这类术语挡在小白视线之外。
+        icode, iout = _run_cli(paths, "gateway", "install")
+        if icode != 0:
+            raise SupervisorError(f"网关服务注册失败（hermes gateway install）：{iout or out}")
+        code, out = _run_cli(paths, "gateway", "start")
+        out = f"{iout}\n{out}".strip()
     if code != 0:
         raise SupervisorError(_explain_failure(out) or f"hermes gateway start 退出码 {code}")
     # 退出码 0 但进程秒退（安全护栏拒绝启动）也要说清楚，不能让小白面对沉默的「状态未知」
@@ -239,12 +255,13 @@ def restart(paths: HermesPaths | None = None) -> str:
     paths = paths or detect()
     code, out = _run_cli(paths, "gateway", "restart")
     if code != 0:
-        # 某些版本没有 restart，退化为 stop+start
+        # 某些版本没有 restart / 服务尚未注册：退化为 stop+start
+        # （stop 在"未注册"时也会报同样的话，忽略它，交给 start 自动注册）
         try:
             stop(paths)
-            return start(paths)
         except SupervisorError:
-            raise SupervisorError(out or "restart 失败") from None
+            pass
+        return start(paths)
     return out or "网关已重启"
 
 

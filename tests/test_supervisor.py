@@ -74,6 +74,67 @@ def test_start_refusing_to_start_raises_with_hint(tmp_path, monkeypatch):
     assert "【控制台解读】" in str(ei.value)
 
 
+def test_start_auto_installs_service_when_missing(tmp_path, monkeypatch):
+    """Linux 首启：服务未注册（✗ Gateway service is not installed）时
+    自动执行 hermes gateway install 再重试 start（小白不该见到 install 这一步）。"""
+    state = {"installed": False}
+    calls = []
+
+    def fake_run(p, *args):
+        calls.append(args)
+        if args == ("gateway", "install"):
+            state["installed"] = True
+            return 0, "✓ service installed"
+        if args == ("gateway", "start"):
+            if not state["installed"]:
+                return 1, "✗ Gateway service is not installed\n  Run: hermes gateway install"
+            return 0, "✓ service started"
+        return 1, "unexpected"
+
+    monkeypatch.setattr(supervisor, "_run_cli", fake_run)
+    out = supervisor.start(_stub_paths(tmp_path))
+    assert "started" in out
+    assert ("gateway", "install") in calls
+    assert calls.count(("gateway", "start")) == 2
+
+
+def test_start_install_failure_raises_plain_language(tmp_path, monkeypatch):
+    def fake_run(p, *args):
+        if args == ("gateway", "install"):
+            return 1, "install boom"
+        return 1, "✗ Gateway service is not installed\n  Run: hermes gateway install"
+
+    monkeypatch.setattr(supervisor, "_run_cli", fake_run)
+    import pytest
+    with pytest.raises(supervisor.SupervisorError) as ei:
+        supervisor.start(_stub_paths(tmp_path))
+    assert "网关服务注册失败" in str(ei.value)
+
+
+def test_restart_falls_back_even_when_stop_fails(tmp_path, monkeypatch):
+    """restart 不可用且服务未注册时：stop 也会报未注册——忽略它，交给 start 自动注册。"""
+    state = {"installed": False}
+
+    def fake_run(p, *args):
+        if args == ("gateway", "restart"):
+            return 1, "no restart subcommand"
+        if args == ("gateway", "stop"):
+            return 1, "✗ Gateway service is not installed\n  Run: hermes gateway install"
+        if args == ("gateway", "install"):
+            state["installed"] = True
+            return 0, "installed"
+        if args == ("gateway", "start"):
+            if not state["installed"]:
+                return (1, "✗ Gateway service is not installed\\n"
+                           "  Run: hermes gateway install")
+            return (0, "started")
+        return 1, "?"
+
+    monkeypatch.setattr(supervisor, "_run_cli", fake_run)
+    out = supervisor.restart(_stub_paths(tmp_path))
+    assert "started" in out
+
+
 @posix_only
 def test_start_stop_restart(tmp_path):
     paths = _paths(tmp_path, make_stub_bin(tmp_path))

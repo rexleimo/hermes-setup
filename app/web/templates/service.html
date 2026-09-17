@@ -166,25 +166,32 @@
       {% endif %}
     </div>
   </div>
-  {% if browser_missing %}
   <div class="card" style="margin-top:16px;">
-    <div class="card-header"><h3>浏览器组件未安装</h3></div>
+    <div class="card-header"><h3>组件状态</h3></div>
     <div class="card-body">
-      <p class="text-muted" style="margin:0 0 12px;">浏览器组件（Agent 核心能力）还没装好——可能是上次自动补装没完成。
-        点下面按钮重试：<b>官方源优先，慢或不通会自动切国内镜像</b>，无需手动配置。</p>
+      <dl class="kv" style="margin-bottom:14px;">
+        <dt>浏览器引擎（Chromium）</dt>
+        <dd>{% if browser_engine_ok %}<span class="tag tag-ok">已安装</span>
+          {% else %}<span class="tag tag-warn">未安装</span>{% endif %}</dd>
+        <dt>Browser Use CLI</dt>
+        <dd>{% if browser_cli_ok %}<span class="tag tag-ok">已安装</span>
+          {% else %}<span class="tag tag-warn">未安装</span>{% endif %}</dd>
+      </dl>
+      <p class="text-muted" style="margin:0 0 12px;">浏览器自动化（Browser Use）是 Agent 的核心能力。
+        未安装或想修复时点下面按钮：<b>官方源优先，慢或不通会自动切国内镜像</b>，无需手动配置；
+        进度见页面顶部任务面板。</p>
       {% if user['role'] == 'admin' %}
-      <form method="post" action="/service/browser" data-confirm="开始补装浏览器组件？">
+      <form method="post" action="/service/browser" data-confirm="开始安装 / 补装浏览器组件？">
         {{ csrf() }}
         <button class="btn btn-secondary" type="submit">
-          {{ icon('download') }} <span class="btn-label">补装浏览器组件</span><span class="spinner"></span>
+          {{ icon('download') }} <span class="btn-label">安装 / 补装浏览器组件</span><span class="spinner"></span>
         </button>
       </form>
       {% else %}
-      <p class="text-muted">请联系管理员执行补装。</p>
+      <p class="text-muted">请联系管理员执行安装。</p>
       {% endif %}
     </div>
   </div>
-  {% endif %}
   {% else %}
   <div class="card">
     <div class="card-header"><h3>安装 Hermes Agent</h3></div>

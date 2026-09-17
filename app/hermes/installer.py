@@ -148,6 +148,15 @@ exit 1
 """
 
 
+def browser_cli_installed(hermes_home) -> bool:
+    """Browser Use CLI（浏览器自动化默认后端）是否已装：探测 Hermes 托管 bin 目录。"""
+    from pathlib import Path
+
+    bindir = Path(hermes_home) / "bin"
+    return any((bindir / name).exists() for name in
+               ("browser-use", "browser-use.exe", "browser-use.cmd"))
+
+
 def browser_install_job() -> str | None:
     """生成浏览器组件补装命令（脚本写入 jobs 目录）；平台不支持/未安装时返回 None。
 
@@ -342,7 +351,10 @@ def _chain_after(kind: str, ok: bool) -> None:
         return
     if browser_installed():
         return
-    command = browser_install_job()
+    try:
+        command = browser_install_job()
+    except OSError:
+        return
     if not command:
         return
     try:

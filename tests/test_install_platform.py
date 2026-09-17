@@ -345,6 +345,9 @@ def test_browser_backfill_submits_smart_script(admin, hermes_home, monkeypatch):
         monkeypatch.setattr(installer, "submit", fake_submit)
         login(admin, "admin", "Sup3rSecure!x")
         page = admin.get("/service").text
+        # 组件状态常驻可见：装没装、去哪装，不靠猜
+        assert "组件状态" in page
+        assert "安装 / 补装浏览器组件" in page
         token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
         resp = admin.post("/service/browser", data={"_csrf": token},
                           follow_redirects=False)
