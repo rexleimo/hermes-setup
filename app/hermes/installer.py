@@ -127,6 +127,11 @@ for d in "$HERMES_DIR/bin" "$HERMES_DIR/node/bin" "$HOME/.local/bin"; do
 done
 export PATH
 
+# 国内镜像通道统一出口：npm 走 npmmirror、pip/uv 走清华（best-effort 步骤共用）
+export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
+export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+export UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX:-$PIP_INDEX_URL}"
+
 if ! command -v timeout >/dev/null 2>&1; then
   # macOS 自带没有 timeout：退化为不设上限
   timeout() { shift; "$@"; }
@@ -174,6 +179,17 @@ fi
 DEPS=""
 if [ "$(id -u)" -eq 0 ] || (command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null); then
   DEPS="--with-deps"
+  SUDO=""
+  [ "$(id -u)" -eq 0 ] || SUDO="sudo -n"
+  # 国内镜像脚本省掉的系统件（编译器/搜索/音频工具），apt 走服务器自带国内镜像
+  echo "[console] 安装系统依赖（build-essential / ripgrep / ffmpeg，best-effort）..."
+  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+  if $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+       build-essential ripgrep ffmpeg >/dev/null 2>&1; then
+    echo "[console] 系统依赖就绪"
+  else
+    echo "[console] 系统依赖安装跳过/失败（非致命）"
+  fi
 else
   echo "[console] 提示：无密码 sudo，跳过系统依赖；如浏览器启动报缺库，管理员执行："
   echo "[console]   sudo npx playwright install-deps chromium"
@@ -229,8 +245,51 @@ else
   echo "[console] 未找到 uv，跳过 Browser Use CLI（可由 hermes tools 安装）"
 fi
 
+# --- npx 缓存预热：运行时按需解析（agent-browser/playwright），预热失败不致命 ---
 if [ "$PW_OK" = "1" ]; then
-  echo "[console] 浏览器组件安装完成。"
+  timeout 300 npx --yes playwright --version >/dev/null 2>&1 || true
+  timeout 300 npx --yes agent-browser --version >/dev/null 2>&1 || true
+fi
+
+# --- camofox 浏览器服务：官方走 npm；国内 npmmirror 通道（best-effort） ---
+if command -v npm >/dev/null 2>&1; then
+  echo "[console] 安装 camofox 浏览器服务（npm + npmmirror）..."
+  if timeout 600 npm install -g --prefix "$HERMES_DIR/node" --silent --ignore-scripts \\
+       "@askjo/camofox-browser@^1.5.2"; then
+    echo "[console] camofox 就绪"
+  else
+    echo "[console] camofox 安装失败（非致命）"
+  fi
+fi
+
+# --- 语音 + 唤醒依赖：官方走 uv pip；国内清华源通道（best-effort） ---
+if [ -n "$UV_CMD" ] && [ -d "$REPO/venv" ]; then
+  echo "[console] 安装语音/唤醒依赖（onnxruntime / faster-whisper，清华源）..."
+  if (cd "$REPO" && VIRTUAL_ENV="$REPO/venv" timeout 900 "$UV_CMD" pip install -e ".[wake,voice]" >/dev/null 2>&1); then
+    echo "[console] 语音/唤醒依赖就绪"
+  else
+    echo "[console] 语音依赖安装失败（非致命，首次使用时会展期安装）"
+  fi
+fi
+
+# --- Computer Use 驱动（cua-driver）：上游只给 GitHub raw；直连失败走加速镜像（best-effort） ---
+echo "[console] 尝试安装 Computer Use 驱动（cua-driver，best-effort）..."
+CUA_SRC="https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh"
+CUA_OK=0
+for CUA_PREFIX in "" "https://ghfast.top/" "https://gh-proxy.com/"; do
+  if timeout 660 bash -c "curl -fsSL '${CUA_PREFIX}${CUA_SRC}' | bash" >/dev/null 2>&1; then
+    CUA_OK=1
+    break
+  fi
+done
+if [ "$CUA_OK" = "1" ]; then
+  echo "[console] Computer Use 驱动就绪"
+else
+  echo "[console] Computer Use 驱动未装上（不影响浏览器自动化；需要时在终端跑 hermes computer-use install）"
+fi
+
+if [ "$PW_OK" = "1" ]; then
+  echo "[console] 组件补齐完成（浏览器引擎 + CLI + camofox + 语音 + 系统件）。"
   exit 0
 fi
 

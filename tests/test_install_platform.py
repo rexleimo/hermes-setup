@@ -518,7 +518,7 @@ def test_browser_backfill_submits_smart_script(admin, hermes_home, monkeypatch):
         assert "安装完整性" in page
         assert "可执行文件（hermes）" in page
         assert "源码与虚拟环境" in page
-        assert "安装 / 补装浏览器组件" in page
+        assert "安装 / 补装组件" in page
         assert "继续 / 修复安装" in page
         token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
         resp = admin.post("/service/browser", data={"_csrf": token},
@@ -538,5 +538,11 @@ def test_browser_backfill_submits_smart_script(admin, hermes_home, monkeypatch):
         assert "pypi.tuna.tsinghua.edu.cn" in script
         # 国内镜像脚本 core-only 会跳过 Node：缺 npx 时从 npmmirror 补装
         assert "npmmirror.com/mirrors/node" in script
+        # 折中通道：camofox（npm+npmmirror）、语音依赖（uv pip+清华）、
+        # 系统件（apt）、Computer Use 驱动（GitHub 加速镜像兜底）
+        assert "camofox-browser" in script
+        assert "wake,voice" in script
+        assert "build-essential" in script
+        assert "ghfast.top" in script
     finally:
         paths_module.set_override(None)

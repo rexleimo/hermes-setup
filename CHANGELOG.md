@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.8.17 — 2026-09-17（组件补齐全覆盖：每个被跳过的组件都有国内通道）
+
+### Added
+- 「安装 / 补装组件」按钮范围扩大（原"补装浏览器组件"）：CN 镜像 core-only 模式跳过的
+  组件，逐个对照官方安装器实现国内折中通道（**全部 best-effort，不阻塞主流程**）：
+  - **camofox 浏览器服务**：`npm install -g @askjo/camofox-browser` + npmmirror registry；
+  - **语音/唤醒依赖（onnxruntime / faster-whisper）**：`uv pip install -e ".[wake,voice]"`
+    + 清华 PyPI；
+  - **系统件（build-essential / ripgrep / ffmpeg）**：apt（服务器自带国内镜像）+ 无密码
+    sudo 探测，可装则装；
+  - **Computer Use 驱动（cua-driver）**：上游只在 GitHub raw 分发——直连失败自动走
+    ghfast / gh-proxy 加速镜像兜底；失败不影响浏览器自动化，可事后
+    `hermes computer-use install` 重试；
+  - **npx 缓存预热**（playwright / agent-browser）：首次使用不再现场下载。
+- 脚本统一导出国内通道：`NPM_CONFIG_REGISTRY=npmmirror`、
+  `PIP_INDEX_URL`/`UV_DEFAULT_INDEX=清华`。
+- 至此组件矩阵：Node（npmmirror）→ 浏览器引擎（npmmirror）→ Browser Use CLI（uv+清华）
+  → camofox（npm+npmmirror）→ 语音（uv+清华）→ 系统件（apt）→ CU 驱动（镜像兜底）。
+
+### Tests
+- 补装脚本内容契约扩展（camofox / wake,voice / build-essential / ghfast 兜底各断言）；
+  bash -n 语法校验通过；全量回归绿。
+
 ## 0.8.16 — 2026-09-17（CN 镜像最小模式的 Node 缺口修复）
 
 ### Fixed

@@ -187,15 +187,16 @@
             {{ icon('download') }} <span class="btn-label">继续 / 修复安装</span><span class="spinner"></span>
           </button>
         </form>
-        <form method="post" action="/service/browser" data-confirm="安装 / 补装浏览器组件？">
+        <form method="post" action="/service/browser" data-confirm="开始安装 / 补装组件（浏览器 / 语音 / 扩展）？">
           {{ csrf() }}
           <button class="btn btn-secondary" type="submit">
-            {{ icon('download') }} <span class="btn-label">安装 / 补装浏览器组件</span><span class="spinner"></span>
+            {{ icon('download') }} <span class="btn-label">安装 / 补装组件</span><span class="spinner"></span>
           </button>
         </form>
       </div>
-      <p class="form-help" style="margin-top:10px;">两个按钮都是幂等的，随时可点；
-        进度见页面顶部任务面板（可取消、可重试），浏览器组件会自动切国内镜像。</p>
+      <p class="form-help" style="margin-top:10px;">两个按钮都是幂等的，随时可点；补装涵盖浏览器引擎、
+        Browser Use CLI、camofox、语音依赖与系统件（编译器/ripgrep/ffmpeg，全走国内镜像通道），
+        Computer Use 驱动为 best-effort。进度见页面顶部任务面板（可取消、可重试）。</p>
       {% else %}
       <p class="text-muted">请联系管理员执行安装。</p>
       {% endif %}
