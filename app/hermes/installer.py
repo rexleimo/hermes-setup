@@ -45,29 +45,31 @@ INSTALL_PREFLIGHT_URL = (
 UPDATE_CMD = "hermes update"
 
 # ---------------------------------------------------------------------------
-# 浏览器组件（Playwright Chromium）：与主安装解耦，官方源优先、国内镜像兜底
+# 浏览器组件（Playwright Chromium + Browser Use CLI）：Agent 核心能力，默认必装
 # ---------------------------------------------------------------------------
-# 背景：官方安装器里的 `npx playwright install chromium` 要从 cdn.playwright.dev
-# 下载 Chromium + FFmpeg + Headless Shell（约 270MB），国内网络时通时断、常卡死。
-# 主安装默认跳过它（快且稳），浏览器组件改由本脚本单独补装：
-#   1) 官方源最多等 5 分钟；2) 失败自动切 npmmirror 镜像（实测有 cft 构建）。
+# 主安装用 --skip-browser 跳过官方安装器里的浏览器段（cdn.playwright.dev 下载
+# 约 270MB，国内时通时断、常卡死），改由本脚本作为独立任务自动接力：
+#   1) 官方源最多等 5 分钟；2) 失败自动切 npmmirror 镜像（实测含 cft 构建）；
+#   3) Ubuntu 新版（如 26.04）再用兼容构建重试；4) Browser Use CLI（uv tool 安装，
+#      PyPI 镜像兜底）。浏览器引擎没装好才返回失败，CLI 属 best-effort。
 BROWSER_MIRROR = "https://cdn.npmmirror.com/binaries/playwright"
 
 BROWSER_SCRIPT = """#!/usr/bin/env bash
-# console-managed: 浏览器组件安装（官方源优先，国内镜像自动兜底）
+# console-managed: 浏览器组件安装（Agent 核心能力；官方源优先、国内镜像自动兜底）
 # 用法：bash browser_install.sh <hermes-agent 仓库目录>
 set -u
 REPO="${1:-}"
 MIRROR="__MIRROR__"
+HERMES_DIR="${HERMES_HOME:-$HOME/.hermes}"
 
 if [ -z "$REPO" ] || [ ! -d "$REPO" ]; then
-  echo "[console] 找不到 Hermes 安装目录，无法补装浏览器组件"
+  echo "[console] 找不到 Hermes 安装目录，无法安装浏览器组件"
   exit 2
 fi
 cd "$REPO" || exit 2
 
-# hermes 托管的 node / npm / npx 常在用户级目录，补进 PATH 再调用
-for d in "$HOME/.local/bin" "${HERMES_HOME:-$HOME/.hermes}/node/bin" "$HOME/.hermes/node/bin"; do
+# hermes 托管的 node / npm / npx / uv 常在用户级目录，补进 PATH 再调用
+for d in "$HERMES_DIR/bin" "$HERMES_DIR/node/bin" "$HOME/.local/bin"; do
   if [ -d "$d" ]; then PATH="$d:$PATH"; fi
 done
 export PATH
@@ -81,23 +83,66 @@ DEPS=""
 if [ "$(id -u)" -eq 0 ] || (command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null); then
   DEPS="--with-deps"
 else
-  echo "[console] 提示：无密码 sudo 不可用，跳过系统依赖；如浏览器启动报缺库，管理员执行："
+  echo "[console] 提示：无密码 sudo，跳过系统依赖；如浏览器启动报缺库，管理员执行："
   echo "[console]   sudo npx playwright install-deps chromium"
 fi
 
-echo "[console] 第 1 步：官方源安装（最多 5 分钟，慢/卡会自动切换）..."
+PW_OK=0
+echo "[console] 第 1 步：官方源安装浏览器引擎（最多 5 分钟，慢/卡会自动切换）..."
 if timeout 300 npx playwright install $DEPS chromium; then
-  echo "[console] 浏览器组件安装完成（官方源）"
+  echo "[console] 浏览器引擎安装完成（官方源）"
+  PW_OK=1
+fi
+
+if [ "$PW_OK" != "1" ]; then
+  echo "[console] 第 2 步：切换国内镜像重试..."
+  if PLAYWRIGHT_DOWNLOAD_HOST="$MIRROR" timeout 900 npx playwright install $DEPS chromium; then
+    echo "[console] 浏览器引擎安装完成（国内镜像）"
+    PW_OK=1
+  fi
+fi
+
+if [ "$PW_OK" != "1" ] && [ -r /etc/os-release ] && grep -qi '^ID=ubuntu' /etc/os-release; then
+  PW_ARCH=""
+  case "$(uname -m)" in
+    x86_64) PW_ARCH="x64" ;;
+    aarch64|arm64) PW_ARCH="arm64" ;;
+  esac
+  if [ -n "$PW_ARCH" ]; then
+    echo "[console] 第 3 步：用 Ubuntu 兼容构建重试（本机系统版本较新时必需）..."
+    if PLAYWRIGHT_DOWNLOAD_HOST="$MIRROR" \\
+       PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="ubuntu24.04-$PW_ARCH" \\
+       timeout 900 npx playwright install $DEPS chromium; then
+      echo "[console] 浏览器引擎安装完成（Ubuntu 兼容构建）"
+      PW_OK=1
+    fi
+  fi
+fi
+
+# --- Browser Use CLI：浏览器自动化默认后端（best-effort，引擎就绪即算成功） ---
+UV_CMD="$(command -v uv || true)"
+if [ -x "$HERMES_DIR/bin/browser-use" ]; then
+  echo "[console] Browser Use CLI 已安装"
+elif [ -n "$UV_CMD" ]; then
+  echo "[console] 安装 Browser Use CLI（浏览器自动化后端）..."
+  if UV_NO_CONFIG=1 UV_TOOL_BIN_DIR="$HERMES_DIR/bin" timeout 600 "$UV_CMD" tool install browser-use; then
+    echo "[console] Browser Use CLI 安装完成"
+  elif UV_NO_CONFIG=1 UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \\
+       UV_TOOL_BIN_DIR="$HERMES_DIR/bin" timeout 600 "$UV_CMD" tool install browser-use; then
+    echo "[console] Browser Use CLI 安装完成（PyPI 国内镜像）"
+  else
+    echo "[console] Browser Use CLI 安装失败（可重试；引擎已就绪时浏览器功能可用内置后端）"
+  fi
+else
+  echo "[console] 未找到 uv，跳过 Browser Use CLI（可由 hermes tools 安装）"
+fi
+
+if [ "$PW_OK" = "1" ]; then
+  echo "[console] 浏览器组件安装完成。"
   exit 0
 fi
 
-echo "[console] 官方源不通或太慢，第 2 步：切换国内镜像重试..."
-if PLAYWRIGHT_DOWNLOAD_HOST="$MIRROR" timeout 900 npx playwright install $DEPS chromium; then
-  echo "[console] 浏览器组件安装完成（国内镜像）"
-  exit 0
-fi
-
-echo "[console] 两个源都没成功。稍后可在本页重试补装，或手动执行："
+echo "[console] 浏览器引擎未能安装。稍后可在本页重试，或手动执行："
 echo "[console]   cd $REPO && npx playwright install chromium"
 exit 1
 """
@@ -287,6 +332,25 @@ def cancel(job_id: int) -> str:
     return "已取消任务"
 
 
+def _chain_after(kind: str, ok: bool) -> None:
+    """安装成功后自动接力浏览器组件任务（Agent 核心能力，默认必装）。
+
+    拆两步的目的不是"跳过"，而是：浏览器下载（cdn.playwright.dev，约 270MB）
+    在国内常卡死——主安装先快速收口（可取消），浏览器组件随后自动接力，
+    官方源优先、自动切镜像、可单独重试；失败了主安装也不受影响。"""
+    if not ok or kind != "install" or sys.platform == "win32":
+        return
+    if browser_installed():
+        return
+    command = browser_install_job()
+    if not command:
+        return
+    try:
+        submit("browser_install", command)
+    except JobBusy:
+        pass
+
+
 def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = None) -> int:
     """提交后台任务；返回 job id。"""
     with _lock:
@@ -338,6 +402,8 @@ def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = Non
             "WHERE id = ?",
             ("ok" if code == 0 else "failed", code, job_id),
         )
+        # 主安装成功 → 自动接力浏览器组件（核心能力，默认必装；详见 _chain_after）
+        _chain_after(kind, code == 0)
 
     threading.Thread(target=_worker, name=f"job-{job_id}", daemon=True).start()
     return job_id

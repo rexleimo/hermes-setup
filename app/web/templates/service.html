@@ -170,8 +170,8 @@
   <div class="card" style="margin-top:16px;">
     <div class="card-header"><h3>浏览器组件未安装</h3></div>
     <div class="card-body">
-      <p class="text-muted" style="margin:0 0 12px;">浏览器组件还没装（安装时跳过了，或上次没下完），
-        AI 的浏览器工具暂时不可用。点下面按钮自动补装：<b>官方源优先，慢或不通会自动切国内镜像</b>，无需手动配置。</p>
+      <p class="text-muted" style="margin:0 0 12px;">浏览器组件（Agent 核心能力）还没装好——可能是上次自动补装没完成。
+        点下面按钮重试：<b>官方源优先，慢或不通会自动切国内镜像</b>，无需手动配置。</p>
       {% if user['role'] == 'admin' %}
       <form method="post" action="/service/browser" data-confirm="开始补装浏览器组件？">
         {{ csrf() }}
@@ -200,18 +200,14 @@
         安装包从官方源下载。若提示网络失败，请开代理或换网络后重试；
         可先到 <a href="/diagnose">运行体检</a> 检查网络连通性。</div>
       {% if user['role'] == 'admin' %}
-      <form method="post" action="/service/install" data-confirm="开始安装 Hermes Agent？">
+      <form method="post" action="/service/install" data-confirm="开始安装 Hermes Agent？（装完会自动补装浏览器组件）">
         {{ csrf() }}
-        {% if supports_skip_browser %}
-        <label style="display:flex;gap:8px;align-items:center;margin:0 0 14px;color:var(--text-muted);font-size:13px;">
-          <input type="checkbox" name="skip_browser" value="1" checked>
-          推荐：先跳过浏览器组件（约 270MB 下载，国内网络易卡死）；装好后可在本页一键补装
-        </label>
-        {% endif %}
         <button class="btn btn-primary btn-lg" type="submit">
           {{ icon('download') }} <span class="btn-label">开始安装</span><span class="spinner"></span>
         </button>
       </form>
+      <p class="form-help" style="margin-top:10px;">装完会自动补装<b>浏览器组件</b>（Agent 核心能力：浏览器自动化；
+        官方源慢时自动切国内镜像，可在任务面板跟进进度）。</p>
       <p class="form-help" style="margin-top:12px;">将执行（{{ install_method }}）：</p>
       <pre class="code-view">{{ install_cmd }}</pre>
       {% else %}

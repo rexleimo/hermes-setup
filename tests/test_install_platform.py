@@ -174,8 +174,8 @@ def test_install_force_bypasses_preflight(admin, monkeypatch):
     assert calls.get("kind") == "install"
 
 
-def test_install_skip_browser_flag_by_platform(admin, monkeypatch):
-    """跳过浏览器组件：POSIX 拼 --skip-browser，Windows 不拼（无此开关）。"""
+def test_install_command_defers_browser_to_chain(admin, monkeypatch):
+    """主安装跳过官方浏览器段（POSIX），浏览器组件由装后自动接力任务负责。"""
     calls = {}
 
     def fake_submit(kind, command, *, shell=True, cwd=None):
@@ -187,14 +187,42 @@ def test_install_skip_browser_flag_by_platform(admin, monkeypatch):
     login(admin, "admin", "Sup3rSecure!x")
     page = admin.get("/service").text
     token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
-    resp = admin.post("/service/install",
-                      data={"_csrf": token, "skip_browser": "1"},
+    resp = admin.post("/service/install", data={"_csrf": token},
                       follow_redirects=False)
     assert resp.status_code == 200
     if sys.platform == "win32":
         assert "--skip-browser" not in calls["command"]
     else:
         assert calls["command"].endswith("--skip-browser")
+
+
+def test_install_chain_after_browser_job(monkeypatch):
+    """主安装成功 → 自动接力浏览器组件任务；失败/已装/Windows 都不接力。"""
+    calls = []
+
+    def fake_submit(kind, command, *, shell=True, cwd=None):
+        calls.append((kind, command))
+        return 9
+
+    monkeypatch.setattr(installer, "browser_installed", lambda: False)
+    monkeypatch.setattr(installer, "browser_install_job",
+                        lambda: 'bash "browser_install.sh" "repo"')
+    monkeypatch.setattr(installer, "submit", fake_submit)
+
+    installer._chain_after("install", True)
+    if sys.platform == "win32":
+        assert calls == []          # Windows：官方安装器自带 best-effort 浏览器段
+        return
+    assert calls == [("browser_install", 'bash "browser_install.sh" "repo"')]
+
+    calls.clear()
+    installer._chain_after("install", False)   # 主安装失败 → 不接力
+    assert calls == []
+
+    calls.clear()
+    monkeypatch.setattr(installer, "browser_installed", lambda: True)
+    installer._chain_after("install", True)    # 引擎已装 → 不重复接力
+    assert calls == []
 
 
 def test_cancel_unknown_job():
@@ -273,14 +301,14 @@ def test_job_panel_fragment_live_and_cancellable(admin):
     assert "line2" in frag
 
 
-def test_skip_browser_checkbox_default_on():
-    """跳过浏览器组件默认勾选：主安装默认走快而稳的路径（国内网络友好）。"""
+def test_install_card_advertises_auto_browser_chain():
+    """安装卡片必须写明"装完自动补装浏览器组件"（核心能力，默认必装）。"""
     from pathlib import Path
 
     tpl = (Path(__file__).resolve().parent.parent / "app" / "web"
            / "templates" / "service.html").read_text(encoding="utf-8")
-    m = re.search(r'name="skip_browser"[^>]*', tpl)
-    assert m and "checked" in m.group(0)
+    assert "自动补装" in tpl and "浏览器组件" in tpl
+    assert 'name="skip_browser"' not in tpl   # 不再给用户"跳过核心能力"的默认勾选
 
 
 def test_browser_backfill_rejects_when_not_installed(admin):
@@ -328,5 +356,10 @@ def test_browser_backfill_submits_smart_script(admin, hermes_home, monkeypatch):
         assert "cdn.npmmirror.com/binaries/playwright" in script
         assert "timeout 300" in script
         assert "PLAYWRIGHT_DOWNLOAD_HOST" in script
+        # Ubuntu 新版兼容构建重试（对齐官方安装器逻辑）
+        assert "PLAYWRIGHT_HOST_PLATFORM_OVERRIDE" in script
+        # Browser Use CLI（浏览器自动化默认后端）也在脚本里补齐
+        assert "tool install browser-use" in script
+        assert "pypi.tuna.tsinghua.edu.cn" in script
     finally:
         paths_module.set_override(None)

@@ -55,8 +55,7 @@ def _service_view(request: Request, error: str = "", code: int = 200,
         "error": error,
         "notice": notice,
         "show_force_install": show_force_install,
-        # 跳过浏览器组件仅 POSIX 安装器支持；补装按钮只在"已装但缺浏览器"时出现
-        "supports_skip_browser": sys.platform != "win32",
+        # 补装按钮只在"已装但缺浏览器引擎"时出现（正常安装会由接力任务自动补齐）
         "browser_missing": paths.installed and not installer.browser_installed(),
         **_job_panel_ctx(),
         **_readiness(),
@@ -113,11 +112,12 @@ def service_action(request: Request, user: User, action: str = Form(...),
 
 
 @router.post("/install")
-def install(request: Request, user: Admin, force: str = Form(""),
-            skip_browser: str = Form("")):
+def install(request: Request, user: Admin, force: str = Form("")):
     command = installer.INSTALL_CMD
-    if skip_browser.strip() and sys.platform != "win32":
-        # 网络困难时跳过 Playwright/Chromium 下载（约 170MB）；后续可一键补装
+    if sys.platform != "win32":
+        # 浏览器组件（Agent 核心能力）由主安装完成后的接力任务自动补装：
+        # 主安装快而稳，浏览器段落独立任务（镜像兜底/可取消/可重试）。
+        # 见 installer._chain_after 与 installer.BROWSER_SCRIPT。
         command = f"{command} --skip-browser"
     return _submit_job(request, user, "install", command,
                        "开始安装 Hermes Agent", force=bool(force.strip()))
