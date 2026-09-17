@@ -112,6 +112,11 @@ def update(request: Request, user: Admin):
 
 def _submit_job(request: Request, user, kind: str, command: str, message: str):
     paths = detect()
+    if kind in ("install", "update") and not installer.network_reachable():
+        # 必败预检：任务失败小白看不懂日志，不如提交前就用大白话拦下
+        audit.record(f"job_{kind}", username=user["username"], outcome="failed",
+                     detail="网络预检未通过", ip=client_ip(request))
+        return _reject(request, installer.NETWORK_HINT)
     try:
         installer.submit(kind, command)
     except installer.JobBusy as exc:

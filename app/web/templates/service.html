@@ -168,6 +168,9 @@
       </div>
       <div class="alert alert-info">{{ icon('info') }}
         将执行官方安装脚本，安装到 <code>~/.hermes/hermes-agent</code>，全程约 1-5 分钟，输出实时显示。</div>
+      <div class="alert alert-warn">{{ icon('alert') }}
+        安装脚本从 GitHub 下载。若提示网络失败，请开代理或换网络后重试；
+        可先到 <a href="/diagnose">运行体检</a> 检查网络连通性。</div>
       {% if user['role'] == 'admin' %}
       <form method="post" action="/service/install" data-confirm="开始安装 Hermes Agent？">
         {{ csrf() }}

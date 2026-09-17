@@ -26,6 +26,26 @@ class JobBusy(Exception):
     pass
 
 
+def network_reachable(url: str = "https://raw.githubusercontent.com",
+                      timeout: float = 5.0) -> bool:
+    """安装/更新前的网络预检：官方脚本与更新包都从 GitHub 下载，
+    国内网络直连常失败——提前 5 秒探测，避免小白盯着必败的任务跑几分钟。"""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, method="HEAD",
+                                     headers={"User-Agent": "hermes-console"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= resp.status < 400
+    except Exception:
+        return False
+
+
+NETWORK_HINT = (
+    "网络无法访问 GitHub（安装/更新都要从 GitHub 下载）。"
+    "请开代理或换网络后重试；诊断详情见「运行体检」页。")
+
+
 def active_job() -> dict | None:
     row = db.query_one("SELECT * FROM job_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1")
     return dict(row) if row else None

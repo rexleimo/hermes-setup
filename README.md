@@ -54,8 +54,15 @@ Hermes Agent 的可视化运维中台 —— 让 [Hermes Agent](https://github.c
 
 ## 快速开始
 
-**小白用户：不用敲命令，双击就行 ——  Windows 双击 `start.bat`，macOS/Linux 运行 `./start.sh`。
+**小白用户：不用敲命令 —— Windows 双击 `start.bat`；macOS 打开「终端」，把 `start.sh` 拖进终端窗口按回车。
 首次会自动装依赖、启动后自动打开浏览器；关窗口即停止。**
+
+> **Windows 弹出「Windows 已保护你的电脑」？** 系统对未签名脚本的常规拦截，不是病毒：
+> 点「更多信息」→「仍要运行」。杀毒软件拦截同理，选「允许」。
+>
+> **安装卡住或报网络错误？** 装依赖需要访问 GitHub / PyPI，国内网络建议开代理；
+> 启动脚本失败时会显示中文提示与镜像重试办法，照着做即可。进入控制台后，
+> 侧栏「运行体检」页可逐项检查网络与本机环境。
 
 <details>
 <summary>手动启动（开发者 / 自定义端口）</summary>
@@ -86,6 +93,25 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8420
 
 生产部署：用 systemd 托管 uvicorn，前置 Nginx/Caddy 做 HTTPS（开启 `HERMES_CONSOLE_SECURE_COOKIES=1`），
 并用 `HERMES_CONSOLE_ALLOWED_IPS` 限制管理来源。
+
+## 升级与卸载
+
+**你的数据与代码是分离的。** 管理员账号、审计日志、配置备份都在**控制台数据目录**：
+
+- 全新安装：`~/.hermes-console`（默认；重装/替换项目目录不影响它）；
+- 旧版本（v0.8 及更早）升级而来：项目目录内的 `data/`（检测到会自动沿用）；
+- 显式指定：环境变量 `HERMES_CONSOLE_DATA`。
+
+**升级** = 关掉控制台 → 用新版替换代码目录（**不要删除数据目录**）→ 重新启动；`git pull` 同理。
+数据目录的实际位置见控制台「平台管理 → 系统设置 → 配置文件位置」。
+
+**卸载** = ① 关掉控制台；② 删项目目录；③ 删控制台数据目录（见上）；
+④ 不再用 Hermes Agent 的话，再删 `~/.hermes`（Agent 配置、日志、技能都在其中）。
+
+忘记管理员密码：项目目录里 Windows 双击 `reset-password.bat`，macOS/Linux 运行
+`bash scripts/reset_password.sh`，按提示重置后用新密码登录。
+
+更多排查（端口占用、发消息不回复、恢复备份等）见控制台侧栏底部 **「帮助与常见问题」** 页。
 
 ## 运行测试
 
@@ -122,7 +148,7 @@ app/
 │   └── model_catalog.py    #   各协议 list-models 拉取
 └── web/
     ├── deps.py             # 认证守卫（异常式短路）与路由级 CSRF
-    ├── routers/            # auth/dashboard/service/providers/channels/chains/memory/engineering/mcp/skills/plugins/files/audit/users/settings/catalog
+    ├── routers/            # auth/dashboard/service/diagnose/providers/channels/chains/memory/engineering/mcp/skills/plugins/files/audit/users/settings/catalog/help
     ├── catalog_data.py     # 配置项全景数据（UI 与文档共用）
     ├── templates/          # Jinja2 模板 + 宏
     └── static/             # 设计系统 CSS / 交互 JS / 本地化 htmx
