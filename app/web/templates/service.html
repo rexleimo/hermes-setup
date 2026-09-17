@@ -32,11 +32,9 @@
   <button class="tab-btn" data-tab="install">{{ icon('download') }} 安装与更新</button>
 </div>
 
-{# 任务面板：放在页签外，任何页签都能看见；最近一次任务跑完也常驻展示——
-   跑完就消失曾导致"操作完到处找不到日志" #}
-{% if job %}
+{# 任务面板：放页签外，任何页签可见；没任务时也常驻（告诉用户日志会出现在哪）；
+   运行中由 SSE 实时推送日志（见 app.js），结束定格可回看 #}
 {% include "service/_job_panel.html" %}
-{% endif %}
 
 {# ================================================================ 概览 #}
 <div data-tab-group="service" data-tab-panel="overview">

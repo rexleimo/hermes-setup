@@ -1,37 +1,48 @@
 {% from "macros.html" import icon, csrf with context %}
 {% if not job %}
-{# 没有任何任务时返回空壳，不报错 #}
-<div id="job-panel"></div>
+{# 没有任何任务时也常驻展示：用户永远知道"日志会出现在这里" #}
+<div id="job-panel">
+  <div class="card">
+    <div class="card-header"><h3>任务面板</h3></div>
+    <div class="card-body">
+      <p class="text-muted" style="margin:0;">还没有执行过任务。点「开始安装」后，
+        执行过程的完整日志会<b>在这里实时出现</b>（SSE 推送，无需刷新），
+        同时打印到服务器终端、并落盘到 jobs 日志文件；历史任务可在
+        「安装与更新 → 最近任务」回看。</p>
+    </div>
+  </div>
+</div>
 {% else %}
-{# 运行中：面板根节点自带轮询（outerHTML 换掉自己后还能继续刷）；
-   结束后去掉触发属性，定格为终态。 #}
-<div id="job-panel"{% if job['status'] == 'running' %}
-     hx-get="/service/job" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+<div id="job-panel">
   <div class="card">
     <div class="card-header">
-      <h3>{% if job['kind'] == 'install' %}安装任务{% elif job['kind'] == 'update' %}更新任务{% else %}后台任务{% endif %}</h3>
+      <h3 id="job-title">{% if job['kind'] == 'install' %}安装任务{% elif job['kind'] == 'update' %}更新任务{% else %}后台任务{% endif %}</h3>
       <div class="card-extra">
-        {% if job['status'] == 'running' %}
-        <span class="tag tag-info"><span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> 执行中</span>
-        {% elif job['status'] == 'ok' %}<span class="tag tag-ok">{{ icon('check') }} 成功</span>
-        {% else %}<span class="tag tag-error">{{ icon('x') }} 失败 (exit {{ job['exit_code'] }})</span>{% endif %}
+        <span id="job-status-tag" class="tag {% if job['status'] == 'running' %}tag-info{% elif job['status'] == 'ok' %}tag-ok{% else %}tag-error{% endif %}">
+          {% if job['status'] == 'running' %}<span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> 执行中
+          {% elif job['status'] == 'ok' %}{{ icon('check') }} 成功
+          {% else %}{{ icon('x') }} 失败 (exit {{ job['exit_code'] }}){% endif %}
+        </span>
       </div>
     </div>
     <div class="card-body">
       <p class="mono text-muted" style="margin:0 0 10px; font-size:12px;">$ {{ job['command'] }}</p>
       {% if job_log_path %}<p class="mono text-muted" style="margin:0 0 10px; font-size:12px;">
         日志文件：{{ job_log_path }}（历史任务见「安装与更新 → 最近任务」）</p>{% endif %}
-      <pre class="log-view" id="job-log" style="max-height:420px;">{%- if job_lines -%}
+      <pre class="log-view" id="job-log" style="max-height:420px;"{% if job['status'] == 'running' %} data-stream="1"{% endif %}>{%- if job_lines -%}
 {%- for line in job_lines %}<div class="log-line">{{ line }}</div>
 {% endfor %}{%- else -%}<span class="log-empty">等待输出…</span>{%- endif -%}</pre>
       {% if job['status'] == 'running' %}
-      <form method="post" action="/service/job/cancel" style="margin-top:12px;"
-            data-confirm="确定取消这个任务吗？正在下载/安装的内容会中断。">
-        {{ csrf() }}<input type="hidden" name="job_id" value="{{ job['id'] }}">
-        <button class="btn btn-danger-outline btn-sm" type="submit">
-          {{ icon('stop') }} 卡住了？取消任务
-        </button>
-      </form>
+      <div id="job-cancel-wrap" style="margin-top:12px;">
+        <form method="post" action="/service/job/cancel"
+              data-confirm="确定取消这个任务吗？正在下载/安装的内容会中断。">
+          {{ csrf() }}<input type="hidden" name="job_id" value="{{ job['id'] }}">
+          <button class="btn btn-danger-outline btn-sm" type="submit">
+            {{ icon('stop') }} 卡住了？取消任务
+          </button>
+        </form>
+        <p class="form-help" style="margin-top:6px;">执行过程实时推送（SSE），无需刷新页面。</p>
+      </div>
       {% endif %}
       {% if done %}
       <div class="flex" style="margin-top:12px;">

@@ -491,6 +491,29 @@ def job_log(job_id: int, tail: int = 60) -> list[str]:
         return []
 
 
+def job_log_delta(job_id: int, offset: int) -> tuple[list[str], int]:
+    """从字节偏移增量读取任务日志（SSE 推送用）：返回 (新增完整行, 新偏移)。
+    只交付以换行结束的完整行；未完结的半行留给下一次，避免前端重复/半截。"""
+    path = settings.jobs_dir / f"job-{job_id}.log"
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            if size < offset:
+                offset = 0
+            if size == offset:
+                return [], offset
+            fh.seek(offset)
+            chunk = fh.read()
+    except OSError:
+        return [], offset
+    nl = chunk.rfind(b"\n")
+    if nl == -1:
+        return [], offset
+    lines = chunk[:nl].decode("utf-8", "replace").splitlines()
+    return lines, offset + nl + 1
+
+
 def _kill_tree(proc: subprocess.Popen) -> None:
     """终止整个进程树：POSIX 用独立进程组 + killpg（sh → curl/bash 子孙一起走）；
     Windows 用 taskkill /T /F。"""

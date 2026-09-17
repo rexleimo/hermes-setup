@@ -175,6 +175,59 @@ def job_fragment(request: Request, user: User):
     return render_partial(request, "service/_job_panel.html", _job_panel_ctx())
 
 
+def _job_stream_payloads():
+    """SSE 事件流（生成器）：job 元信息 → lines 日志增量 → done 收尾。
+
+    抽成独立生成器便于单测；真实 HTTP 推流由 /service/job/stream 包装。"""
+    import json
+    import time as _time
+
+    def _payload(obj: dict) -> str:
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+    last_job_id = None
+    offset = 0
+    deadline = _time.monotonic() + 1800
+    while True:
+        if _time.monotonic() > deadline:
+            yield _payload({"type": "bye"})
+            return
+        job = installer.active_job() or installer.last_job()
+        if job is None:
+            yield _payload({"type": "idle"})
+            _time.sleep(1.5)
+            continue
+        if job["id"] != last_job_id:
+            last_job_id = job["id"]
+            offset = 0
+            yield _payload({
+                "type": "job",
+                "id": job["id"],
+                "kind": job["kind"],
+                "status": job["status"],
+                "label": installer.JOB_KIND_LABELS.get(job["kind"], "后台任务"),
+                "command": job["command"],
+            })
+        lines, offset = installer.job_log_delta(job["id"], offset)
+        if lines:
+            yield _payload({"type": "lines", "lines": lines})
+        if job["status"] != "running":
+            yield _payload({"type": "done", "status": job["status"],
+                            "exit_code": job["exit_code"]})
+            return
+        _time.sleep(0.4)
+
+
+@router.get("/job/stream")
+def job_stream(request: Request, user: User):
+    """SSE 实时推送：新行毫秒级到达（替代前端轮询）；任务结束即收尾关闭。"""
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse(
+        _job_stream_payloads(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @router.get("/jobs/history")
 def jobs_history_fragment(request: Request, user: User):
     """历史列表片段（运行中时每 3s 轮询，结束后定格为可回看的台账）。"""

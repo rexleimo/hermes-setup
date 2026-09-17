@@ -41,6 +41,50 @@
   });
 
   // ------------------------------------------------------------------
+  // 任务日志 SSE 实时推送（新行即时上屏；替代轮询）
+  // ------------------------------------------------------------------
+  (function initJobStream() {
+    var logEl = document.getElementById("job-log");
+    if (!logEl || logEl.dataset.stream !== "1" || !window.EventSource) return;
+    var stick = true;
+    logEl.addEventListener("scroll", function () {
+      stick = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+    });
+    function appendLines(lines) {
+      var empty = logEl.querySelector(".log-empty");
+      if (empty) empty.remove();
+      for (var i = 0; i < lines.length; i++) {
+        var div = document.createElement("div");
+        div.className = "log-line";
+        div.textContent = lines[i];
+        logEl.appendChild(div);
+      }
+      if (stick) logEl.scrollTop = logEl.scrollHeight;
+    }
+    var es = new EventSource("/service/job/stream");
+    es.onmessage = function (e) {
+      var d;
+      try { d = JSON.parse(e.data); } catch (err) { return; }
+      if (d.type === "lines") {
+        appendLines(d.lines || []);
+      } else if (d.type === "job") {
+        var title = document.getElementById("job-title");
+        if (title && d.label) title.textContent = d.label;
+      } else if (d.type === "done") {
+        es.close();
+        var tag = document.getElementById("job-status-tag");
+        if (tag) {
+          tag.className = "tag " + (d.status === "ok" ? "tag-ok" : "tag-error");
+          tag.textContent = d.status === "ok" ? "成功" : ("失败 (exit " + d.exit_code + ")");
+        }
+        var cancelWrap = document.getElementById("job-cancel-wrap");
+        if (cancelWrap) cancelWrap.remove();
+      }
+    };
+    es.onerror = function () { es.close(); };
+  })();
+
+  // ------------------------------------------------------------------
   // 确认弹窗（data-confirm：纯文案确认；data-confirm-word：输词确认）
   // ------------------------------------------------------------------
   var modal = document.getElementById("confirm-modal");

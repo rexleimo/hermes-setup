@@ -417,7 +417,7 @@ def test_browser_installed_detection(tmp_path, monkeypatch):
 
 
 def test_job_panel_fragment_live_and_cancellable(admin):
-    """运行中任务的片段：带轮询 + 带取消按钮 + 日志可见。"""
+    """运行中任务的片段：带 SSE 推送标记 + 取消按钮 + 日志可见（轮询已由 SSE 替代）。"""
     from app.core import db
     from app.core.settings import settings
 
@@ -430,8 +430,60 @@ def test_job_panel_fragment_live_and_cancellable(admin):
     login(admin, "admin", "Sup3rSecure!x")
     frag = admin.get("/service/job").text
     assert "取消任务" in frag
-    assert 'hx-get="/service/job"' in frag and "every 2s" in frag
+    assert 'data-stream="1"' in frag          # 前端据此开 SSE
+    assert 'hx-get="/service/job"' not in frag  # 轮询已移除
     assert "line2" in frag
+
+
+def test_job_stream_pushes_events(admin):
+    """SSE 事件流：job 元信息 → lines 日志增量 → done 收尾（生成器级单测，无网络）。"""
+    import json as _json
+
+    from app.core import db
+    from app.core.settings import settings
+    from app.web.routers.service import _job_stream_payloads
+
+    db.execute("INSERT INTO job_runs (kind, command, log_path, status) "
+               "VALUES (?,?,?,?)",
+               ("install", "cmd", "jobs/job-x.log", "running"))
+    job_id = db.query_one("SELECT id FROM job_runs ORDER BY id DESC LIMIT 1")["id"]
+    (settings.jobs_dir / f"job-{job_id}.log").write_text(
+        "[console] 任务已启动\nphase-1\n", encoding="utf-8")
+
+    gen = _job_stream_payloads()
+    try:
+        d1 = _json.loads(next(gen)[6:])
+        assert d1["type"] == "job" and d1["kind"] == "install"
+        d2 = _json.loads(next(gen)[6:])
+        assert d2["type"] == "lines"
+        assert any("phase-1" in x for x in d2["lines"])
+        # 任务收尾后，流内必到 done 并结束
+        db.execute("UPDATE job_runs SET status='ok', exit_code=0 WHERE id = ?",
+                   (job_id,))
+        saw_done = False
+        for _ in range(10):
+            d = _json.loads(next(gen)[6:])
+            if d["type"] == "done":
+                saw_done = True
+                assert d["status"] == "ok"
+                break
+        assert saw_done
+    finally:
+        gen.close()
+
+
+def test_job_log_delta_incremental(tmp_path):
+    """增量读日志：只交付完整行；半行留待下次，不重复不截断（字节精度）。"""
+    from app.core.settings import settings
+
+    path = settings.jobs_dir / "job-777.log"
+    path.write_bytes(b"a\nb\npartial")          # 二进制写入：跨平台偏移确定
+    lines, off = installer.job_log_delta(777, 0)
+    assert lines == ["a", "b"] and off == 4     # 'partial' 留待下次
+    with open(path, "ab") as fh:
+        fh.write(b"-done\nc\n")
+    lines2, off2 = installer.job_log_delta(777, off)
+    assert lines2 == ["partial-done", "c"] and off2 == 19
 
 
 def test_install_card_advertises_full_install():
