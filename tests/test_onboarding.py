@@ -67,6 +67,7 @@ def test_job_worker_inherits_full_environment(monkeypatch):
 
     def fake_popen(cmd, **kw):
         captured["env"] = kw["env"]
+        captured["stdin"] = kw.get("stdin")
         return FakeProc()
 
     class FakeThread:
@@ -86,6 +87,9 @@ def test_job_worker_inherits_full_environment(monkeypatch):
     monkeypatch.setattr(installer.threading, "Thread", FakeThread)
     installer.submit("test_env", "true")
     assert captured["env"]["PATH"] == os.environ["PATH"]
+    # stdin 必须断开：继承终端 TTY 会让 hermes CLI 弹交互提问卡死后台任务
+    import subprocess as _sp
+    assert captured["stdin"] == _sp.DEVNULL
 
 
 def test_channel_pages_render_guide_with_links(logged_in):

@@ -73,6 +73,10 @@ def _run_cli(paths: HermesPaths, *args: str) -> tuple[int, str]:
         proc = subprocess.run(
             [paths.bin, *args],
             capture_output=True, text=True, timeout=timeout,
+            # stdin 断开：绝不继承终端 TTY。hermes CLI 以 sys.stdin.isatty()
+            # 判断交互性，TTY 继承会让 gateway install 弹 "[Y/n]" 提问卡死
+            # （后台任务无人应答）。断开后自动走非交互默认值。
+            stdin=subprocess.DEVNULL,
             # hermes CLI 输出 UTF-8；中文 Windows 默认 GBK 会在解码线程直接报错、
             # 把输出吞成空串，状态探测因此永远「未知」。固定按 UTF-8 读。
             encoding="utf-8", errors="replace",

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.24 — 2026-09-17（后台任务 stdin 断开：交互提问不再卡死网关安装）
+
+### Fixed
+- **`hermes gateway install` 弹交互提问卡死**（实机实锤）：hermes CLI 用
+  `sys.stdin.isatty()` 判断"有人交互"——后台任务继承了终端的 TTY，于是弹出
+  "Start the gateway now after installing the service? [Y/n]:" 等回车，无人应答、
+  卡满 180 秒超时报错。现在**所有后台任务与之调用的 hermes CLI 一律 stdin 断开**
+  （`subprocess.DEVNULL`），hermes 自动进入非交互模式、采用安全默认值
+  （立即启动 + 开机自启）——客户无需、也无法"回车"。
+
+### Tests
+- 两处 stdin=DEVNULL 断言（任务子进程 / supervisor CLI 调用）。
+
 ## 0.8.23 — 2026-09-17（网关任务进度提示 + 任务日志首帧去重）
 
 ### Fixed

@@ -155,7 +155,9 @@ def test_timeout_message_includes_partial_output(tmp_path, monkeypatch):
 
 
 def test_slow_commands_get_longer_timeout(tmp_path, monkeypatch):
-    """install 用 180 秒、start 用 120 秒；状态查询仍是 20 秒。"""
+    """install 用 180 秒、start 用 120 秒；状态查询仍是 20 秒；stdin 必须断开。"""
+    import subprocess as _sp
+
     captured = {}
 
     class FakeCompleted:
@@ -165,6 +167,7 @@ def test_slow_commands_get_longer_timeout(tmp_path, monkeypatch):
 
     def fake_run(cmd, **kw):
         captured["timeout"] = kw.get("timeout")
+        captured["stdin"] = kw.get("stdin")
         return FakeCompleted()
 
     monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
@@ -175,6 +178,8 @@ def test_slow_commands_get_longer_timeout(tmp_path, monkeypatch):
     assert captured["timeout"] == 120
     supervisor._run_cli(paths, "gateway", "install")
     assert captured["timeout"] == 180
+    # stdin 断开：TTY 继承会让 hermes CLI 弹 [Y/n] 提问卡死
+    assert captured["stdin"] == _sp.DEVNULL
 
 
 @posix_only

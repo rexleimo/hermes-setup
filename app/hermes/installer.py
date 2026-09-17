@@ -660,6 +660,11 @@ def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = Non
             proc = subprocess.Popen(
                 command, shell=shell, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                # stdin 断开：后台任务绝不继承终端的 TTY。否则 hermes CLI 用
+                # sys.stdin.isatty() 判定"有人在交互"，弹出 Y/n 提问等回车——
+                # 后台无人应答，卡满超时（实机踩过：gateway install 的
+                # "Start the gateway now? [Y/n]"）。断开后自动走非交互默认值。
+                stdin=subprocess.DEVNULL,
                 env=env, cwd=cwd, **kwargs,
             )
             with _lock:
