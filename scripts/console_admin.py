@@ -10,7 +10,8 @@
     python scripts/console_admin.py revoke-session <session-id>
     python scripts/console_admin.py create-admin <username>   # 仅当库中无任何用户
 
-数据库路径遵循 HERMES_CONSOLE_DATA（默认仓库 data/）。所有动作打印审计友好摘要。
+数据库路径遵循 HERMES_CONSOLE_DATA（默认：旧部署的项目内 data/，新安装的
+~/.hermes-console）。所有动作打印审计友好摘要。
 """
 from __future__ import annotations
 

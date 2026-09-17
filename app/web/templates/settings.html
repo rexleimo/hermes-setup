@@ -63,11 +63,31 @@
     <div class="card">
       <div class="card-header"><h3>数据快照</h3></div>
       <div class="card-body">
-        <p class="form-help">平台数据库每日自动快照（保留最近 5 份，存于 data/backups/）。
-          表中时间均为 UTC。</p>
-        <ul style="margin:8px 0; padding-left:18px; font-size:13px;">
-          {% for b in backups %}<li><code>{{ b.name }}</code></li>{% else %}<li>暂无快照</li>{% endfor %}
-        </ul>
+        <p class="form-help">平台数据库每日自动快照（保留最近 5 份）。改坏配置或误删账号时，
+          可一键恢复到任一快照 —— 恢复前会自动再备份一次当前状态；恢复后其他登录会话将下线。</p>
+        <div class="table-wrap" style="margin:10px 0;">
+          <table class="table">
+            <tbody>
+            {% for b in backups %}
+            <tr>
+              <td><code>{{ b.name }}</code>
+                <div class="cell-sub">{{ (b.stat().st_size / 1024) | round(1) }} KB</div></td>
+              <td style="text-align:right;">
+                <form method="post" action="/settings/backup/restore"
+                      data-confirm="确认把数据库恢复到 {{ b.name }}？当前数据会先自动备份一份；恢复后其他登录会话将下线。"
+                      data-confirm-word="恢复">
+                  {{ csrf() }}
+                  <input type="hidden" name="name" value="{{ b.name }}">
+                  <button class="btn btn-ghost btn-sm" type="submit">{{ icon('rotate') }} 恢复</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td><span class="text-muted">暂无快照</span></td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
         <form method="post" action="/settings/backup">
           {{ csrf() }}
           <button class="btn btn-secondary btn-sm" type="submit">立即备份</button>
@@ -82,9 +102,11 @@
           <dt>config.yaml</dt><dd><code>{{ paths.config_yaml }}</code></dd>
           <dt>.env</dt><dd><code>{{ paths.env_file }}</code></dd>
           <dt>gateway.log</dt><dd><code>{{ paths.gateway_log }}</code></dd>
+          <dt>控制台数据目录</dt><dd><code>{{ console_data_dir }}</code>
+            <div class="cell-sub">账号 / 审计 / 快照都在这里 —— 升级控制台时<b>不要删除</b></div></dd>
         </dl>
         <p class="form-help" style="margin-top:12px;">所有写入均为「备份 → 校验 → 原子替换」，
-          备份保留最近 10 份（config.yaml.bak-*）。</p>
+          备份保留最近 10 份（config.yaml.bak-*）。升级方式见 <a href="/help">帮助 · 常见问题</a>。</p>
       </div>
     </div>
   </div>

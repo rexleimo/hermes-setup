@@ -1,13 +1,16 @@
 """系统设置（管理员）与个人账户设置。"""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Form, Request
 
-from app.core import audit, backup, sessions as session_store
+from app.core import audit, backup, db, sessions as session_store
 from app.core.appsettings import UserError, get_by_username, set_password, set_setting
+from app.core.backup import BackupError
 from app.core.security import verify_password
 from app.hermes.paths import detect
-from app.web.deps import Admin, User, client_ip, csrf_guard
+from app.web.deps import Admin, User, client_ip, csrf_guard, get_session
 from app.web.htmx import redirect, toast
 from app.web.templating import render, render_partial
 
@@ -29,7 +32,8 @@ def settings_page(request: Request, admin: Admin):
         "session_ttl": env_settings.session_ttl_minutes,
         "idle_ttl": env_settings.idle_ttl_minutes,
         "secret_persistent": env_settings.secret_key_persistent,
-        "backups": backup.list_backups()[:5],
+        "console_data_dir": env_settings.data_dir,
+        "backups": backup.list_backups()[:8],
     })
 
 
@@ -64,6 +68,40 @@ def backup_now(request: Request, admin: Admin):
     resp = redirect(request, "/settings")
     toast(resp, "已生成 DB 快照" if made else "暂无可备份的数据库",
           level="success" if made else "error")
+    return resp
+
+
+@router.post("/backup/restore")
+def backup_restore(request: Request, admin: Admin, name: str = Form(...)):
+    """一键恢复指定快照。恢复前自动留一份当前快照；快照里的 sessions 会整体
+    回滚导致其他会话被登出 —— 当前管理员的会话行在恢复后原样补回，避免自己被踢。"""
+    ip = client_ip(request)
+    sess = get_session(request)
+    keep_row = db.query_one("SELECT * FROM sessions WHERE id = ?", (sess.id,)) \
+        if sess else None
+
+    try:
+        safety = backup.restore_backup(name.strip())
+    except BackupError as exc:
+        audit.record("db_restore", username=admin["username"], outcome="failed",
+                     detail=str(exc), ip=ip)
+        resp = redirect(request, "/settings")
+        toast(resp, f"恢复失败：{exc}", level="error")
+        return resp
+
+    if keep_row is not None:
+        cols = ("id", "user_id", "created_at", "last_seen_at", "expires_at",
+                "ip", "user_agent", "two_fa_ok")
+        db.execute(
+            f"INSERT OR REPLACE INTO sessions ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' for _ in cols)})",
+            tuple(keep_row[c] for c in cols))
+
+    audit.record("db_restore", username=admin["username"],
+                 detail=f"snapshot={name.strip()}; safety={Path(safety).name}",
+                 ip=ip)
+    resp = redirect(request, "/settings")
+    toast(resp, "已恢复所选快照（其他登录会话已下线；恢复前状态已自动备份）")
     return resp
 
 

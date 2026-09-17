@@ -34,6 +34,20 @@ def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
+def resolve_data_dir(env_value: str, legacy_dir: Path, home_dir: Path) -> Path:
+    """控制台数据目录（数据库/任务日志/快照）的落点：
+      1) HERMES_CONSOLE_DATA 显式指定，永远优先；
+      2) 项目内 data/ 已有 console.db（旧版部署）→ 原地继续用，升级不挪窝；
+      3) 其余（全新安装）→ 用户主目录 ~/.hermes-console：
+         小白升级 = 重新下载新版替换项目目录，数据目录在项目外才不会连同账号一起被删。
+    """
+    if env_value:
+        return Path(env_value)
+    if (legacy_dir / "console.db").exists():
+        return legacy_dir
+    return home_dir
+
+
 @dataclass(frozen=True)
 class Settings:
     """不可变的进程级配置（env）。"""
@@ -66,8 +80,11 @@ class Settings:
 
     @property
     def data_dir(self) -> Path:
-        d = Path(_env("HERMES_CONSOLE_DATA") or
-                 str(Path(__file__).resolve().parents[2] / "data"))
+        d = resolve_data_dir(
+            _env("HERMES_CONSOLE_DATA"),
+            legacy_dir=Path(__file__).resolve().parents[2] / "data",
+            home_dir=Path.home() / ".hermes-console",
+        )
         d.mkdir(parents=True, exist_ok=True)
         return d
 
