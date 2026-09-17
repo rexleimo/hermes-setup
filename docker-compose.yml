@@ -4,7 +4,7 @@
 #      python -c "import secrets; print(secrets.token_urlsafe(48))"
 # 2) 填到下面的 HERMES_CONSOLE_SECRET（或 export HERMES_CONSOLE_SECRET=...）
 # 3) docker compose up -d --build
-# 4) 打开 http://localhost:8420，完成管理员初始化 → 运行体检 → 一键安装
+# 4) 打开 http://localhost:8282，完成管理员初始化 → 运行体检 → 一键安装
 #
 # 国内网络：如需走代理，取消下面两行注释并改成宿主代理地址。
 services:
@@ -12,7 +12,8 @@ services:
     build: .
     image: hermes-console:0.8.3
     ports:
-      - "8420:8420"
+      - "8282:8420"
+      - "20:20"
     environment:
       HERMES_CONSOLE_SECRET: "${HERMES_CONSOLE_SECRET:?请先设置管理员密钥，见本文件头注释}"
       # HTTP_PROXY: http://host.docker.internal:7890
