@@ -10,6 +10,8 @@ import re
 import sys
 from urllib.parse import urlparse
 
+import pytest
+
 from app.hermes import installer
 from app.hermes import paths as paths_mod
 from tests.conftest import login
@@ -269,3 +271,62 @@ def test_job_panel_fragment_live_and_cancellable(admin):
     assert "取消任务" in frag
     assert 'hx-get="/service/job"' in frag and "every 2s" in frag
     assert "line2" in frag
+
+
+def test_skip_browser_checkbox_default_on():
+    """跳过浏览器组件默认勾选：主安装默认走快而稳的路径（国内网络友好）。"""
+    from pathlib import Path
+
+    tpl = (Path(__file__).resolve().parent.parent / "app" / "web"
+           / "templates" / "service.html").read_text(encoding="utf-8")
+    m = re.search(r'name="skip_browser"[^>]*', tpl)
+    assert m and "checked" in m.group(0)
+
+
+def test_browser_backfill_rejects_when_not_installed(admin):
+    """未装 Hermes（或无安装目录）时，补装按钮必须给出人话拒绝而不是报错页。"""
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    resp = admin.post("/service/browser", data={"_csrf": token},
+                      follow_redirects=False)
+    assert resp.status_code == 400
+    assert "未找到" in resp.text
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="补装脚本仅 POSIX 提供")
+def test_browser_backfill_submits_smart_script(admin, hermes_home, monkeypatch):
+    """补装走"官方→国内镜像"双源脚本，且脚本真的落在 jobs 目录里。"""
+    from app.hermes import paths as paths_module
+    from app.hermes.paths import HermesPaths
+
+    repo = hermes_home.home / "hermes-agent"
+    repo.mkdir(parents=True, exist_ok=True)
+    stub = hermes_home.home / "bin" / "hermes"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.touch()
+    paths_module.set_override(HermesPaths(home=hermes_home.home, bin=str(stub)))
+    try:
+        calls = {}
+
+        def fake_submit(kind, command, *, shell=True, cwd=None):
+            calls["kind"] = kind
+            calls["command"] = command
+            return 3
+
+        monkeypatch.setattr(installer, "submit", fake_submit)
+        login(admin, "admin", "Sup3rSecure!x")
+        page = admin.get("/service").text
+        token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+        resp = admin.post("/service/browser", data={"_csrf": token},
+                          follow_redirects=False)
+        assert resp.status_code == 200
+        assert calls["kind"] == "browser_install"
+        assert "browser_install.sh" in calls["command"]
+        script = (installer.settings.jobs_dir / "browser_install.sh").read_text(
+            encoding="utf-8")
+        assert "cdn.npmmirror.com/binaries/playwright" in script
+        assert "timeout 300" in script
+        assert "PLAYWRIGHT_DOWNLOAD_HOST" in script
+    finally:
+        paths_module.set_override(None)

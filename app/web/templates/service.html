@@ -170,8 +170,8 @@
   <div class="card" style="margin-top:16px;">
     <div class="card-header"><h3>浏览器组件未安装</h3></div>
     <div class="card-body">
-      <p class="text-muted" style="margin:0 0 12px;">安装时跳过了浏览器组件（或安装未完成），
-        AI 的浏览器工具暂时不可用。点下面按钮一次性补装（重跑官方安装，约 170MB 下载）。</p>
+      <p class="text-muted" style="margin:0 0 12px;">浏览器组件还没装（安装时跳过了，或上次没下完），
+        AI 的浏览器工具暂时不可用。点下面按钮自动补装：<b>官方源优先，慢或不通会自动切国内镜像</b>，无需手动配置。</p>
       {% if user['role'] == 'admin' %}
       <form method="post" action="/service/browser" data-confirm="开始补装浏览器组件？">
         {{ csrf() }}
@@ -204,8 +204,8 @@
         {{ csrf() }}
         {% if supports_skip_browser %}
         <label style="display:flex;gap:8px;align-items:center;margin:0 0 14px;color:var(--text-muted);font-size:13px;">
-          <input type="checkbox" name="skip_browser" value="1">
-          网络困难时勾选：跳过浏览器组件（约 170MB 下载；装好后可一键补装）
+          <input type="checkbox" name="skip_browser" value="1" checked>
+          推荐：先跳过浏览器组件（约 270MB 下载，国内网络易卡死）；装好后可在本页一键补装
         </label>
         {% endif %}
         <button class="btn btn-primary btn-lg" type="submit">

@@ -125,8 +125,11 @@ def install(request: Request, user: Admin, force: str = Form(""),
 
 @router.post("/browser")
 def browser_backfill(request: Request, user: Admin):
-    """补装浏览器组件：重跑官方安装（幂等，补齐 Playwright/Chromium）。"""
-    return _submit_job(request, user, "browser_install", installer.INSTALL_CMD,
+    """补装浏览器组件：官方源优先、国内镜像兜底（见 installer.browser_install_job）。"""
+    command = installer.browser_install_job()
+    if command is None:
+        return _reject(request, "未找到 Hermes 安装目录（或平台不支持），请先完成 Hermes 安装")
+    return _submit_job(request, user, "browser_install", command,
                        "开始补装浏览器组件")
 
 

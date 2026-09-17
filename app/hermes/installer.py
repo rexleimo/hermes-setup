@@ -44,6 +44,83 @@ INSTALL_PREFLIGHT_URL = (
 )
 UPDATE_CMD = "hermes update"
 
+# ---------------------------------------------------------------------------
+# 浏览器组件（Playwright Chromium）：与主安装解耦，官方源优先、国内镜像兜底
+# ---------------------------------------------------------------------------
+# 背景：官方安装器里的 `npx playwright install chromium` 要从 cdn.playwright.dev
+# 下载 Chromium + FFmpeg + Headless Shell（约 270MB），国内网络时通时断、常卡死。
+# 主安装默认跳过它（快且稳），浏览器组件改由本脚本单独补装：
+#   1) 官方源最多等 5 分钟；2) 失败自动切 npmmirror 镜像（实测有 cft 构建）。
+BROWSER_MIRROR = "https://cdn.npmmirror.com/binaries/playwright"
+
+BROWSER_SCRIPT = """#!/usr/bin/env bash
+# console-managed: 浏览器组件安装（官方源优先，国内镜像自动兜底）
+# 用法：bash browser_install.sh <hermes-agent 仓库目录>
+set -u
+REPO="${1:-}"
+MIRROR="__MIRROR__"
+
+if [ -z "$REPO" ] || [ ! -d "$REPO" ]; then
+  echo "[console] 找不到 Hermes 安装目录，无法补装浏览器组件"
+  exit 2
+fi
+cd "$REPO" || exit 2
+
+# hermes 托管的 node / npm / npx 常在用户级目录，补进 PATH 再调用
+for d in "$HOME/.local/bin" "${HERMES_HOME:-$HOME/.hermes}/node/bin" "$HOME/.hermes/node/bin"; do
+  if [ -d "$d" ]; then PATH="$d:$PATH"; fi
+done
+export PATH
+
+if ! command -v timeout >/dev/null 2>&1; then
+  # macOS 自带没有 timeout：退化为不设上限
+  timeout() { shift; "$@"; }
+fi
+
+DEPS=""
+if [ "$(id -u)" -eq 0 ] || (command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null); then
+  DEPS="--with-deps"
+else
+  echo "[console] 提示：无密码 sudo 不可用，跳过系统依赖；如浏览器启动报缺库，管理员执行："
+  echo "[console]   sudo npx playwright install-deps chromium"
+fi
+
+echo "[console] 第 1 步：官方源安装（最多 5 分钟，慢/卡会自动切换）..."
+if timeout 300 npx playwright install $DEPS chromium; then
+  echo "[console] 浏览器组件安装完成（官方源）"
+  exit 0
+fi
+
+echo "[console] 官方源不通或太慢，第 2 步：切换国内镜像重试..."
+if PLAYWRIGHT_DOWNLOAD_HOST="$MIRROR" timeout 900 npx playwright install $DEPS chromium; then
+  echo "[console] 浏览器组件安装完成（国内镜像）"
+  exit 0
+fi
+
+echo "[console] 两个源都没成功。稍后可在本页重试补装，或手动执行："
+echo "[console]   cd $REPO && npx playwright install chromium"
+exit 1
+"""
+
+
+def browser_install_job() -> str | None:
+    """生成浏览器组件补装命令（脚本写入 jobs 目录）；平台不支持/未安装时返回 None。
+
+    仅 POSIX：Windows 官方安装器里浏览器步骤是 best-effort（失败只警告、不阻塞），
+    且 exec 沿用官方通道即可，无需本脚本。"""
+    if sys.platform == "win32":
+        return None
+    from app.hermes.paths import detect, resolve_agent_repo
+
+    paths = detect()
+    repo = resolve_agent_repo(paths)
+    if repo is None or not paths.bin:
+        return None
+    script = settings.jobs_dir / "browser_install.sh"
+    script.write_text(BROWSER_SCRIPT.replace("__MIRROR__", BROWSER_MIRROR),
+                      encoding="utf-8")
+    return f'bash "{script}" "{repo}"'
+
 
 def browser_installed() -> bool:
     """Playwright 浏览器引擎（Chromium）是否已装：按各平台默认缓存目录探测。
