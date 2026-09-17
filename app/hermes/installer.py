@@ -18,31 +18,84 @@ from app.core.settings import settings
 _lock = threading.Lock()
 _procs: dict[int, subprocess.Popen] = {}
 
-# 平台原生的官方安装通道（service.py 的「开始安装」按钮与页面复制框共用）。
-# Windows 绝不能用 `curl | bash`：bash 在 Windows 上解析到 WSL 存根（或根本没有），
-# 官方 install.sh 头部也写明只支持 Linux/macOS/Termux；后台任务无 TTY，
-# 必须带 -SkipSetup -NonInteractive，否则交互式安装向导会把任务挂死到超时。
-INSTALL_CMD_LINUX = (
-    "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
-    " | bash -s -- --skip-setup"
-)
-INSTALL_CMD_WINDOWS = (
-    "powershell -ExecutionPolicy Bypass -NoProfile -Command "
-    "\"& ([scriptblock]::Create((irm 'https://hermes-agent.nousresearch.com/install.ps1'))) -SkipSetup -NonInteractive\""
-)
-INSTALL_CMD = INSTALL_CMD_WINDOWS if sys.platform == "win32" else INSTALL_CMD_LINUX
+# ---------------------------------------------------------------------------
+# 安装源：国内镜像优先（大陆用户），官方源兜底
+# ---------------------------------------------------------------------------
+# 官方为中国大陆提供了镜像站（全链路换国内源：uv/Python/git→cnb.cool、
+# pip→清华、npm/node→npmmirror），国内用户部署速度与稳定性显著优于直连。
+# 依据：腾讯云开发者社区《Hermes Agent 2026最新安装教程》与镜像脚本自身实现。
+#   Linux/macOS:  curl -fsSL https://res1.hermesagent.org.cn/install.sh | bash
+#   Windows:      irm https://res1.hermesagent.org.cn/install.ps1 | iex
+# 覆盖方式：HERMES_CONSOLE_INSTALL_SOURCE=cn|official（默认 auto=镜像优先、自动回退）。
+CN_MIRROR_BASE = "https://res1.hermesagent.org.cn"
+_SOURCE_DEFS = {
+    "cn": {
+        "label": "国内镜像源（hermesagent.org.cn，大陆优先）",
+        "sh": f"{CN_MIRROR_BASE}/install.sh",
+        "ps1": f"{CN_MIRROR_BASE}/install.ps1",
+    },
+    "official": {
+        "label": "官方源（GitHub / Nous Research）",
+        "sh": "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh",
+        "ps1": "https://hermes-agent.nousresearch.com/install.ps1",
+    },
+}
 
-INSTALL_METHOD_LABEL = (
-    "官方 PowerShell 安装脚本（Windows 原生）" if sys.platform == "win32"
-    else "官方脚本（curl | bash）"
-)
 
-# 安装前网络预检必须与实际安装源同域，否则出现"预检通过、执行必败"。
-INSTALL_PREFLIGHT_URL = (
-    "https://hermes-agent.nousresearch.com/install.ps1" if sys.platform == "win32"
-    else "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
-)
+def install_variant(source: str) -> dict:
+    """某安装源在当前平台的可复制命令 / 预检 URL / 标签。
+
+    Windows 绝不能用 `curl | bash`：bash 在 Windows 上解析到 WSL 存根（或根本没有），
+    官方 install.sh 头部也写明只支持 Linux/macOS/Termux；后台任务无 TTY，
+    必须带 -SkipSetup -NonInteractive，否则交互式安装向导会把任务挂死到超时。"""
+    d = _SOURCE_DEFS[source]
+    if sys.platform == "win32":
+        cmd = ("powershell -ExecutionPolicy Bypass -NoProfile -Command "
+               f"\"& ([scriptblock]::Create((irm '{d['ps1']}'))) -SkipSetup -NonInteractive\"")
+        preflight = d["ps1"]
+    else:
+        # 浏览器组件由主安装后的接力任务负责（见 BROWSER_SCRIPT / _chain_after）
+        cmd = f"curl -fsSL {d['sh']} | bash -s -- --skip-setup --skip-browser"
+        preflight = d["sh"]
+    return {"source": source, "label": d["label"], "cmd": cmd, "preflight": preflight}
+
+
+def _forced_source() -> str:
+    forced = (os.environ.get("HERMES_CONSOLE_INSTALL_SOURCE") or "").strip().lower()
+    return forced if forced in _SOURCE_DEFS else ""
+
+
+def preferred_install() -> dict:
+    """展示/强制路径用：显式指定优先，否则国内镜像（产品面向大陆用户）。不探测网络。"""
+    return install_variant(_forced_source() or "cn")
+
+
+def choose_install() -> dict | None:
+    """自动选择可达的安装源：国内镜像优先，官方源兜底；都不可达返回 None。
+    显式指定 HERMES_CONSOLE_INSTALL_SOURCE 时只探测该源（便于固定排查）。"""
+    forced = _forced_source()
+    if forced:
+        v = install_variant(forced)
+        return v if network_reachable(v["preflight"]) else None
+    for sid in ("cn", "official"):
+        v = install_variant(sid)
+        if network_reachable(v["preflight"]):
+            return v
+    return None
+
+
+# 展示与兼容入口：默认（国内镜像优先）的 命令 / 标签 / 预检 URL
+INSTALL_CMD = preferred_install()["cmd"]
+INSTALL_METHOD_LABEL = preferred_install()["label"]
+INSTALL_PREFLIGHT_URL = preferred_install()["preflight"]
 UPDATE_CMD = "hermes update"
+
+
+def update_source_reachable() -> bool:
+    """更新预检：官方 GitHub 或国内镜像仓库（cnb.cool，镜像安装的 agent 走这里）
+    任一可达即可——否则国内装机的用户会被 GitHub 预检误拦。"""
+    return (network_reachable("https://raw.githubusercontent.com")
+            or network_reachable("https://cnb.cool"))
 
 # ---------------------------------------------------------------------------
 # 浏览器组件（Playwright Chromium + Browser Use CLI）：Agent 核心能力，默认必装
@@ -260,7 +313,7 @@ def network_reachable(url: str = "https://raw.githubusercontent.com",
 
 
 NETWORK_HINT = (
-    "网络无法访问 GitHub（安装/更新都要从 GitHub 下载）。"
+    "网络无法访问任何安装源（国内镜像 hermesagent.org.cn 与官方 GitHub 均不可达）。"
     "请开代理或换网络后重试；诊断详情见「运行体检」页。")
 
 

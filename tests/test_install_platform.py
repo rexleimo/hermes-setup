@@ -24,11 +24,53 @@ def test_install_cmd_platform_contract():
         assert "install.ps1" in installer.INSTALL_CMD
         assert "-SkipSetup" in installer.INSTALL_CMD
         assert "-NonInteractive" in installer.INSTALL_CMD
-        assert "PowerShell" in installer.INSTALL_METHOD_LABEL
+        assert "镜像" in installer.INSTALL_METHOD_LABEL  # 默认国内镜像源（大陆优先）
     else:
         assert "install.sh" in installer.INSTALL_CMD
         assert "bash" in installer.INSTALL_CMD
         assert "--skip-setup" in installer.INSTALL_CMD
+
+
+def test_install_variant_both_sources():
+    """国内镜像源与官方源都要齐备（镜像大陆优先，官方兜底）。"""
+    cn = installer.install_variant("cn")
+    official = installer.install_variant("official")
+    for v in (cn, official):
+        assert set(v) == {"source", "label", "cmd", "preflight"}
+        assert v["source"] in ("cn", "official")
+    assert "res1.hermesagent.org.cn" in cn["cmd"]
+    if sys.platform == "win32":
+        assert "install.ps1" in cn["cmd"] and "install.ps1" in official["cmd"]
+        assert "nousresearch.com" in official["preflight"]
+    else:
+        assert "install.sh" in cn["cmd"] and "install.sh" in official["cmd"]
+        assert "--skip-browser" in cn["cmd"]  # 浏览器组件走装后接力
+        assert "githubusercontent.com" in official["cmd"]
+
+
+def test_choose_install_prefers_cn_and_falls_back(monkeypatch):
+    """自动选源：国内镜像优先；镜像不可达回退官方；都不达返回 None。"""
+    monkeypatch.setattr(installer, "network_reachable",
+                        lambda url, **kw: "res1.hermesagent.org.cn" in url)
+    assert installer.choose_install()["source"] == "cn"
+
+    monkeypatch.setattr(installer, "network_reachable",
+                        lambda url, **kw: "res1.hermesagent.org.cn" not in url)
+    assert installer.choose_install()["source"] == "official"
+
+    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
+    assert installer.choose_install() is None
+
+
+def test_forced_install_source_env(monkeypatch):
+    """显式指定安装源时只认该源（便于固定排查），且不做跨源回退。"""
+    monkeypatch.setenv("HERMES_CONSOLE_INSTALL_SOURCE", "official")
+    assert installer.preferred_install()["source"] == "official"
+    monkeypatch.setattr(installer, "network_reachable",
+                        lambda url, **kw: "res1.hermesagent.org.cn" in url)
+    assert installer.choose_install() is None  # 强制 official 时镜像可达也不算数
+    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: True)
+    assert installer.choose_install()["source"] == "official"
 
 
 def test_install_preflight_matches_channel():

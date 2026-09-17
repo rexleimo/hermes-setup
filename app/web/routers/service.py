@@ -120,14 +120,20 @@ def service_action(request: Request, user: User, action: str = Form(...),
 
 @router.post("/install")
 def install(request: Request, user: Admin, force: str = Form("")):
-    command = installer.INSTALL_CMD
-    if sys.platform != "win32":
-        # 浏览器组件（Agent 核心能力）由主安装完成后的接力任务自动补装：
-        # 主安装快而稳，浏览器段落独立任务（镜像兜底/可取消/可重试）。
-        # 见 installer._chain_after 与 installer.BROWSER_SCRIPT。
-        command = f"{command} --skip-browser"
-    return _submit_job(request, user, "install", command,
-                       "开始安装 Hermes Agent", force=bool(force.strip()))
+    # 安装源：国内镜像优先、官方兜底（见 installer._SOURCE_DEFS）；两者都不可达时
+    # 给出人话提示 + 「仍要执行」口子。浏览器组件由装后接力任务自动补装。
+    if force:
+        chosen = installer.preferred_install()
+    else:
+        chosen = installer.choose_install()
+        if chosen is None:
+            audit.record("job_install", username=user["username"], outcome="failed",
+                         detail="安装源预检未通过（国内镜像与官方源均不可达）",
+                         ip=client_ip(request))
+            return _reject(request, installer.NETWORK_HINT, show_force_install=True)
+    return _submit_job(request, user, "install", chosen["cmd"],
+                       f"开始安装 Hermes Agent（{chosen['label']}）",
+                       force=bool(force.strip()))
 
 
 @router.post("/browser")
@@ -156,16 +162,12 @@ def update(request: Request, user: Admin):
 def _submit_job(request: Request, user, kind: str, command: str, message: str,
                 force: bool = False):
     paths = detect()
-    # 安装走平台原生通道，预检目标必须与实际安装源同域；更新沿用 GitHub 预检。
-    preflight_url = (installer.INSTALL_PREFLIGHT_URL if kind == "install"
-                     else "https://raw.githubusercontent.com")
-    if kind in ("install", "update") and not force and not installer.network_reachable(preflight_url):
-        # 必败预检：任务失败小白看不懂日志，不如提交前就用大白话拦下。
-        # 但探针只是参谋：给"仍要执行"口子，决策权留给用户。
-        audit.record(f"job_{kind}", username=user["username"], outcome="failed",
-                     detail="网络预检未通过", ip=client_ip(request))
-        return _reject(request, installer.NETWORK_HINT,
-                       show_force_install=(kind == "install"))
+    # 安装的预检已在 install() 里按"镜像优先、官方兜底"做过；
+    # 更新预检放宽为 GitHub 或国内镜像仓库（cnb.cool）任一可达。
+    if kind == "update" and not force and not installer.update_source_reachable():
+        audit.record("job_update", username=user["username"], outcome="failed",
+                     detail="更新源预检未通过", ip=client_ip(request))
+        return _reject(request, installer.NETWORK_HINT)
     if force:
         message = message + "（已跳过网络预检）"
     try:

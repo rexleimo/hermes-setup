@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.15 — 2026-09-17（国内镜像安装源：大陆用户全链路提速）
+
+### Added
+- **国内镜像安装源（默认优先，官方自动兜底）**：官方为中国大陆提供镜像站
+  （`res1.hermesagent.org.cn`，全链路换国内源：uv/Python/git→cnb.cool、
+  pip→清华、npm/node→npmmirror）。控制台现在自动选择：**镜像可达走镜像、
+  否则回退官方 GitHub**；两者都不可达时给出人话提示 +「仍要执行」口子。
+  依据腾讯云开发者社区《Hermes Agent 2026 最新安装教程》实测推荐。
+- `HERMES_CONSOLE_INSTALL_SOURCE=cn|official` 可显式固定安装源（固定源时不跨源回退）。
+- 更新预检放宽：GitHub 或 cnb.cool（镜像安装的 agent 走这里）任一可达即可，
+  国内装机不再被 GitHub 预检误拦。
+- 安装卡片明示当前安装源（"国内镜像源（hermesagent.org.cn，大陆优先）"）。
+
+### Tests
+- 双源命令形态、自动选源优先级与回退、显式源固定行为（3 项新增）。
+
 ## 0.8.14 — 2026-09-17（网关启停改为后台任务：每次操作都有流水）
 
 ### Changed

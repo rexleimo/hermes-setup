@@ -248,7 +248,7 @@ wheels = [
 
 [[package]]
 name = "hermes-setup"
-version = "0.8.14"
+version = "0.8.15"
 source = { editable = "." }
 dependencies = [
     { name = "argon2-cffi" },
