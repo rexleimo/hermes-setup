@@ -120,17 +120,9 @@ def service_action(request: Request, user: User, action: str = Form(...),
 
 @router.post("/install")
 def install(request: Request, user: Admin, force: str = Form("")):
-    # 安装源：国内镜像优先、官方兜底（见 installer._SOURCE_DEFS）；两者都不可达时
-    # 给出人话提示 + 「仍要执行」口子。浏览器组件由装后接力任务自动补装。
-    if force:
-        chosen = installer.preferred_install()
-    else:
-        chosen = installer.choose_install()
-        if chosen is None:
-            audit.record("job_install", username=user["username"], outcome="failed",
-                         detail="安装源预检未通过（国内镜像与官方源均不可达）",
-                         ip=client_ip(request))
-            return _reject(request, installer.NETWORK_HINT, show_force_install=True)
+    """官方源全量安装（不跳过任何组件）。点击即提交任务——**不做预检拦截**：
+    执行与否、成败原因，全在任务日志里实时可见（页顶任务面板 / 终端 / jobs 文件）。"""
+    chosen = installer.preferred_install()
     return _submit_job(request, user, "install", chosen["cmd"],
                        f"开始安装 Hermes Agent（{chosen['label']}）",
                        force=bool(force.strip()))
@@ -161,15 +153,11 @@ def update(request: Request, user: Admin):
 
 def _submit_job(request: Request, user, kind: str, command: str, message: str,
                 force: bool = False):
+    """提交后台任务。不做预检拦截：必败任务也会先跑起来并把真实错误写进日志
+    （curl/pip 的报错就是最好的诊断），不再让"点了没反应"发生。"""
     paths = detect()
-    # 安装的预检已在 install() 里按"镜像优先、官方兜底"做过；
-    # 更新预检放宽为 GitHub 或国内镜像仓库（cnb.cool）任一可达。
-    if kind == "update" and not force and not installer.update_source_reachable():
-        audit.record("job_update", username=user["username"], outcome="failed",
-                     detail="更新源预检未通过", ip=client_ip(request))
-        return _reject(request, installer.NETWORK_HINT)
     if force:
-        message = message + "（已跳过网络预检）"
+        message = message + "（手动触发）"
     try:
         # 工作目录固定为 jobs_dir：此前继承控制台进程目录（即仓库根），
         # 曾出现子进程杂物（如 PowerShell 模块缓存 Microsoft/）落到仓库里。

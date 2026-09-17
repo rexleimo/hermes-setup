@@ -18,75 +18,39 @@ from tests.conftest import login
 
 
 def test_install_cmd_platform_contract():
-    """安装命令必须与当前平台原生通道一致，且后台无 TTY 必须跳过交互。"""
+    """安装命令：官方通道 + 全量（不跳过组件）；后台无 TTY 需跳过交互向导。"""
     if sys.platform == "win32":
         assert "powershell" in installer.INSTALL_CMD.lower()
         assert "install.ps1" in installer.INSTALL_CMD
         assert "-SkipSetup" in installer.INSTALL_CMD
         assert "-NonInteractive" in installer.INSTALL_CMD
-        assert "镜像" in installer.INSTALL_METHOD_LABEL  # 默认国内镜像源（大陆优先）
     else:
         assert "install.sh" in installer.INSTALL_CMD
         assert "bash" in installer.INSTALL_CMD
         assert "--skip-setup" in installer.INSTALL_CMD
+        assert "--skip-browser" not in installer.INSTALL_CMD  # 全量，不跳过任何组件
+    assert "hermesagent.org.cn" not in installer.INSTALL_CMD   # 大陆镜像已移除
+    assert "全量" in installer.INSTALL_METHOD_LABEL
 
 
-def test_install_variant_both_sources():
-    """国内镜像源与官方源都要齐备：镜像=core-only+接力补浏览器；官方=全量。"""
-    cn = installer.install_variant("cn")
-    official = installer.install_variant("official")
-    for v in (cn, official):
-        assert set(v) == {"source", "label", "cmd", "preflight"}
-        assert v["source"] in ("cn", "official")
-    assert "res1.hermesagent.org.cn" in cn["cmd"]
+def test_install_variant_official_full():
+    """只保留官方源；全量安装：除 skip-setup 外不跳过任何组件。"""
+    v = installer.install_variant("official")
+    assert set(v) == {"source", "label", "cmd", "preflight"}
+    assert v["source"] == "official"
+    assert "hermesagent.org.cn" not in v["cmd"] and "res1" not in v["cmd"]
     if sys.platform == "win32":
-        assert "install.ps1" in cn["cmd"] and "install.ps1" in official["cmd"]
-        assert "nousresearch.com" in official["preflight"]
+        assert "install.ps1" in v["cmd"]
+        assert "nousresearch.com" in v["preflight"]
     else:
-        assert "install.sh" in cn["cmd"] and "install.sh" in official["cmd"]
-        assert "--skip-browser" in cn["cmd"]          # 镜像最小模式：浏览器走接力
-        assert "--skip-browser" not in official["cmd"]  # 官方源：全量安装
-        assert "--skip-setup" in official["cmd"]
-        assert "githubusercontent.com" in official["cmd"]
-
-
-def test_choose_install_picks_faster_source(monkeypatch):
-    """自动选源 = 两源测速取快者：大陆镜像快→cn；海外官方快→official；全挂→None。"""
-    monkeypatch.setattr(installer, "_probe_latency",
-                        lambda url, timeout=4.0: 0.05 if "res1" in url else 0.50)
-    assert installer.choose_install()["source"] == "cn"
-
-    monkeypatch.setattr(installer, "_probe_latency",
-                        lambda url, timeout=4.0: 0.50 if "res1" in url else 0.05)
-    assert installer.choose_install()["source"] == "official"
-
-    monkeypatch.setattr(installer, "_probe_latency", lambda url, timeout=4.0: None)
-    assert installer.choose_install() is None
-
-
-def test_probe_latency_unreachable(monkeypatch):
-    import urllib.request
-
-    def boom(*a, **k):
-        raise OSError("blocked")
-
-    monkeypatch.setattr(urllib.request, "urlopen", boom)
-    assert installer._probe_latency("https://example.test/x") is None
-
-
-def test_forced_install_source_env(monkeypatch):
-    """显式指定安装源时只认该源（便于固定排查），且不做跨源回退。"""
-    monkeypatch.setenv("HERMES_CONSOLE_INSTALL_SOURCE", "official")
-    assert installer.preferred_install()["source"] == "official"
-    monkeypatch.setattr(installer, "network_reachable",
-                        lambda url, **kw: "res1.hermesagent.org.cn" in url)
-    assert installer.choose_install() is None  # 强制 official 时镜像可达也不算数
-    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: True)
-    assert installer.choose_install()["source"] == "official"
+        assert "install.sh" in v["cmd"]
+        assert "--skip-browser" not in v["cmd"]
+        assert "--skip-setup" in v["cmd"]
+        assert "githubusercontent.com" in v["cmd"]
 
 
 def test_install_preflight_matches_channel():
-    """安装前网络预检必须与实际安装源同域，否则"预检通过、执行必败"。"""
+    """安装前网络预检（供诊断用）与安装源同域，否则"预检通过、执行必败"。"""
     assert urlparse(installer.INSTALL_PREFLIGHT_URL).netloc in installer.INSTALL_CMD
 
 
@@ -195,41 +159,28 @@ def test_network_reachable_head_falls_back_to_get(monkeypatch):
     assert calls == ["HEAD", "GET"]
 
 
-def test_install_preflight_reject_offers_force(admin, monkeypatch):
-    """预检拦截时必须给出「仍要执行」口子，不能只报错不给路。"""
-    monkeypatch.setattr(installer, "_probe_latency", lambda url, timeout=4.0: None)
-    login(admin, "admin", "Sup3rSecure!x")
-    page = admin.get("/service").text
-    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
-    resp = admin.post("/service/install", data={"_csrf": token},
-                      follow_redirects=False)
-    assert resp.status_code == 400
-    assert "仍要执行" in resp.text
-    assert 'name="force"' in resp.text
-
-
-def test_install_force_bypasses_preflight(admin, monkeypatch):
-    """force=1 绕过预检直接提交任务（决策权留给用户）。"""
+def test_install_always_submits_without_precheck(admin, monkeypatch):
+    """预检拦截已移除：即使网络探测失败，点击也必然生成任务——
+    成败与原因全在任务日志里（先跑起来再说，不让"点了没反应"发生）。"""
     calls = {}
 
     def fake_submit(kind, command, *, shell=True, cwd=None):
         calls["kind"] = kind
         return 42
 
-    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
     monkeypatch.setattr(installer, "submit", fake_submit)
+    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
     login(admin, "admin", "Sup3rSecure!x")
     page = admin.get("/service").text
     token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
-    resp = admin.post("/service/install",
-                      data={"_csrf": token, "force": "1"},
+    resp = admin.post("/service/install", data={"_csrf": token},
                       follow_redirects=False)
     assert resp.status_code == 200
     assert calls.get("kind") == "install"
 
 
-def test_install_command_source_by_latency(admin, monkeypatch):
-    """按测速结果选源：镜像快→镜像（POSIX 跳过浏览器段、走接力）；官方快→官方全量。"""
+def test_install_command_is_official_full(admin, monkeypatch):
+    """提交的命令 = 官方全量：无镜像域名；POSIX 不带 --skip-browser。"""
     calls = {}
 
     def fake_submit(kind, command, *, shell=True, cwd=None):
@@ -238,29 +189,17 @@ def test_install_command_source_by_latency(admin, monkeypatch):
 
     monkeypatch.setattr(installer, "submit", fake_submit)
     login(admin, "admin", "Sup3rSecure!x")
-
-    # 镜像更快 → 用镜像
-    monkeypatch.setattr(installer, "_probe_latency",
-                        lambda url, timeout=4.0: 0.05 if "res1" in url else 0.50)
     page = admin.get("/service").text
     token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
     assert admin.post("/service/install", data={"_csrf": token},
                       follow_redirects=False).status_code == 200
+    cmd = calls["command"]
+    assert "hermesagent.org.cn" not in cmd
     if sys.platform == "win32":
-        assert "res1.hermesagent.org.cn" in calls["command"]
+        assert "install.ps1" in cmd
     else:
-        assert "--skip-browser" in calls["command"]  # 镜像最小模式 + 接力
-
-    # 官方更快 → 用官方全量（不带 --skip-browser 的官方脚本）
-    monkeypatch.setattr(installer, "_probe_latency",
-                        lambda url, timeout=4.0: 0.50 if "res1" in url else 0.05)
-    page = admin.get("/service").text
-    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
-    assert admin.post("/service/install", data={"_csrf": token},
-                      follow_redirects=False).status_code == 200
-    if sys.platform != "win32":
-        assert "--skip-browser" not in calls["command"]
-        assert "raw.githubusercontent.com" in calls["command"]
+        assert "raw.githubusercontent.com" in cmd
+        assert "--skip-browser" not in cmd
 
 
 def test_install_chain_after_browser_job(monkeypatch):
@@ -495,14 +434,15 @@ def test_job_panel_fragment_live_and_cancellable(admin):
     assert "line2" in frag
 
 
-def test_install_card_advertises_auto_browser_chain():
-    """安装卡片必须写明"装完自动补装浏览器组件"（核心能力，默认必装）。"""
+def test_install_card_advertises_full_install():
+    """安装卡片必须写明"官方源全量安装 + 日志四路可见"，且不再有"跳过核心能力"的勾选。"""
     from pathlib import Path
 
     tpl = (Path(__file__).resolve().parent.parent / "app" / "web"
            / "templates" / "service.html").read_text(encoding="utf-8")
-    assert "自动补装" in tpl and "浏览器组件" in tpl
-    assert 'name="skip_browser"' not in tpl   # 不再给用户"跳过核心能力"的默认勾选
+    assert "全量安装" in tpl
+    assert "任务面板" in tpl
+    assert 'name="skip_browser"' not in tpl
 
 
 def test_browser_backfill_rejects_when_not_installed(admin):

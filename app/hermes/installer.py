@@ -19,21 +19,12 @@ _lock = threading.Lock()
 _procs: dict[int, subprocess.Popen] = {}
 
 # ---------------------------------------------------------------------------
-# 安装源：国内镜像优先（大陆用户），官方源兜底
+# 安装源：官方源，全量安装（不跳过任何组件）
 # ---------------------------------------------------------------------------
-# 官方为中国大陆提供了镜像站（全链路换国内源：uv/Python/git→cnb.cool、
-# pip→清华、npm/node→npmmirror），国内用户部署速度与稳定性显著优于直连。
-# 依据：腾讯云开发者社区《Hermes Agent 2026最新安装教程》与镜像脚本自身实现。
-#   Linux/macOS:  curl -fsSL https://res1.hermesagent.org.cn/install.sh | bash
-#   Windows:      irm https://res1.hermesagent.org.cn/install.ps1 | iex
-# 覆盖方式：HERMES_CONSOLE_INSTALL_SOURCE=cn|official（默认 auto=镜像优先、自动回退）。
-CN_MIRROR_BASE = "https://res1.hermesagent.org.cn"
+# 官方脚本一次装齐：uv/Python/git/venv/依赖/Node/浏览器引擎/Browser Use CLI/
+# camofox/语音依赖/Computer Use 驱动（best-effort）。大陆镜像源已移除（产品决策）。
+# Windows 必须走 PowerShell 通道；后台任务无 TTY，需 -SkipSetup -NonInteractive。
 _SOURCE_DEFS = {
-    "cn": {
-        "label": "国内镜像源（hermesagent.org.cn，大陆优先）",
-        "sh": f"{CN_MIRROR_BASE}/install.sh",
-        "ps1": f"{CN_MIRROR_BASE}/install.ps1",
-    },
     "official": {
         "label": "官方源（GitHub / Nous Research）",
         "sh": "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh",
@@ -42,93 +33,40 @@ _SOURCE_DEFS = {
 }
 
 
-def install_variant(source: str) -> dict:
-    """某安装源在当前平台的可复制命令 / 预检 URL / 标签。
+def install_variant(source: str = "official") -> dict:
+    """官方安装源在当前平台的可复制命令 / 预检 URL / 标签。
 
-    - 官方源：**全量安装**（含浏览器引擎/组件，脚本自带 best-effort 兜底）——海外网络快。
-    - 国内镜像：core-only 最小模式（本就把浏览器段跳过），先装核心、装后由
-      组件接力任务补齐（见 BROWSER_SCRIPT）。
+    **全量安装**：只带 --skip-setup / -SkipSetup -NonInteractive（后台任务无 TTY，
+    交互式向导会挂死任务）；浏览器引擎等组件由官方脚本一次装齐，不做任何跳过。
     Windows 绝不能用 `curl | bash`：bash 在 Windows 上解析到 WSL 存根（或根本没有），
-    官方 install.sh 头部也写明只支持 Linux/macOS/Termux；后台任务无 TTY，
-    必须带 -SkipSetup -NonInteractive，否则交互式安装向导会把任务挂死到超时。"""
+    官方 install.sh 头部也写明只支持 Linux/macOS/Termux。"""
     d = _SOURCE_DEFS[source]
     if sys.platform == "win32":
         cmd = ("powershell -ExecutionPolicy Bypass -NoProfile -Command "
                f"\"& ([scriptblock]::Create((irm '{d['ps1']}'))) -SkipSetup -NonInteractive\"")
         preflight = d["ps1"]
     else:
-        skip = " --skip-browser" if source == "cn" else ""
-        cmd = f"curl -fsSL {d['sh']} | bash -s -- --skip-setup{skip}"
+        cmd = f"curl -fsSL {d['sh']} | bash -s -- --skip-setup"
         preflight = d["sh"]
     return {"source": source, "label": d["label"], "cmd": cmd, "preflight": preflight}
 
 
-def _forced_source() -> str:
-    forced = (os.environ.get("HERMES_CONSOLE_INSTALL_SOURCE") or "").strip().lower()
-    return forced if forced in _SOURCE_DEFS else ""
-
-
 def preferred_install() -> dict:
-    """展示/强制路径用：显式指定优先，否则国内镜像。不探测网络。"""
-    return install_variant(_forced_source() or "cn")
+    """展示与提交用：官方源。不探测网络（预检拦截已移除——点了必生成任务，
+    成败与原因全在任务日志里可见）。"""
+    return install_variant("official")
 
 
-def _probe_latency(url: str, timeout: float = 4.0) -> float | None:
-    """单源测速：HEAD 优先、GET 首字节兜底；返回秒数，不可达返回 None。"""
-    import time
-    import urllib.request
-
-    for method in ("HEAD", "GET"):
-        t0 = time.monotonic()
-        try:
-            req = urllib.request.Request(url, method=method,
-                                         headers={"User-Agent": "hermes-console"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if method == "GET":
-                    resp.read(1)
-                if 200 <= resp.status < 400:
-                    return time.monotonic() - t0
-        except Exception:
-            continue
-    return None
-
-
-def choose_install() -> dict | None:
-    """自动选源：国内镜像与官方源**并发测速，快者优先**（大陆→镜像、海外→官方），
-    全部不可达返回 None。显式 HERMES_CONSOLE_INSTALL_SOURCE=cn|official 时只探测该源。"""
-    forced = _forced_source()
-    if forced:
-        v = install_variant(forced)
-        return v if network_reachable(v["preflight"]) else None
-    from concurrent.futures import ThreadPoolExecutor
-
-    variants = {sid: install_variant(sid) for sid in ("cn", "official")}
-    timed: list[tuple[float, str]] = []
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        futs = {sid: ex.submit(_probe_latency, v["preflight"])
-                for sid, v in variants.items()}
-        for sid, fut in futs.items():
-            lat = fut.result()
-            if lat is not None:
-                timed.append((lat, sid))
-    if not timed:
-        return None
-    timed.sort()   # 同延迟时按源名稳定排序（cn 在前）
-    return variants[timed[0][1]]
-
-
-# 展示与兼容入口：命令预览用国内镜像（自动选择时以测速结果为准）
+# 展示与兼容入口
 INSTALL_CMD = preferred_install()["cmd"]
-INSTALL_METHOD_LABEL = "自动测速选择：国内镜像 / 官方源，快者优先"
+INSTALL_METHOD_LABEL = "官方源（GitHub / Nous Research）· 全量安装"
 INSTALL_PREFLIGHT_URL = preferred_install()["preflight"]
 UPDATE_CMD = "hermes update"
 
 
 def update_source_reachable() -> bool:
-    """更新预检：官方 GitHub 或国内镜像仓库（cnb.cool，镜像安装的 agent 走这里）
-    任一可达即可——否则国内装机的用户会被 GitHub 预检误拦。"""
-    return (network_reachable("https://raw.githubusercontent.com")
-            or network_reachable("https://cnb.cool"))
+    """更新预检（供诊断/测试使用；任务提交已不做拦截）。"""
+    return network_reachable("https://raw.githubusercontent.com")
 
 # ---------------------------------------------------------------------------
 # 浏览器组件（Playwright Chromium + Browser Use CLI）：Agent 核心能力，默认必装
@@ -444,7 +382,7 @@ def network_reachable(url: str = "https://raw.githubusercontent.com",
 
 
 NETWORK_HINT = (
-    "网络无法访问任何安装源（国内镜像 hermesagent.org.cn 与官方 GitHub 均不可达）。"
+    "网络无法访问官方安装源（GitHub / raw.githubusercontent.com）。"
     "请开代理或换网络后重试；诊断详情见「运行体检」页。")
 
 
@@ -665,6 +603,18 @@ def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = Non
         db.execute("UPDATE job_runs SET log_path = ? WHERE id = ?",
                    (str(log_path.relative_to(settings.data_dir)), job_id))
 
+    # 同步写"已启动 + 命令"：POST 返回的首屏（任务面板/最近任务）就能看到，
+    # 绝不出现空白期（此前 curl 下载脚本的几十秒全静默，像"点了没反应"）。
+    started = datetime.now().strftime("%H:%M:%S")
+    header = (f"[console] 任务已启动（{started}）\n"
+              f"[console] $ {command}\n"
+              "[console] —— 以下为实时输出（首段下载 / 环境检查可能需要一两分钟）——\n")
+    try:
+        log_path.write_text(header, encoding="utf-8")
+        _echo_console(header)
+    except OSError:
+        pass
+
     def _worker() -> None:
         # 继承控制台进程的完整环境（PATH/HOME/SYSTEMROOT 等）。
         # 不能整体替换成硬编码 POSIX PATH：Windows 下会导致子进程 python
@@ -675,7 +625,7 @@ def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = Non
         code = -2
         fh = None
         try:
-            fh = open(log_path, "w", encoding="utf-8")
+            fh = open(log_path, "a", encoding="utf-8")
             kwargs: dict = {}
             if os.name == "posix":
                 # 独立进程组：取消 / 超时时能整树终止（sh → curl/bash 子孙进程）

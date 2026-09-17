@@ -182,21 +182,21 @@ def test_backup_restore_rejects_bad_name(admin, _backups_dir):
     assert rows
 
 
-def test_install_preflight_blocks_offline(admin, monkeypatch):
-    """网络预检不通过时，安装任务直接以大白话拒绝，不提交必败任务。"""
+def test_install_submits_job_even_when_offline(admin, monkeypatch):
+    """预检拦截已移除：探测不通也照常提交任务——真实错误由任务日志呈现，
+    不再出现"点了没反应"（任务提交在 test_install_platform 中另有锁死）。"""
     import re
 
     from app.hermes import installer
 
     login(admin, "admin", "Sup3rSecure!x")
-    # 自动选源现在是"两源测速"：探测全挂 = 两条路都不通
-    monkeypatch.setattr(installer, "_probe_latency", lambda url, timeout=4.0: None)
-    before = db.query_one("SELECT COUNT(*) AS n FROM job_runs")["n"]
+    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
+    calls = {}
+    monkeypatch.setattr(installer, "submit",
+                        lambda kind, cmd, **kw: calls.setdefault("kind", kind) or 1)
     page = admin.get("/service")
     token = re.search(r'name="_csrf" value="([^"]*)"', page.text).group(1)
     resp = admin.post("/service/install", data={"_csrf": token},
                       follow_redirects=False)
-    assert resp.status_code == 400
-    assert "GitHub" in resp.text
-    after = db.query_one("SELECT COUNT(*) AS n FROM job_runs")["n"]
-    assert before == after  # 没有提交任务
+    assert resp.status_code == 200
+    assert calls["kind"] == "install"  # 任务照常提交
