@@ -229,6 +229,26 @@ def test_cancel_unknown_job():
     assert installer.cancel(99999) == "任务不存在"
 
 
+def test_service_page_keeps_last_job_panel(admin):
+    """最近一次任务跑完也必须常驻可看（"操作完到处找不到日志"= 不可接受）。"""
+    from app.core import db
+    from app.core.settings import settings
+
+    db.execute("INSERT INTO job_runs (kind, command, log_path, status, exit_code) "
+               "VALUES (?,?,?,?,?)",
+               ("gateway_start", "cmd", "jobs/job-x.log", "ok", 0))
+    job_id = db.query_one("SELECT id FROM job_runs ORDER BY id DESC LIMIT 1")["id"]
+    db.execute("UPDATE job_runs SET log_path = ? WHERE id = ?",
+               (f"jobs/job-{job_id}.log", job_id))
+    (settings.jobs_dir / f"job-{job_id}.log").write_text(
+        "gateway started ok\n", encoding="utf-8")
+    login(admin, "admin", "Sup3rSecure!x")
+    page = admin.get("/service").text
+    assert "gateway started ok" in page          # 输出常驻在面板里
+    assert "启动 Gateway" in page                # 历史表中文标签
+    assert f"job-{job_id}.log" in page           # 日志文件路径直接给出
+
+
 def test_gateway_action_submits_background_job(admin, monkeypatch):
     """网关启停必须是后台任务（有流水可看），不再是同步阻塞调用。"""
     calls = {}

@@ -19,6 +19,8 @@
     </div>
     <div class="card-body">
       <p class="mono text-muted" style="margin:0 0 10px; font-size:12px;">$ {{ job['command'] }}</p>
+      {% if job_log_path %}<p class="mono text-muted" style="margin:0 0 10px; font-size:12px;">
+        日志文件：{{ job_log_path }}（历史任务见「安装与更新 → 最近任务」）</p>{% endif %}
       <pre class="log-view" id="job-log" style="max-height:420px;">{%- if job_lines -%}
 {%- for line in job_lines %}<div class="log-line">{{ line }}</div>
 {% endfor %}{%- else -%}<span class="log-empty">等待输出…</span>{%- endif -%}</pre>
@@ -34,7 +36,7 @@
       {% if done %}
       <div class="flex" style="margin-top:12px;">
         <button class="btn btn-secondary btn-sm" hx-get="/service" hx-target="body">
-          {{ icon('arrow-right') }} 返回服务页查看状态
+          {{ icon('rotate') }} 刷新页面
         </button>
       </div>
       {% endif %}

@@ -24,9 +24,15 @@ def service_page(request: Request, user: User):
 
 
 def _job_panel_ctx() -> dict:
-    """任务面板上下文（整页与 HTMX 片段共用；_job_panel.html 需要 job/job_lines/done，
-    此前整页上下文只给了 active_job，导致有运行中任务时 /service 直接 500）。"""
+    """任务面板上下文（整页与 HTMX 片段共用；_job_panel.html 需要 job/job_lines/done）。
+    最近一次任务的面板常驻展示——任务跑完就消失曾导致"操作完日志找不到"。"""
     job = installer.active_job() or installer.last_job()
+    log_path = ""
+    if job and job.get("log_path"):
+        try:
+            log_path = str((settings.data_dir / job["log_path"]).resolve())
+        except OSError:
+            log_path = ""
     return {
         "active_job": installer.active_job(),
         "last_job": installer.last_job(),
@@ -34,6 +40,7 @@ def _job_panel_ctx() -> dict:
         # 全量输出（安装日志一两百行）：用户要看见进度，不能只给尾巴
         "job_lines": installer.job_log(job["id"], tail=500) if job else [],
         "done": job is None or job["status"] != "running",
+        "job_log_path": log_path,
     }
 
 

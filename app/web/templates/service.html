@@ -32,9 +32,9 @@
   <button class="tab-btn" data-tab="install">{{ icon('download') }} 安装与更新</button>
 </div>
 
-{# 运行中的任务面板：放在页签外，任何页签都能看见进度（此前藏在「安装与更新」页签里，
-   提交任务后页面回到概览页签，看起来像“什么都没发生”） #}
-{% if active_job %}
+{# 任务面板：放在页签外，任何页签都能看见；最近一次任务跑完也常驻展示——
+   跑完就消失曾导致"操作完到处找不到日志" #}
+{% if job %}
 {% include "service/_job_panel.html" %}
 {% endif %}
 
