@@ -19,7 +19,7 @@ from ruamel.yaml import YAML
 
 from app.hermes import engineering_service
 from app.hermes.config_store import ensure_path, get_path, load_config, save_config
-from app.hermes.paths import HermesPaths, detect
+from app.hermes.paths import HermesPaths, detect, resolve_agent_repo
 
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 ESSENTIAL_SKILLS = frozenset({"hermes-agent"})
@@ -202,7 +202,7 @@ def _write_disabled(names: list[str], config, paths: HermesPaths) -> None:
 
 def catalog_base(paths: HermesPaths | None = None) -> Path:
     paths = paths or detect()
-    return paths.agent_repo / "optional-skills"
+    return (resolve_agent_repo(paths) or paths.agent_repo) / "optional-skills"
 
 
 def catalog(paths: HermesPaths | None = None) -> list[CatalogSkill]:

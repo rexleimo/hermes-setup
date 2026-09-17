@@ -20,7 +20,7 @@ from pathlib import Path
 from app.core import audit
 from app.core.settings import settings
 from app.hermes import channels_service, installer
-from app.hermes.paths import HermesPaths, detect
+from app.hermes.paths import HermesPaths, detect, resolve_agent_repo
 
 QR_JOB_KIND = "weixin_qr_login"
 DEPS_JOB_KIND = "install_messaging"
@@ -36,8 +36,8 @@ def agent_python(paths: HermesPaths | None = None) -> Path | None:
     repo = paths.agent_repo
     cands = [repo / "venv" / "Scripts" / "python.exe",   # Windows 标准布局
              repo / "venv" / "bin" / "python"]           # POSIX 标准布局
-    if paths.bin:  # 非标准安装位：从 hermes 可执行文件反推 venv
-        b = Path(paths.bin)
+    if paths.bin:  # 非标准安装位：从 hermes 可执行文件反推 venv（先解软链，FHS 下 bin 是链接）
+        b = Path(paths.bin).resolve()
         cands += [b.parent / "python.exe", b.parent / "python"]
     for cand in cands:
         if cand.exists():
@@ -46,15 +46,10 @@ def agent_python(paths: HermesPaths | None = None) -> Path | None:
 
 
 def agent_repo(paths: HermesPaths | None = None) -> Path | None:
-    """hermes-agent 仓库目录（安装依赖的 cwd）。"""
+    """hermes-agent 仓库目录（安装依赖的 cwd）。逻辑收敛到 paths.resolve_agent_repo，
+    本函数保留作调用方兼容。"""
     paths = paths or detect()
-    if paths.agent_repo.exists():
-        return paths.agent_repo
-    if paths.bin:
-        guess = Path(paths.bin).parent.parent.parent  # venv/Scripts/hermes → repo
-        if (guess / "pyproject.toml").exists() or (guess / "gateway").is_dir():
-            return guess
-    return None
+    return resolve_agent_repo(paths)
 
 
 def deps_status(paths: HermesPaths | None = None, *, use_cache: bool = True) -> dict:
@@ -100,7 +95,6 @@ def install_deps(paths: HermesPaths | None = None) -> int:
         raise RuntimeError("未找到 hermes venv / hermes-agent 仓库，无法安装依赖")
     import shutil
     uv = shutil.which("uv")
-    repo = paths.agent_repo
     if uv:
         cmd = f'"{uv}" pip install --python "{py}" -e ".[messaging]"'
     else:

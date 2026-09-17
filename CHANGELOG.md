@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.2 — 2026-09-17（Linux root 安装布局兼容 + start.sh 可执行位）
+
+### Fixed
+- **start.sh 没有可执行位**：git 记录为 100644，全新 clone 后直接运行报
+  Permission denied（Ubuntu 干净容器实测复现）。已置 100755，与 scripts/*.sh 一致。
+- **root/FHS 安装下源码目录找不到**：root 安装把 hermes-agent 放到
+  `/usr/local/lib`（而非家目录），且 `/usr/local/bin/hermes` 多为软链；
+  直连 `paths.agent_repo` 落空，连带 MCP/技能/插件目录、venv 探测、依赖安装一起失效。
+  现收敛到 `paths.resolve_agent_repo()`（直连优先，否则解软链逐级上找），
+  MCP/技能/插件目录与扫码/依赖链路共用；并删掉 `install_deps` 里用直连路径
+  覆盖反推结果的一行。
+
+### Tests
+- 新增 tests/test_agent_repo.py（7 项；软链用例仅 POSIX，其余全平台）。
+- Ubuntu 24.04 干净容器端到端验证：一键安装 exit 0（约 3.5 分钟），检测链
+  `installed=True`，`hermes update --check` 只读验证通过。
+
 ## 0.8.1 — 2026-09-17（Windows 一键安装走原生通道 + 全新机默认家目录修正）
 
 ### Fixed

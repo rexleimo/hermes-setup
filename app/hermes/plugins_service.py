@@ -21,7 +21,7 @@ from ruamel.yaml import YAML
 from app.core import db
 from app.hermes import installer
 from app.hermes.config_store import ensure_path, get_path, load_config, save_config
-from app.hermes.paths import HermesPaths, detect
+from app.hermes.paths import HermesPaths, detect, resolve_agent_repo
 
 _yaml = YAML(typ="safe", pure=True)
 
@@ -182,7 +182,7 @@ class PluginCatalogEntry:
 
 def catalog(paths: HermesPaths | None = None) -> list[PluginCatalogEntry]:
     paths = paths or detect()
-    base = paths.agent_repo / "plugin-catalog"
+    base = (resolve_agent_repo(paths) or paths.agent_repo) / "plugin-catalog"
     if not base.is_dir():
         return []
     out: list[PluginCatalogEntry] = []

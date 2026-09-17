@@ -20,7 +20,7 @@ from app.core import db
 from app.hermes.config_store import (
     ConfigError, EnvStore, ensure_path, get_path, load_config, save_config,
 )
-from app.hermes.paths import HermesPaths, detect
+from app.hermes.paths import HermesPaths, detect, resolve_agent_repo
 
 NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,47}$")
 TRANSPORTS = ("stdio", "http")   # sse 是 http 的传输开关（transport: sse），不是独立类型
@@ -413,7 +413,7 @@ class McpCatalogEntry:
 
 def catalog_dir(paths: HermesPaths | None = None) -> Path:
     paths = paths or detect()
-    return paths.agent_repo / "optional-mcps"
+    return (resolve_agent_repo(paths) or paths.agent_repo) / "optional-mcps"
 
 
 def catalog(paths: HermesPaths | None = None) -> list[McpCatalogEntry]:

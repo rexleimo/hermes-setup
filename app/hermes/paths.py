@@ -102,3 +102,21 @@ def detect() -> HermesPaths:
     bin_override = appsettings.get_setting("hermes_bin")
     bin_path = bin_override or which_hermes()
     return HermesPaths(home=home, bin=bin_path)
+
+
+def resolve_agent_repo(paths: HermesPaths) -> Path | None:
+    """定位 hermes-agent 源码目录：直连路径优先，否则从可执行文件反推。
+
+    root/FHS 安装把仓库放在 /usr/local/lib/hermes-agent（而非家目录下），
+    且 /usr/local/bin/hermes 通常是个软链——必须 resolve() 后再逐级上找，
+    否则 MCP/技能/插件目录与 venv 探测在 root 机上全部落空。
+    """
+    direct = paths.agent_repo
+    if direct.exists():
+        return direct
+    if paths.bin:
+        real = Path(paths.bin).resolve()
+        for cand in (real.parent, real.parent.parent, real.parent.parent.parent):
+            if (cand / "pyproject.toml").exists() or (cand / "gateway").is_dir():
+                return cand
+    return None
