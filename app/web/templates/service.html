@@ -215,7 +215,7 @@
         安装包从官方源下载。若提示网络失败，请开代理或换网络后重试；
         可先到 <a href="/diagnose">运行体检</a> 检查网络连通性。</div>
       {% if user['role'] == 'admin' %}
-      <form method="post" action="/service/install" data-confirm="开始安装 Hermes Agent？（装完会自动补装浏览器组件）">
+      <form method="post" action="/service/install" data-confirm="开始安装 Hermes Agent？（官方源全量安装；执行过程实时显示在顶部任务面板）">
         {{ csrf() }}
         <button class="btn btn-primary btn-lg" type="submit">
           {{ icon('download') }} <span class="btn-label">开始安装</span><span class="spinner"></span>

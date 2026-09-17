@@ -1,5 +1,12 @@
 {% if log_lines %}
 {% for line in log_lines %}<div class="log-line">{{ line }}</div>{% endfor %}
 {% else %}
-<span class="log-empty">日志文件为空或不存在（等待 Gateway 首次写入）</span>
+<span class="log-empty">{%- if paths is defined and not paths.installed -%}
+尚未安装 Hermes Agent——装好并启动 Gateway 后，这里会实时显示它的日志
+（gateway.log / errors.log 由 Gateway 进程自己创建，第一次启动后自动出现）。
+{%- elif log_name == 'errors' -%}
+errors.log 为空——没有报错是好事；跑出问题时错误会出现在这里。
+{%- else -%}
+日志文件为空或不存在（等待 Gateway 首次写入）
+{%- endif -%}</span>
 {% endif %}

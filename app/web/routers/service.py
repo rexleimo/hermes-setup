@@ -249,7 +249,7 @@ def logs_fragment(request: Request, user: User, name: str = "gateway", lines: in
     path = paths.gateway_log if name == "gateway" else paths.errors_log
     log_lines = supervisor.tail_log(path, max(20, min(lines, 500)))
     return render_partial(request, "service/_log_view.html", {
-        "log_lines": log_lines, "log_name": name,
+        "log_lines": log_lines, "log_name": name, "paths": paths,
     })
 
 
