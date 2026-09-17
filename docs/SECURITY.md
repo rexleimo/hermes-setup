@@ -29,7 +29,8 @@ Hermes Console 是**权限极高的运维入口**（它能改模型路由、写�
    ```bash
    python -c "import secrets; print(secrets.token_urlsafe(48))"
    ```
-2. **不要把控制台端口裸暴露公网**。默认只监听 `127.0.0.1:8420`；需要远程管理时，
+2. **不要把控制台端口裸暴露公网**。默认监听 `0.0.0.0:8420`（含本机回环，开箱即用）；
+   只在本机使用可改回 `HERMES_CONSOLE_HOST=127.0.0.1`；需要远程管理时，
    走 VPN / 内网，或用 Nginx·Caddy 终止 TLS 后配 `HERMES_CONSOLE_ALLOWED_IPS` 限来源；
 3. 前置 HTTPS 时开启 `HERMES_CONSOLE_SECURE_COOKIES=1`；
 4. 初始化完成后**立即给管理员绑定 TOTP**；

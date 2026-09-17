@@ -10,7 +10,7 @@ cd /d "%~dp0"
 if not defined PORT set PORT=%HERMES_CONSOLE_PORT%
 if not defined PORT set PORT=8420
 if not defined HOST set HOST=%HERMES_CONSOLE_HOST%
-if not defined HOST set HOST=127.0.0.1
+if not defined HOST set HOST=0.0.0.0
 
 rem ---- 找 uv（没有就用 python 现装一个；官方源失败自动换国内镜像重试） ----
 where uv >nul 2>nul
@@ -55,6 +55,9 @@ if /i not "%HOST%"=="127.0.0.1" if /i not "%HOST%"=="localhost" (
   echo [警告] 监听地址为 %HOST%（非本机回环），管理后台将暴露给网络：
   echo   请务必设置 HERMES_CONSOLE_SECRET，并前置 HTTPS 且用 HERMES_CONSOLE_ALLOWED_IPS 限制来源。
 )
-echo [2/2] 启动控制台 http://%HOST%:%PORT% （关窗即停）
-start "" cmd /c "timeout /t 3 /nobreak >nul & start http://%HOST%:%PORT%"
+echo [2/2] 启动控制台 http://%HOST%:%PORT% （本机/局域网/公网均可达，关窗即停）
+rem 浏览器打开回环地址：部分新版浏览器打不开 0.0.0.0，127.0.0.1 恒可达
+set BROWSE_HOST=%HOST%
+if /i "%HOST%"=="0.0.0.0" set BROWSE_HOST=127.0.0.1
+start "" cmd /c "timeout /t 3 /nobreak >nul & start http://%BROWSE_HOST%:%PORT%"
 uv run uvicorn app.main:app --host %HOST% --port %PORT%

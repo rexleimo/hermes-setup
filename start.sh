@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 PORT="${PORT:-${HERMES_CONSOLE_PORT:-8420}}"
-HOST="${HOST:-${HERMES_CONSOLE_HOST:-127.0.0.1}}"
+HOST="${HOST:-${HERMES_CONSOLE_HOST:-0.0.0.0}}"
 ISSUES="https://github.com/rexleimo/hermes-setup/issues"
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -56,11 +56,14 @@ if [ "$HOST" != "127.0.0.1" ] && [ "$HOST" != "localhost" ]; then
 echo "[警告] 监听地址为 ${HOST}（非本机回环），管理后台将暴露给网络："
 echo "  请务必设置 HERMES_CONSOLE_SECRET，并前置 HTTPS 且用 HERMES_CONSOLE_ALLOWED_IPS 限制来源。"
 fi
-echo "[2/2] 启动控制台 http://${HOST}:${PORT} （Ctrl+C 停止）"
+echo "[2/2] 启动控制台 http://${HOST}:${PORT} （本机/局域网/公网均可达，Ctrl+C 停止）"
+# 浏览器打开回环地址：部分新版浏览器打不开 0.0.0.0，127.0.0.1 恒可达
+BROWSE_HOST="$HOST"
+if [ "$BROWSE_HOST" = "0.0.0.0" ]; then BROWSE_HOST="127.0.0.1"; fi
 # 3 秒后自动打开浏览器（macOS open / Linux xdg-open，有哪个用哪个；无桌面环境自动跳过）
 ( sleep 3
-  if command -v open >/dev/null 2>&1; then open "http://${HOST}:${PORT}"
-  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "http://${HOST}:${PORT}"
+  if command -v open >/dev/null 2>&1; then open "http://${BROWSE_HOST}:${PORT}"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "http://${BROWSE_HOST}:${PORT}"
   fi ) &
 
 exec uv run uvicorn app.main:app --host "$HOST" --port "$PORT"

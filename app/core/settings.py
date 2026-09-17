@@ -52,7 +52,7 @@ def resolve_data_dir(env_value: str, legacy_dir: Path, home_dir: Path) -> Path:
 class Settings:
     """不可变的进程级配置（env）。"""
 
-    host: str = field(default_factory=lambda: _env("HERMES_CONSOLE_HOST", "127.0.0.1"))
+    host: str = field(default_factory=lambda: _env("HERMES_CONSOLE_HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(_env("HERMES_CONSOLE_PORT", "8420")))
     secret_key: str = field(
         default_factory=lambda: _env("HERMES_CONSOLE_SECRET") or secrets.token_urlsafe(48)
