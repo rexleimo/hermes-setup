@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 from datetime import datetime
 
@@ -15,9 +16,30 @@ from app.core import db
 from app.core.settings import settings
 
 _lock = threading.Lock()
-INSTALL_CMD = (
+
+# 平台原生的官方安装通道（service.py 的「开始安装」按钮与页面复制框共用）。
+# Windows 绝不能用 `curl | bash`：bash 在 Windows 上解析到 WSL 存根（或根本没有），
+# 官方 install.sh 头部也写明只支持 Linux/macOS/Termux；后台任务无 TTY，
+# 必须带 -SkipSetup -NonInteractive，否则交互式安装向导会把任务挂死到超时。
+INSTALL_CMD_LINUX = (
     "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
     " | bash -s -- --skip-setup"
+)
+INSTALL_CMD_WINDOWS = (
+    "powershell -ExecutionPolicy Bypass -NoProfile -Command "
+    "\"& ([scriptblock]::Create((irm 'https://hermes-agent.nousresearch.com/install.ps1'))) -SkipSetup -NonInteractive\""
+)
+INSTALL_CMD = INSTALL_CMD_WINDOWS if sys.platform == "win32" else INSTALL_CMD_LINUX
+
+INSTALL_METHOD_LABEL = (
+    "官方 PowerShell 安装脚本（Windows 原生）" if sys.platform == "win32"
+    else "官方脚本（curl | bash）"
+)
+
+# 安装前网络预检必须与实际安装源同域，否则出现"预检通过、执行必败"。
+INSTALL_PREFLIGHT_URL = (
+    "https://hermes-agent.nousresearch.com/install.ps1" if sys.platform == "win32"
+    else "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
 )
 UPDATE_CMD = "hermes update"
 

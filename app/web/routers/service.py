@@ -44,6 +44,7 @@ def _service_view(request: Request, error: str = "", code: int = 200):
         "gateway_log": supervisor.tail_log(paths.gateway_log, 120),
         "errors_log": supervisor.tail_log(paths.errors_log, 60),
         "install_cmd": installer.INSTALL_CMD,
+        "install_method": installer.INSTALL_METHOD_LABEL,
         "jobs": installer.job_history(),
         "error": error,
         **_job_panel_ctx(),
@@ -112,7 +113,10 @@ def update(request: Request, user: Admin):
 
 def _submit_job(request: Request, user, kind: str, command: str, message: str):
     paths = detect()
-    if kind in ("install", "update") and not installer.network_reachable():
+    # 安装走平台原生通道，预检目标必须与实际安装源同域；更新沿用 GitHub 预检。
+    preflight_url = (installer.INSTALL_PREFLIGHT_URL if kind == "install"
+                     else "https://raw.githubusercontent.com")
+    if kind in ("install", "update") and not installer.network_reachable(preflight_url):
         # 必败预检：任务失败小白看不懂日志，不如提交前就用大白话拦下
         audit.record(f"job_{kind}", username=user["username"], outcome="failed",
                      detail="网络预检未通过", ip=client_ip(request))

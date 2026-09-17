@@ -3,6 +3,7 @@
 {% block title %}服务管理{% endblock %}
 {% block topbar_title %}运维 / <strong>服务管理</strong>{% endblock %}
 {% block content %}
+{% if error %}<div class="alert alert-danger" style="margin:0 0 14px;">{{ icon('alert') }} {{ error }}</div>{% endif %}
 <div class="page-header">
   <div>
     <h2>服务管理</h2>
@@ -148,7 +149,7 @@
         </button>
       </form>
       <dl class="kv" style="margin-top:16px;">
-        <dt>安装方式</dt><dd>官方脚本（curl | bash）</dd>
+        <dt>安装方式</dt><dd>{{ install_method }}</dd>
         <dt>数据目录</dt><dd><code>{{ paths.home }}</code></dd>
         <dt>配置文件</dt><dd><code>{{ paths.config_yaml }}</code></dd>
       </dl>
@@ -167,9 +168,9 @@
         <div class="step" data-step-num="3"><span class="step-num">3</span> 回到概览启动 Gateway</div>
       </div>
       <div class="alert alert-info">{{ icon('info') }}
-        将执行官方安装脚本，安装到 <code>~/.hermes/hermes-agent</code>，全程约 1-5 分钟，输出实时显示。</div>
+        将执行官方安装脚本，安装到 <code>{{ paths.agent_repo }}</code>，全程约 1-5 分钟，输出实时显示。</div>
       <div class="alert alert-warn">{{ icon('alert') }}
-        安装脚本从 GitHub 下载。若提示网络失败，请开代理或换网络后重试；
+        安装包从官方源下载。若提示网络失败，请开代理或换网络后重试；
         可先到 <a href="/diagnose">运行体检</a> 检查网络连通性。</div>
       {% if user['role'] == 'admin' %}
       <form method="post" action="/service/install" data-confirm="开始安装 Hermes Agent？">
@@ -178,7 +179,7 @@
           {{ icon('download') }} <span class="btn-label">开始安装</span><span class="spinner"></span>
         </button>
       </form>
-      <p class="form-help" style="margin-top:12px;">将执行：</p>
+      <p class="form-help" style="margin-top:12px;">将执行（{{ install_method }}）：</p>
       <pre class="code-view">{{ install_cmd }}</pre>
       {% else %}
       <p class="text-muted">请联系管理员执行安装。</p>

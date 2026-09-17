@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 import urllib.request
 
 from fastapi import APIRouter, Depends, Request
@@ -18,8 +19,9 @@ from app.web.templating import render, render_partial
 
 router = APIRouter(prefix="/diagnose", dependencies=[Depends(csrf_guard)])
 
-# 网络探测目标：安装/更新与依赖下载三条链路；hint 说明不通时的症状与解法
-NET_PROBES = [
+# 网络探测目标：安装/更新与依赖下载链路；hint 说明不通时的症状与解法
+# （Windows 下一键安装走 PowerShell 安装器，清单为 ps1 域名 + GitHub + astral + PyPI 四项）
+_NET_PROBES_BASE = [
     ("GitHub（安装 / 更新 Hermes Agent）", "https://raw.githubusercontent.com",
      "不通 → 「服务管理」的一键安装与更新都会失败。开代理或换网络后重试。"),
     ("astral.sh（首次自动安装 uv）", "https://astral.sh",
@@ -28,6 +30,22 @@ NET_PROBES = [
      "不通 → 启动脚本报「依赖安装出错」。可用清华镜像重试："
      "UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple"),
 ]
+
+
+def network_probes() -> list[tuple[str, str, str]]:
+    """平台相关的探测清单：探测目标必须与实际安装源同域，
+    否则出现「体检全绿、一键安装必败」。"""
+    if sys.platform != "win32":
+        return list(_NET_PROBES_BASE)
+    return [
+        ("Hermes 安装源（Windows PowerShell 安装器）",
+         "https://hermes-agent.nousresearch.com/install.ps1",
+         "不通 → 「服务管理」的一键安装无法下载安装器。开代理或换网络后重试。"),
+        ("GitHub（更新 Hermes Agent）", "https://github.com",
+         "不通 → hermes update 与安装器下载文件都会失败。开代理或换网络后重试。"),
+        _NET_PROBES_BASE[1],
+        _NET_PROBES_BASE[2],
+    ]
 
 
 def _probe(url: str, timeout: float = 5.0) -> bool:
@@ -55,6 +73,11 @@ def build_checks(paths: HermesPaths) -> list[dict]:
         "ok" if uv else "warn",
         "控制台后台任务（装依赖 / 装插件）依赖它" if uv
         else "微信依赖与插件安装会失败；退出控制台后重新运行 start.sh / start.bat 会自动安装")
+
+    git = shutil.which("git")
+    add("Git 已安装" if git else "Git 未安装",
+        "ok" if git else "fail",
+        "" if git else "一键安装 Hermes 需要 Git 下拉官方仓库；装好 Git（git-scm.com）后重试安装")
 
     add("Hermes Agent 已安装" if paths.installed else "Hermes Agent 未安装",
         "ok" if paths.installed else "warn",
@@ -134,7 +157,7 @@ def diagnose_page(request: Request, user: User):
 @router.get("/network")
 def network_fragment(request: Request, user: User):
     results = [{"label": label, "ok": _probe(url), "hint": hint}
-               for label, url, hint in NET_PROBES]
+               for label, url, hint in network_probes()]
     return render_partial(request, "diagnose/_net.html", {
         "results": results,
         "all_ok": all(r["ok"] for r in results),

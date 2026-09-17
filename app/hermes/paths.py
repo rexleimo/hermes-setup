@@ -1,15 +1,14 @@
 """Hermes 目录与文件路径探测。
 
-参考官方布局（~/.hermes/）：
-  config.yaml      核心配置
-  .env             API Key / 渠道令牌
-  hermes-agent/    安装的 git 仓库
-  logs/gateway.log, logs/errors.log
+参考官方布局：
+  POSIX:   ~/.hermes/（config.yaml / .env / hermes-agent/ / logs/）
+  Windows: %LOCALAPPDATA%\\hermes（官方 install.ps1 默认落点）
 """
 from __future__ import annotations
 
 import os
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,7 +59,14 @@ def which_hermes() -> str | None:
         if found:
             return found
     # 常见用户级安装位置
-    for extra in ("~/.local/bin/hermes", "/usr/local/bin/hermes", "/opt/homebrew/bin/hermes"):
+    extras = ["~/.local/bin/hermes", "/usr/local/bin/hermes", "/opt/homebrew/bin/hermes"]
+    if sys.platform == "win32":
+        # 官方 PS 安装器把 hermes.exe 落到 %LOCALAPPDATA%\hermes\bin，
+        # 但安装后用户级 PATH 更新只对新进程生效，已运行的控制台进程 PATH 是旧的——
+        # 必须用绝对路径兜底，否则"装完也显示未安装"，直到重启控制台。
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        extras.append(str(Path(local_app) / "hermes" / "bin" / "hermes.exe"))
+    for extra in extras:
         p = Path(extra).expanduser()
         if p.exists():
             return str(p)
@@ -78,10 +84,20 @@ def set_override(paths: HermesPaths | None) -> None:
     _override = paths
 
 
+def _default_home() -> Path:
+    """全新机默认家目录：与官方各平台安装器的落点一致。
+    Windows 官方 install.ps1 默认就是 $env:LOCALAPPDATA\\hermes；
+    POSIX 走 ~/.hermes。DB/环境变量显式配置永远优先。"""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        return Path(base) / "hermes"
+    return Path.home() / ".hermes"
+
+
 def detect() -> HermesPaths:
     if _override is not None:
         return _override
-    home_raw = appsettings.get_setting("hermes_home") or os.path.expanduser("~/.hermes")
+    home_raw = appsettings.get_setting("hermes_home") or _default_home()
     home = Path(home_raw).expanduser().resolve()
     bin_override = appsettings.get_setting("hermes_bin")
     bin_path = bin_override or which_hermes()

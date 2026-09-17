@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.8.1 — 2026-09-17（Windows 一键安装走原生通道 + 全新机默认家目录修正）
+
+### Fixed
+- **Windows 一键安装曾跑 Linux 安装脚本**：任何平台都执行 `curl | bash` 装 `install.sh`
+  （官方头注仅支持 Linux/macOS/Termux）；Windows 上 `bash` 解析到 WSL 存根，
+  装不出原生版，且任务台账从无成功记录。现按平台选择安装器：Windows → 官方
+  `install.ps1`（带 `-SkipSetup -NonInteractive`，后台无 TTY 不会挂死），其余平台不变；
+  安装前网络预检、页面复制框、体检探测同步使用同源 URL。
+- **全新 Windows 机默认家目录错位**：默认 `~/.hermes`，而官方安装器落到
+  `%LOCALAPPDATA%\hermes`，配置读写会进错目录。现默认与官方落点一致
+  （DB/环境变量显式配置仍优先）；检测新增 `%LOCALAPPDATA%\hermes\bin\hermes.exe`
+  绝对路径兜底——安装后用户 PATH 未刷新也不用重启控制台。
+- **安装失败无提示**：`/service` 模板从未渲染 `error` 变量，预检拒绝白白返回 400。
+  现页面顶部显示错误横幅；安装方式与安装目录改为平台相关变量，不再写死。
+- **运行体检**：新增 Git 检查（一键安装需 Git 下拉仓库）；Windows 探测清单改为
+  PS 安装器域名 + GitHub + astral + PyPI；成功提示不再写死条数。
+
+### Notes
+- `hermes update`（官方 CLI 子命令，`--check/--plan` 可只读试运行）与扫码/依赖链路未动。
+- 已知后续：个别记忆方案的后台安装命令仍是 POSIX 写法（本机曾失败 exit 2），排期下一批。
+
+### Tests
+- 新增 tests/test_install_platform.py（7 项）；全量回归除 `test_backup_keeps_last_five`
+  （Windows 文件锁旧疾，主分支同样失败，与本期无关）外全绿。
+- 另在隔离沙盒（独立控制台数据目录 + 独立家目录）触发真实一键安装：exit 0，
+  安装目录/venv/CLI 俱全；冷缓存 `uv sync` 与 `check_live` 全页自检同样通过。
+
 ## 0.8.0 — 2026-09-17（扩展生态：Skill 管理 + MCP 服务管理 + 插件与 Hook）
 
 ### Added
