@@ -52,6 +52,7 @@ def test_qr_state_error_event_keeps_log_tail(monkeypatch):
 def test_job_worker_inherits_full_environment(monkeypatch):
     """回归：任务子进程必须继承完整环境（Windows 下硬编码 POSIX PATH 会导致
     子进程 python Winsock 初始化失败，二维码任务直接崩溃）。"""
+    import io
     import os
     from app.hermes import installer
 
@@ -59,6 +60,7 @@ def test_job_worker_inherits_full_environment(monkeypatch):
 
     class FakeProc:
         returncode = 0
+        stdout = io.BytesIO()
 
         def wait(self, timeout=None):
             return 0
@@ -68,10 +70,17 @@ def test_job_worker_inherits_full_environment(monkeypatch):
         return FakeProc()
 
     class FakeThread:
-        def __init__(self, target, *a, **kw):
+        def __init__(self, target=None, *a, **kw):
             self._target = target
+            self._args = a
+            self._kwargs = kw
+
         def start(self):
-            self._target()
+            extra = self._kwargs.get("args") or ()
+            self._target(*self._args, *extra)
+
+        def join(self, timeout=None):
+            return None
 
     monkeypatch.setattr(installer.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(installer.threading, "Thread", FakeThread)

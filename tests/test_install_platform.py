@@ -229,6 +229,27 @@ def test_cancel_unknown_job():
     assert installer.cancel(99999) == "任务不存在"
 
 
+def test_job_output_reaches_console_and_log(monkeypatch):
+    """任务输出必须双通道：终端实时回显（用户能看见在跑）+ 日志文件落盘。"""
+    import io
+    import time as _time
+
+    from app.core import db
+
+    captured = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", captured)
+    cmd = f'"{sys.executable}" -c "print(\'tee-line-1\'); print(\'tee-line-2\')"'
+    job_id = installer.submit("test_tee", cmd, shell=True)
+    deadline = _time.monotonic() + 20
+    while _time.monotonic() < deadline:
+        row = db.query_one("SELECT status FROM job_runs WHERE id = ?", (job_id,))
+        if row and row["status"] != "running":
+            break
+        _time.sleep(0.2)
+    assert any("tee-line-1" in line for line in installer.job_log(job_id))
+    assert "tee-line-1" in captured.getvalue()
+
+
 def test_cancel_running_job_kills_tree_and_settles_state():
     """取消必须把整个进程树杀掉，并把状态/日志收尾（卡死任务的自救口子）。"""
     import time as _time

@@ -402,6 +402,33 @@ def _chain_after(kind: str, ok: bool) -> None:
         pass
 
 
+def _echo_console(text: str) -> None:
+    """把任务输出同时打到控制台终端（和 uvicorn 日志并排），终端编码不支持时静默跳过。"""
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        pass
+
+
+def _pump_output(stream, fh) -> None:
+    """读子进程输出：写日志文件 + 实时回显到终端（tee 语义）。"""
+    try:
+        for raw in iter(stream.readline, b""):
+            text = raw.decode("utf-8", "replace")
+            try:
+                fh.write(text)
+                fh.flush()
+            except OSError:
+                pass
+            _echo_console(text)
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
 def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = None) -> int:
     """提交后台任务；返回 job id。"""
     with _lock:
@@ -423,29 +450,41 @@ def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = Non
         env = dict(os.environ)
         env.setdefault("HOME", os.path.expanduser("~"))
         code = -2
+        fh = None
         try:
-            with open(log_path, "w", encoding="utf-8") as fh:
-                kwargs: dict = {}
-                if os.name == "posix":
-                    # 独立进程组：取消 / 超时时能整树终止（sh → curl/bash 子孙进程）
-                    kwargs["start_new_session"] = True
-                proc = subprocess.Popen(
-                    command, shell=shell, stdout=fh, stderr=subprocess.STDOUT,
-                    env=env, cwd=cwd, **kwargs,
-                )
-                with _lock:
-                    _procs[job_id] = proc
-                try:
-                    code = proc.wait(timeout=1800)
-                except subprocess.TimeoutExpired:
-                    _kill_tree(proc)
-                    with open(log_path, "a", encoding="utf-8") as fh:
-                        fh.write("\n[console] 任务超时（30 分钟），已终止\n")
-                    code = -1
+            fh = open(log_path, "w", encoding="utf-8")
+            kwargs: dict = {}
+            if os.name == "posix":
+                # 独立进程组：取消 / 超时时能整树终止（sh → curl/bash 子孙进程）
+                kwargs["start_new_session"] = True
+            proc = subprocess.Popen(
+                command, shell=shell, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=env, cwd=cwd, **kwargs,
+            )
+            with _lock:
+                _procs[job_id] = proc
+            pump = threading.Thread(target=_pump_output,
+                                    args=(proc.stdout, fh), daemon=True)
+            pump.start()
+            try:
+                code = proc.wait(timeout=1800)
+            except subprocess.TimeoutExpired:
+                _kill_tree(proc)
+                fh.write("\n[console] 任务超时（30 分钟），已终止\n")
+                fh.flush()
+                code = -1
+            pump.join(timeout=5)
         except OSError as exc:
-            with open(log_path, "a", encoding="utf-8") as fh:
-                fh.write(f"\n[console] 启动失败：{exc}\n")
+            with open(log_path, "a", encoding="utf-8") as fh2:
+                fh2.write(f"\n[console] 启动失败：{exc}\n")
+            _echo_console(f"[console] 任务 {job_id} 启动失败：{exc}\n")
         finally:
+            if fh is not None:
+                try:
+                    fh.close()
+                except OSError:
+                    pass
             with _lock:
                 _procs.pop(job_id, None)
         db.execute(
