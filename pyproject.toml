@@ -1,6 +1,6 @@
 [project]
 name = "hermes-setup"
-version = "0.8.15"
+version = "0.8.16"
 description = "Hermes Console — 可视化运维中台：Hermes Agent 的安装、服务管理、模型供应商与消息渠道配置中心"
 readme = "README.md"
 requires-python = ">=3.11"

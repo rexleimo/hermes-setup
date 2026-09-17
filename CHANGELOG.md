@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.16 — 2026-09-17（CN 镜像最小模式的 Node 缺口修复）
+
+### Fixed
+- **国内镜像脚本是 "core only" 最小模式**（源码明牌 `install_tier "core only (China
+  mirror minimal mode)"`）：核心全装（uv/Python/git→cnb.cool 镜像/venv/依赖/TUI），
+  但跳过 Node、Playwright/agent-browser、Browser Use CLI、Computer Use 驱动等可选件；
+  且其 `--skip-browser` 会**连 Node 一起跳过**——而我们的浏览器补装脚本依赖 `npx`，
+  全新 CN 安装会在此断链。现补装脚本自检：**缺 npx 时自动从 npmmirror 补装
+  Node（v22.14 → v20.19 依次尝试，x64/arm64、Linux/macOS）**，补完再装
+  Playwright 引擎与 Browser Use CLI。
+- 组件盘点（终态）：核心（镜像）＋浏览器引擎（npmmirror）＋Browser Use CLI（uv tool）
+  = 浏览器自动化核心能力齐备；Computer Use 驱动、语音/唤醒依赖仍属官方脚本附加项
+  （服务器/消息渠道场景用不到，需要时可在终端跑一次官方脚本补齐）。
+
+### Tests
+- 补装脚本必须包含 npmmirror Node 自愈段（断言锁死）；bash 语法校验通过。
+
 ## 0.8.15 — 2026-09-17（国内镜像安装源：大陆用户全链路提速）
 
 ### Added

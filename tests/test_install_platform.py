@@ -536,5 +536,7 @@ def test_browser_backfill_submits_smart_script(admin, hermes_home, monkeypatch):
         # Browser Use CLI（浏览器自动化默认后端）也在脚本里补齐
         assert "tool install browser-use" in script
         assert "pypi.tuna.tsinghua.edu.cn" in script
+        # 国内镜像脚本 core-only 会跳过 Node：缺 npx 时从 npmmirror 补装
+        assert "npmmirror.com/mirrors/node" in script
     finally:
         paths_module.set_override(None)

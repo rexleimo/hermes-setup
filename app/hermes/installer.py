@@ -132,6 +132,45 @@ if ! command -v timeout >/dev/null 2>&1; then
   timeout() { shift; "$@"; }
 fi
 
+# 0) 确保 node/npx：国内镜像脚本是 core-only 最小模式，--skip-browser 时连 Node 都会跳过；
+#    浏览器补装靠 npx，这里缺啥补啥（npmmirror 大陆可达）。
+if ! command -v npx >/dev/null 2>&1 && [ ! -x "$HERMES_DIR/node/bin/npx" ]; then
+  echo "[console] 未找到 Node.js，从 npmmirror 补装（约 30MB）..."
+  case "$(uname -s)" in
+    Linux) NOS="linux" ;;
+    Darwin) NOS="darwin" ;;
+    *) NOS="" ;;
+  esac
+  case "$(uname -m)" in
+    x86_64) NARCH="x64" ;;
+    aarch64|arm64) NARCH="arm64" ;;
+    *) NARCH="" ;;
+  esac
+  NODE_OK=0
+  if [ -n "$NOS" ] && [ -n "$NARCH" ]; then
+    for NVER in v22.14.0 v20.19.0; do
+      TB="node-${NVER}-${NOS}-${NARCH}.tar.xz"
+      if timeout 300 curl -fsSL --connect-timeout 20 \
+           "https://npmmirror.com/mirrors/node/${NVER}/${TB}" -o /tmp/hermes-node.tar.xz \
+         && mkdir -p "$HERMES_DIR/node" \
+         && tar -xJf /tmp/hermes-node.tar.xz -C "$HERMES_DIR/node" --strip-components=1; then
+        for b in node npm npx; do
+          ln -sf "$HERMES_DIR/node/bin/$b" "$HERMES_DIR/bin/$b" 2>/dev/null || true
+        done
+        rm -f /tmp/hermes-node.tar.xz
+        NODE_OK=1
+        echo "[console] Node.js 就绪（npmmirror，$NVER）"
+        break
+      fi
+    done
+  fi
+  if [ "$NODE_OK" != "1" ]; then
+    echo "[console] Node 补装失败——浏览器引擎安装可能失败（可稍后重试）"
+  fi
+  PATH="$HERMES_DIR/node/bin:$PATH"
+  export PATH
+fi
+
 DEPS=""
 if [ "$(id -u)" -eq 0 ] || (command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null); then
   DEPS="--with-deps"
