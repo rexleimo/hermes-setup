@@ -45,6 +45,9 @@ _SOURCE_DEFS = {
 def install_variant(source: str) -> dict:
     """某安装源在当前平台的可复制命令 / 预检 URL / 标签。
 
+    - 官方源：**全量安装**（含浏览器引擎/组件，脚本自带 best-effort 兜底）——海外网络快。
+    - 国内镜像：core-only 最小模式（本就把浏览器段跳过），先装核心、装后由
+      组件接力任务补齐（见 BROWSER_SCRIPT）。
     Windows 绝不能用 `curl | bash`：bash 在 Windows 上解析到 WSL 存根（或根本没有），
     官方 install.sh 头部也写明只支持 Linux/macOS/Termux；后台任务无 TTY，
     必须带 -SkipSetup -NonInteractive，否则交互式安装向导会把任务挂死到超时。"""
@@ -54,8 +57,8 @@ def install_variant(source: str) -> dict:
                f"\"& ([scriptblock]::Create((irm '{d['ps1']}'))) -SkipSetup -NonInteractive\"")
         preflight = d["ps1"]
     else:
-        # 浏览器组件由主安装后的接力任务负责（见 BROWSER_SCRIPT / _chain_after）
-        cmd = f"curl -fsSL {d['sh']} | bash -s -- --skip-setup --skip-browser"
+        skip = " --skip-browser" if source == "cn" else ""
+        cmd = f"curl -fsSL {d['sh']} | bash -s -- --skip-setup{skip}"
         preflight = d["sh"]
     return {"source": source, "label": d["label"], "cmd": cmd, "preflight": preflight}
 
@@ -66,27 +69,57 @@ def _forced_source() -> str:
 
 
 def preferred_install() -> dict:
-    """展示/强制路径用：显式指定优先，否则国内镜像（产品面向大陆用户）。不探测网络。"""
+    """展示/强制路径用：显式指定优先，否则国内镜像。不探测网络。"""
     return install_variant(_forced_source() or "cn")
 
 
+def _probe_latency(url: str, timeout: float = 4.0) -> float | None:
+    """单源测速：HEAD 优先、GET 首字节兜底；返回秒数，不可达返回 None。"""
+    import time
+    import urllib.request
+
+    for method in ("HEAD", "GET"):
+        t0 = time.monotonic()
+        try:
+            req = urllib.request.Request(url, method=method,
+                                         headers={"User-Agent": "hermes-console"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if method == "GET":
+                    resp.read(1)
+                if 200 <= resp.status < 400:
+                    return time.monotonic() - t0
+        except Exception:
+            continue
+    return None
+
+
 def choose_install() -> dict | None:
-    """自动选择可达的安装源：国内镜像优先，官方源兜底；都不可达返回 None。
-    显式指定 HERMES_CONSOLE_INSTALL_SOURCE 时只探测该源（便于固定排查）。"""
+    """自动选源：国内镜像与官方源**并发测速，快者优先**（大陆→镜像、海外→官方），
+    全部不可达返回 None。显式 HERMES_CONSOLE_INSTALL_SOURCE=cn|official 时只探测该源。"""
     forced = _forced_source()
     if forced:
         v = install_variant(forced)
         return v if network_reachable(v["preflight"]) else None
-    for sid in ("cn", "official"):
-        v = install_variant(sid)
-        if network_reachable(v["preflight"]):
-            return v
-    return None
+    from concurrent.futures import ThreadPoolExecutor
+
+    variants = {sid: install_variant(sid) for sid in ("cn", "official")}
+    timed: list[tuple[float, str]] = []
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        futs = {sid: ex.submit(_probe_latency, v["preflight"])
+                for sid, v in variants.items()}
+        for sid, fut in futs.items():
+            lat = fut.result()
+            if lat is not None:
+                timed.append((lat, sid))
+    if not timed:
+        return None
+    timed.sort()   # 同延迟时按源名稳定排序（cn 在前）
+    return variants[timed[0][1]]
 
 
-# 展示与兼容入口：默认（国内镜像优先）的 命令 / 标签 / 预检 URL
+# 展示与兼容入口：命令预览用国内镜像（自动选择时以测速结果为准）
 INSTALL_CMD = preferred_install()["cmd"]
-INSTALL_METHOD_LABEL = preferred_install()["label"]
+INSTALL_METHOD_LABEL = "自动测速选择：国内镜像 / 官方源，快者优先"
 INSTALL_PREFLIGHT_URL = preferred_install()["preflight"]
 UPDATE_CMD = "hermes update"
 

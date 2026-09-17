@@ -32,7 +32,7 @@ def test_install_cmd_platform_contract():
 
 
 def test_install_variant_both_sources():
-    """国内镜像源与官方源都要齐备（镜像大陆优先，官方兜底）。"""
+    """国内镜像源与官方源都要齐备：镜像=core-only+接力补浏览器；官方=全量。"""
     cn = installer.install_variant("cn")
     official = installer.install_variant("official")
     for v in (cn, official):
@@ -44,22 +44,34 @@ def test_install_variant_both_sources():
         assert "nousresearch.com" in official["preflight"]
     else:
         assert "install.sh" in cn["cmd"] and "install.sh" in official["cmd"]
-        assert "--skip-browser" in cn["cmd"]  # 浏览器组件走装后接力
+        assert "--skip-browser" in cn["cmd"]          # 镜像最小模式：浏览器走接力
+        assert "--skip-browser" not in official["cmd"]  # 官方源：全量安装
+        assert "--skip-setup" in official["cmd"]
         assert "githubusercontent.com" in official["cmd"]
 
 
-def test_choose_install_prefers_cn_and_falls_back(monkeypatch):
-    """自动选源：国内镜像优先；镜像不可达回退官方；都不达返回 None。"""
-    monkeypatch.setattr(installer, "network_reachable",
-                        lambda url, **kw: "res1.hermesagent.org.cn" in url)
+def test_choose_install_picks_faster_source(monkeypatch):
+    """自动选源 = 两源测速取快者：大陆镜像快→cn；海外官方快→official；全挂→None。"""
+    monkeypatch.setattr(installer, "_probe_latency",
+                        lambda url, timeout=4.0: 0.05 if "res1" in url else 0.50)
     assert installer.choose_install()["source"] == "cn"
 
-    monkeypatch.setattr(installer, "network_reachable",
-                        lambda url, **kw: "res1.hermesagent.org.cn" not in url)
+    monkeypatch.setattr(installer, "_probe_latency",
+                        lambda url, timeout=4.0: 0.50 if "res1" in url else 0.05)
     assert installer.choose_install()["source"] == "official"
 
-    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(installer, "_probe_latency", lambda url, timeout=4.0: None)
     assert installer.choose_install() is None
+
+
+def test_probe_latency_unreachable(monkeypatch):
+    import urllib.request
+
+    def boom(*a, **k):
+        raise OSError("blocked")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert installer._probe_latency("https://example.test/x") is None
 
 
 def test_forced_install_source_env(monkeypatch):
@@ -185,7 +197,7 @@ def test_network_reachable_head_falls_back_to_get(monkeypatch):
 
 def test_install_preflight_reject_offers_force(admin, monkeypatch):
     """预检拦截时必须给出「仍要执行」口子，不能只报错不给路。"""
-    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
+    monkeypatch.setattr(installer, "_probe_latency", lambda url, timeout=4.0: None)
     login(admin, "admin", "Sup3rSecure!x")
     page = admin.get("/service").text
     token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
@@ -216,8 +228,8 @@ def test_install_force_bypasses_preflight(admin, monkeypatch):
     assert calls.get("kind") == "install"
 
 
-def test_install_command_defers_browser_to_chain(admin, monkeypatch):
-    """主安装跳过官方浏览器段（POSIX），浏览器组件由装后自动接力任务负责。"""
+def test_install_command_source_by_latency(admin, monkeypatch):
+    """按测速结果选源：镜像快→镜像（POSIX 跳过浏览器段、走接力）；官方快→官方全量。"""
     calls = {}
 
     def fake_submit(kind, command, *, shell=True, cwd=None):
@@ -225,17 +237,30 @@ def test_install_command_defers_browser_to_chain(admin, monkeypatch):
         return 6
 
     monkeypatch.setattr(installer, "submit", fake_submit)
-    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: True)
     login(admin, "admin", "Sup3rSecure!x")
+
+    # 镜像更快 → 用镜像
+    monkeypatch.setattr(installer, "_probe_latency",
+                        lambda url, timeout=4.0: 0.05 if "res1" in url else 0.50)
     page = admin.get("/service").text
     token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
-    resp = admin.post("/service/install", data={"_csrf": token},
-                      follow_redirects=False)
-    assert resp.status_code == 200
+    assert admin.post("/service/install", data={"_csrf": token},
+                      follow_redirects=False).status_code == 200
     if sys.platform == "win32":
-        assert "--skip-browser" not in calls["command"]
+        assert "res1.hermesagent.org.cn" in calls["command"]
     else:
-        assert calls["command"].endswith("--skip-browser")
+        assert "--skip-browser" in calls["command"]  # 镜像最小模式 + 接力
+
+    # 官方更快 → 用官方全量（不带 --skip-browser 的官方脚本）
+    monkeypatch.setattr(installer, "_probe_latency",
+                        lambda url, timeout=4.0: 0.50 if "res1" in url else 0.05)
+    page = admin.get("/service").text
+    token = re.search(r'name="_csrf" value="([^"]*)"', page).group(1)
+    assert admin.post("/service/install", data={"_csrf": token},
+                      follow_redirects=False).status_code == 200
+    if sys.platform != "win32":
+        assert "--skip-browser" not in calls["command"]
+        assert "raw.githubusercontent.com" in calls["command"]
 
 
 def test_install_chain_after_browser_job(monkeypatch):

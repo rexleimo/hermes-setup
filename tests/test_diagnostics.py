@@ -189,7 +189,8 @@ def test_install_preflight_blocks_offline(admin, monkeypatch):
     from app.hermes import installer
 
     login(admin, "admin", "Sup3rSecure!x")
-    monkeypatch.setattr(installer, "network_reachable", lambda *a, **k: False)
+    # 自动选源现在是"两源测速"：探测全挂 = 两条路都不通
+    monkeypatch.setattr(installer, "_probe_latency", lambda url, timeout=4.0: None)
     before = db.query_one("SELECT COUNT(*) AS n FROM job_runs")["n"]
     page = admin.get("/service")
     token = re.search(r'name="_csrf" value="([^"]*)"', page.text).group(1)

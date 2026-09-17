@@ -223,10 +223,11 @@
           {{ icon('download') }} <span class="btn-label">开始安装</span><span class="spinner"></span>
         </button>
       </form>
-      <p class="form-help" style="margin-top:10px;">安装源：<b>国内镜像优先</b>（hermesagent.org.cn，大陆用户全链路高速），
-        不可达自动回退官方源；装完会自动补装<b>浏览器组件</b>（Agent 核心能力：浏览器自动化，
-        官方源慢时自动切国内镜像），进度全在任务面板与终端可见。</p>
-      <p class="form-help" style="margin-top:12px;">将执行（{{ install_method }}）：</p>
+      <p class="form-help" style="margin-top:10px;">安装源：<b>自动测速</b>——国内镜像（hermesagent.org.cn）与官方源
+        并发探测，<b>快者优先</b>（大陆→镜像；海外→官方全量源）；可用
+        <code>HERMES_CONSOLE_INSTALL_SOURCE=cn|official</code> 固定。装完自动补齐缺失组件，
+        进度全在任务面板与终端可见。</p>
+      <p class="form-help" style="margin-top:12px;">将执行（{{ install_method }}；示例为国内镜像源）：</p>
       <pre class="code-view">{{ install_cmd }}</pre>
       {% else %}
       <p class="text-muted">请联系管理员执行安装。</p>
