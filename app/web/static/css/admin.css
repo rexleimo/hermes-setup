@@ -981,12 +981,14 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
   border: 1px solid var(--border, #d9dee6);
   border-radius: 10px; overflow: hidden;
   box-shadow: 0 18px 50px rgba(15, 23, 42, .28);
+  /* Windows 式自由缩放（右下角手柄；全屏/最小化时禁用） */
+  resize: both; min-width: 320px; min-height: 220px;
 }
 .wm-win.wm-min { display: none; }
 .wm-win.wm-fs {
   left: 0 !important; top: 0 !important;
   width: 100vw !important; height: 100vh !important;
-  border-radius: 0; border: none;
+  border-radius: 0; border: none; resize: none;
 }
 .wm-titlebar {
   display: flex; align-items: center; gap: 8px;
@@ -1050,9 +1052,18 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 
 /* ---- PDF ---- */
 .vw-pdf { flex: 1; width: 100%; min-height: 0; border: none; background: #525659; }
+/* ---- HTML 沙盒预览 ---- */
+.vw-html { flex: 1; width: 100%; min-height: 0; border: none; background: #fff; }
+a.vw-tbtn { text-decoration: none; display: inline-block; }
 
 /* ---- 文本 / 代码 ---- */
 .vw-text { flex: 1; margin: 0; padding: 14px 16px; overflow: auto; font-size: 12.5px; line-height: 1.6; }
+.vw-edit {
+  flex: 1; min-height: 0; margin: 0; padding: 14px 16px; border: none; outline: none;
+  resize: none; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text, #1a1a1a); background: var(--bg, #fff);
+}
+.vw-tbtn:disabled { opacity: .45; cursor: not-allowed; }
 
 /* ---- 不支持的类型 ---- */
 .vw-unsupported {
@@ -1085,3 +1096,19 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 .wm-task.active { background: rgba(120, 130, 150, .22); border-color: var(--border, #d9dee6); }
 .wm-task-ico { width: 18px; height: 18px; flex: none; }
 .wm-task-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wm-task-status {
+  flex: none; align-self: center; padding: 0 6px;
+  font-size: 12px; color: var(--text-secondary, #5b6472); white-space: nowrap;
+}
+.wm-task-chips {
+  flex: 1; min-width: 0; display: flex; align-items: stretch; gap: 6px;
+  overflow-x: auto; padding: 1px;
+}
+.wm-task-acts { flex: none; align-self: center; display: flex; gap: 6px; }
+.wm-task-act {
+  border: 1px solid var(--border, #d9dee6); background: transparent;
+  border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+  color: var(--text-secondary, #5b6472); white-space: nowrap;
+}
+.wm-task-act:hover:not(:disabled) { background: rgba(120, 130, 150, .16); color: var(--text, #1a1a1a); }
+.wm-task-act:disabled { opacity: .45; cursor: not-allowed; }

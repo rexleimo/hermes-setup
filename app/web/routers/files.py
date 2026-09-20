@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.core import audit
 from app.hermes import engineering_service as eng
@@ -179,6 +179,27 @@ def raw(request: Request, user: User, path: str = "", dl: int = 0):
                         headers={"Cache-Control": "no-cache"})
 
 
+@router.get("/raw-html")
+def raw_html(request: Request, user: User, path: str = ""):
+    """HTML 宽松档预览源（WI-19B）：仅 .html/.htm，其余类型 400。
+
+    字节与 /files/raw 同源；响应头由中间件换成短名单 CDN 的宽松 CSP
+    （preview_csp），并叠加 sandbox 指令——“新标签页打开”的顶层文档
+    同样被沙盒，无身份，带不走工作区数据。
+    """
+    if Path(path).suffix.lower() not in (".html", ".htm"):
+        raise HTTPException(status_code=400, detail="宽松预览仅支持 HTML 文件")
+    try:
+        p = ws.file_for_download(path)
+    except ws.WorkspaceError as exc:
+        _fail(request, exc, path)
+    media = mimetypes.guess_type(p.name)[0] or "text/html"
+    audit.record("files_view_file", username=user["username"], target=path,
+                 ip=client_ip(request), outcome="ok")
+    return FileResponse(p, media_type=media, content_disposition_type="inline",
+                        headers={"Cache-Control": "no-cache"})
+
+
 @router.get("/zip")
 def zip_dir(request: Request, user: User, path: str = ""):
     try:
@@ -250,6 +271,26 @@ def move(request: Request, admin: Admin, path: str = Form(...), here: str = Form
                     media_type="text/html; charset=utf-8")
     toast(resp, f"已归档：{rel}")
     return resp
+
+
+@router.post("/save")
+def save_file(request: Request, admin: Admin, path: str = Form(...),
+              content: str = Form(""), mode: str = Form("overwrite"),
+              name: str = Form("")):
+    """窗口文本编辑保存：overwrite 覆盖原文件 / copy 同目录另存。
+
+    JSON 响应（窗口内 fetch 调用，成功后前端弹 toast 并更新视图）。
+    """
+    if mode not in ("overwrite", "copy"):
+        mode = "overwrite"
+    try:
+        rel = ws.save_text(path, content, mode, name)
+    except ws.WorkspaceError as exc:
+        _fail(request, exc, path)
+    audit.record("files_save_" + mode, username=admin["username"],
+                 target=f"{path}" + (f" → {rel}" if rel != path else ""),
+                 ip=client_ip(request))
+    return JSONResponse({"ok": True, "rel": rel, "mode": mode})
 
 
 @router.post("/init")

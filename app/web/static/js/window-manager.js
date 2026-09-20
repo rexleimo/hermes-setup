@@ -39,17 +39,45 @@
     file: '<path fill="#e3e6ea" d="M6 2h8l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path fill="#c3c9d1" d="M14 2l5 5h-5z"/>'
   };
   var KIND_ICO = { image: "image", video: "video", audio: "audio",
-                   pdf: "document", text: "code", none: "file" };
+                   pdf: "document", text: "code", html: "code", none: "file" };
 
   function svg(name, cls) {
     return '<svg class="' + (cls || "wm-ico") + '" viewBox="0 0 24 24" aria-hidden="true">' +
            (ICO[name] || ICO.file) + "</svg>";
   }
   function rawUrl(rel) { return "/files/raw?path=" + encodeURIComponent(rel); }
+  function rawHtmlUrl(rel) { return "/files/raw-html?path=" + encodeURIComponent(rel); }
+
+  // 按需加载：重型 viewer 依赖（PDF.js / 编辑器 / HTML 净化器）只在首次
+  // 打开对应类型时注入，promise 缓存保证同一依赖只加载一次；失败时
+  // reject，由 buildContent 统一降级为错误面板（不白屏、不污染窗口）。
+  var scriptCache = {};
+  function loadScriptOnce(src) {
+    if (scriptCache[src]) return scriptCache[src];
+    var p = new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.onload = function () { resolve(); };
+      s.onerror = function () {
+        if (s.remove) s.remove();
+        else if (s.parentNode) s.parentNode.removeChild(s);
+        delete scriptCache[src];
+        reject(new Error("脚本加载失败：" + src));
+      };
+      document.head.appendChild(s);
+    });
+    scriptCache[src] = p;
+    return p;
+  }
 
   // ------------------------------------------------------------------
   // 根容器 / 任务条（跨 hx-boost 换页存活）
   // ------------------------------------------------------------------
+  var taskStatus = null;   // 状态计数：N 个窗口（M 个已最小化）
+  var taskChips = null;    // chip 容器（多窗口横向滚动）
+  var taskRestoreAll = null;
+  var taskCloseAll = null;
   function ensureRoot() {
     if (root && document.body.contains(root)) return root;
     if (!root) {
@@ -57,6 +85,27 @@
       root.id = "wm-root";
       taskbar = document.createElement("div");
       taskbar.id = "wm-taskbar";
+      taskStatus = document.createElement("span");
+      taskStatus.className = "wm-task-status";
+      taskChips = document.createElement("span");
+      taskChips.className = "wm-task-chips";
+      var acts = document.createElement("span");
+      acts.className = "wm-task-acts";
+      taskRestoreAll = document.createElement("button");
+      taskRestoreAll.type = "button";
+      taskRestoreAll.className = "wm-task-act";
+      taskRestoreAll.textContent = "全部还原";
+      taskRestoreAll.addEventListener("click", restoreAll);
+      taskCloseAll = document.createElement("button");
+      taskCloseAll.type = "button";
+      taskCloseAll.className = "wm-task-act";
+      taskCloseAll.textContent = "全部关闭";
+      taskCloseAll.addEventListener("click", closeAll);
+      acts.appendChild(taskRestoreAll);
+      acts.appendChild(taskCloseAll);
+      taskbar.appendChild(taskStatus);
+      taskbar.appendChild(taskChips);
+      taskbar.appendChild(acts);
       root.appendChild(taskbar);
     }
     document.body.appendChild(root);
@@ -81,17 +130,34 @@
     });
     win.chip = b;
     ensureRoot();
-    taskbar.appendChild(b);
+    taskChips.appendChild(b);
     return b;
   }
   function taskRefresh() {
     ensureRoot();
-    taskbar.style.display = Object.keys(wins).length ? "" : "none";
-    Object.keys(wins).forEach(function (id) {
+    var ids = Object.keys(wins);
+    taskbar.style.display = ids.length ? "" : "none";
+    var minCount = ids.filter(function (id) { return wins[id].min; }).length;
+    taskStatus.textContent = ids.length + " 个窗口"
+      + (minCount ? "（" + minCount + " 个已最小化）" : "");
+    taskRestoreAll.disabled = !minCount;
+    ids.forEach(function (id) {
       var w = wins[id];
       if (!w.chip) taskChip(w);
       w.chip.classList.toggle("active", focusedId === id && !w.min);
     });
+  }
+  function restoreAll() {
+    Object.keys(wins).forEach(function (id) { restore(id); });
+  }
+  function closeAll() {
+    var ids = Object.keys(wins);
+    for (var i = 0; i < ids.length; i++) {
+      if (!wins[ids[i]]) continue;
+      closeWin(ids[i]);
+      // 某个窗口取消了关闭确认（未保存提醒）→ 停下，不再关后面的
+      if (wins[ids[i]]) return;
+    }
   }
 
   // ------------------------------------------------------------------
@@ -183,11 +249,13 @@
   }
 
   // 内容构建（打开 / 还原共用）：factory 异常时降级提示
+  // 工厂签名 (spec, box, state, win)：第 4 个参数供编辑型 viewer
+  // 注册关闭前检查（win.onBeforeClose）等窗口级能力，老工厂忽略即可。
   function buildContent(win) {
     win.contentEl.innerHTML = "";
     var factory = viewers[win.spec.kind] || viewers.none;
     try {
-      factory(win.spec, win.contentEl, win.state || {});
+      factory(win.spec, win.contentEl, win.state || {}, win);
     } catch (err) {
       win.contentEl.innerHTML =
         '<div class="vw-err"><p>内容加载失败：' + esc(err && err.message) + "</p>" +
@@ -237,6 +305,10 @@
   function closeWin(id) {
     var win = wins[id];
     if (!win) return;
+    // 编辑器等可注册关闭前检查：返回 false 即取消关闭（未保存提醒）
+    if (win.onBeforeClose) {
+      try { if (!win.onBeforeClose()) return; } catch (e) {}
+    }
     destroyContent(win);
     win.el.remove();
     if (win.chip) win.chip.remove();
@@ -336,18 +408,180 @@
     box.appendChild(f);
   };
 
-  // 文本 / Markdown / 代码
-  viewers.text = function (d, box) {
+  // HTML 沙盒预览三档（WI-19/B）：
+  //   纯静态 —— sandbox=""，脚本/表单/弹窗全禁；
+  //   脚本开 —— allow-scripts + allow-forms，本域脚本可跑，CDN 仍被 CSP 拦；
+  //   完整预览 —— 同上 + 源换 /files/raw-html（短名单 CDN 放行），进档前显式确认。
+  // 纵深安全：永远不加 allow-same-origin → 不透明源，够不到父页面
+  // DOM/Cookie/存储；不加 allow-top-navigation → 跳不出窗口。
+  // 框嵌放行依赖 WI-15 的 frame-ancestors 'self' 豁免；切档重建 iframe
+  //（sandbox 运行时修改对已加载文档不完全生效，同 URL 加时间戳防导航优化）。
+  var HTML_MODES = ["纯静态", "脚本开", "完整预览"];
+  viewers.html = function (d, box) {
+    var mode = 0;
+    var bar = document.createElement("div");
+    bar.className = "vw-toolbar";
+    var tgl = document.createElement("button");
+    tgl.type = "button"; tgl.className = "vw-tbtn";
+    var flex = document.createElement("span");
+    flex.className = "vw-flex";
+    var meta = document.createElement("span");
+    meta.className = "vw-meta";
+    meta.textContent = d.name + " · " + (d.size / 1024).toFixed(1) + " KB";
+    var open = document.createElement("a");
+    open.className = "vw-tbtn";
+    open.href = rawHtmlUrl(d.rel);
+    open.target = "_blank";
+    open.rel = "noopener";
+    open.textContent = "新标签页打开";
+    open.title = "顶层文档同样被沙盒（无身份），完整渲染";
+    bar.appendChild(tgl); bar.appendChild(flex); bar.appendChild(meta); bar.appendChild(open);
+    var f = document.createElement("iframe");
+    f.className = "vw-html";
+    f.setAttribute("title", d.name);
+    function paint(bust) {
+      f.setAttribute("sandbox", mode === 0 ? "" : "allow-scripts allow-forms");
+      var base = mode === 2 ? rawHtmlUrl(d.rel) : rawUrl(d.rel);
+      f.src = bust ? base + "&v=" + Date.now() : base;
+      tgl.textContent = HTML_MODES[mode];
+      tgl.classList.toggle("on", mode !== 0);
+      tgl.title = mode === 2 ? "完整预览：已放行公共 CDN，仍在沙盒内" : "点击切换预览模式";
+    }
+    tgl.addEventListener("click", function () {
+      if (mode === 0) { mode = 1; paint(true); }
+      else if (mode === 1) {
+        if (!window.confirm("完整预览将放行公共 CDN 资源（样式/字体/图表等），" +
+            "页面仍在沙盒内与控制台隔离。继续？")) return;
+        mode = 2; paint(true);
+      }
+      else { mode = 0; paint(true); }
+    });
+    box.appendChild(bar);
+    box.appendChild(f);
+    paint(false);
+  };
+
+  function csrfToken() {
+    var cf = document.querySelector(".osfm-upload input[name=_csrf]");
+    var meta = document.querySelector('meta[name="csrf"]');
+    return cf ? cf.value : (meta ? meta.content : "");
+  }
+  // 非 htmx 请求的 toast：冒泡到 body 上的 console:toast 监听（app.js）
+  function toastMsg(box, message, level) {
+    box.dispatchEvent(new CustomEvent("console:toast", {
+      bubbles: true, detail: { message: message, level: level || "success" }
+    }));
+  }
+  function postSave(rel, content, mode, name) {
+    var body = new URLSearchParams();
+    body.append("path", rel);
+    body.append("content", content);
+    body.append("mode", mode);
+    if (name) body.append("name", name);
+    return fetch("/files/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                 "X-CSRF-Token": csrfToken() },
+      body: body.toString()
+    }).then(function (r) {
+      if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) {
+        throw new Error((j && j.detail) || ("HTTP " + r.status));
+      });
+      return r.json();
+    });
+  }
+
+  // 文本 / Markdown / 代码：查看 + 编辑（保存覆盖 / 另存副本）
+  viewers.text = function (d, box, state, win) {
+    var editing = false;
+    function dirty() { return editing && ta.value !== (d.text || ""); }
+
+    var bar = document.createElement("div");
+    bar.className = "vw-toolbar";
+    var editBtn = document.createElement("button");
+    editBtn.type = "button"; editBtn.className = "vw-tbtn"; editBtn.textContent = "编辑";
+    var saveBtn = document.createElement("button");
+    saveBtn.type = "button"; saveBtn.className = "vw-tbtn"; saveBtn.textContent = "保存";
+    saveBtn.style.display = "none";
+    var copyBtn = document.createElement("button");
+    copyBtn.type = "button"; copyBtn.className = "vw-tbtn"; copyBtn.textContent = "另存副本";
+    copyBtn.style.display = "none";
+    var flex = document.createElement("span");
+    flex.className = "vw-flex";
+    var meta = document.createElement("span");
+    meta.className = "vw-meta";
+    function paintMeta() {
+      meta.textContent = d.name + " · " + (d.size / 1024).toFixed(1) + " KB"
+        + (editing && dirty() ? " · 未保存" : "");
+    }
+    bar.appendChild(editBtn); bar.appendChild(saveBtn); bar.appendChild(copyBtn);
+    bar.appendChild(flex); bar.appendChild(meta);
+
     var pre = document.createElement("pre");
     pre.className = "code-view vw-text";
     pre.textContent = d.text || "";
+    var ta = document.createElement("textarea");
+    ta.className = "vw-edit";
+    ta.value = d.text || "";
+    ta.style.display = "none";
+    ta.setAttribute("aria-label", d.name);
+    ta.addEventListener("input", paintMeta);
+
+    function setEditing(on) {
+      editing = on;
+      pre.style.display = on ? "none" : "";
+      ta.style.display = on ? "" : "none";
+      saveBtn.style.display = on ? "" : "none";
+      copyBtn.style.display = on ? "" : "none";
+      editBtn.textContent = on ? "预览" : "编辑";
+      if (on) ta.focus();
+      else { ta.value = d.text || ""; pre.textContent = d.text || ""; }
+      paintMeta();
+    }
+    editBtn.addEventListener("click", function () {
+      if (editing && dirty() && !window.confirm("有未保存的修改，放弃并返回预览？")) return;
+      setEditing(!editing);
+    });
+    saveBtn.addEventListener("click", function () {
+      saveBtn.disabled = true;
+      postSave(d.rel, ta.value, "overwrite", "").then(function (j) {
+        d.text = ta.value;
+        try { d.size = new Blob([ta.value]).size; } catch (e) {}
+        setEditing(false);
+        toastMsg(box, "已保存" + (j && j.rel ? "：" + j.rel : ""));
+      }).catch(function (err) {
+        toastMsg(box, "保存失败：" + (err && err.message || err), "error");
+      }).then(function () { saveBtn.disabled = false; });
+    });
+    copyBtn.addEventListener("click", function () {
+      var dot = d.name.lastIndexOf(".");
+      var defName = (dot > 0 ? d.name.slice(0, dot) : d.name) + "-副本"
+        + (dot > 0 ? d.name.slice(dot) : "");
+      var name = window.prompt("副本文件名（保存在同目录）", defName);
+      if (name === null) return;
+      copyBtn.disabled = true;
+      postSave(d.rel, ta.value, "copy", name).then(function (j) {
+        toastMsg(box, "已另存为" + (j && j.rel ? "：" + j.rel : ""));
+      }).catch(function (err) {
+        toastMsg(box, "另存失败：" + (err && err.message || err), "error");
+      }).then(function () { copyBtn.disabled = false; });
+    });
+    if (win) win.onBeforeClose = function () {
+      return !dirty() || window.confirm("有未保存的修改，确定关闭？");
+    };
+
+    box.appendChild(bar);
     box.appendChild(pre);
+    box.appendChild(ta);
     if (d.truncated) {
+      editBtn.disabled = true;
+      editBtn.title = "文件过大（预览已截断），只读";
       var note = document.createElement("p");
       note.className = "vw-note";
-      note.textContent = "已截断预览（前 512KB），完整内容请下载";
+      note.textContent = "已截断预览（前 512KB），只读：完整内容请下载";
       box.appendChild(note);
     }
+    paintMeta();
   };
 
   // 暂不支持在线打开的类型
@@ -367,6 +601,18 @@
   // ------------------------------------------------------------------
   function openFile(opts) {
     var rel = opts.rel;
+    // 同文件单例：已有未关闭窗口 → 还原并聚焦，不重复开窗
+    if (rel) {
+      var ids = Object.keys(wins);
+      for (var i = 0; i < ids.length; i++) {
+        var w = wins[ids[i]];
+        if (w.spec && w.spec.rel === rel) {
+          if (w.min) restore(w.id);
+          else focus(w.id);
+          return;
+        }
+      }
+    }
     fetch("/files/viewer?path=" + encodeURIComponent(rel),
           { headers: { "Accept": "application/json" } })
       .then(function (r) {
@@ -374,7 +620,18 @@
         return r.json();
       })
       .then(function (d) {
-        if (!d || !d.ok) throw new Error("bad response");
+        if (!d) throw new Error("bad response");
+        if (!d.ok || d.kind === "none") {
+          // 不可预览（exe 等）：不建窗口、不尝试渲染，toast + 直接下载
+          toastMsg(document.body, "此类型不支持在线预览，已开始下载：" + (d.name || rel));
+          var a = document.createElement("a");
+          a.href = rawUrl(d.rel || rel) + "&dl=1";
+          a.setAttribute("download", "");
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          return;
+        }
         // 扁平描述符：viewer 工厂直接读 d.name / d.size / d.text
         open({
           title: d.name, kind: d.kind, rel: d.rel, name: d.name, size: d.size,
@@ -391,9 +648,12 @@
     open: open,
     openFile: openFile,
     register: register,
+    loadScript: loadScriptOnce,
     viewers: viewers,
     minimize: minimize,
     restore: restore,
+    restoreAll: restoreAll,
+    closeAll: closeAll,
     fullscreen: toggleFs,
     close: closeWin,
     // 测试/诊断用

@@ -271,6 +271,8 @@ def preview_class(rel: str) -> str:
         return "audio"
     if ext == ".pdf":
         return "pdf"
+    if ext in (".html", ".htm"):
+        return "html"   # 沙盒 iframe 预览（WI-19），不再走 text 纯文本
     if ext in TEXT_EXTS or ext in CODE_EXTS:
         return "text"
     return "none"
@@ -291,6 +293,33 @@ def read_preview(rel: str) -> dict:
         "truncated": path.stat().st_size > PREVIEW_LIMIT,
         "is_code": Path(rel).suffix.lower() in CODE_EXTS,
     }
+
+
+SAVE_LIMIT = 1 * 1024 * 1024  # 窗口编辑保存的内容上限（覆盖/副本通用）
+
+
+def save_text(rel: str, content: str, mode: str = "overwrite", name: str = "") -> str:
+    """窗口文本编辑保存：overwrite 覆盖原文件；copy 在同目录另存（自动唯一化）。
+
+    截断预览（原文件超 PREVIEW_LIMIT）拒绝覆盖——内存里只有前 512KB，
+    直接覆盖会丢数据；想改请下载改完上传，或用 copy 另存当前预览内容。
+    """
+    src = resolve_rel(rel)
+    if not src.is_file():
+        raise NotFound(f"文件不存在：{rel}")
+    data = (content or "").encode("utf-8")
+    if len(data) > SAVE_LIMIT:
+        raise WorkspaceError("内容超过上限 1MB")
+    if mode == "copy":
+        stem, suffix = src.stem, src.suffix
+        want = (name or "").strip() or f"{stem}-副本{suffix}"
+        target = _unique(src.parent / _sanitize_name(want))
+        target.write_bytes(data)
+        return rel_of(target)
+    if src.stat().st_size > PREVIEW_LIMIT:
+        raise WorkspaceError("文件过大（预览已截断），只读：请下载修改后上传")
+    src.write_bytes(data)
+    return rel_of(src)
 
 
 def file_for_download(rel: str) -> Path:

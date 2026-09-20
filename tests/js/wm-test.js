@@ -73,6 +73,8 @@ function makeEl(tag) {
       if (i >= 0) ls.splice(i, 1);
     },
     fire(t, ev) { (this.listeners[t] || []).slice().forEach((fn) => fn(ev || {})); },
+    dispatchEvent(ev) { this.fire(ev && ev.type, ev); return true; },
+    click() { this.fire("click", {}); },
     closest(sel) {
       const cls = sel.replace(".", "");
       for (let n = this; n; n = n.parentNode) {
@@ -173,8 +175,10 @@ function parseHtml(html, parent) {
 
 function makeDocument() {
   const body = makeEl("body");
+  const head = makeEl("head");
   const doc = {
     body,
+    head,
     _listeners: {},
     createElement: (t) => makeEl(t),
     addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); },
@@ -198,6 +202,9 @@ function makeWindow() {
     fetch: null,
     addEventListener() {},
     alert(msg) { this._alerts.push(String(msg)); },
+    _confirms: [],
+    _confirmRet: true,
+    confirm(msg) { this._confirms.push(String(msg)); return this._confirmRet; },
   };
   return win;
 }
@@ -205,12 +212,18 @@ function makeWindow() {
 // ---------------------------------------------------------------------------
 // 载入 WM（IIFE 内部用裸 window / document / fetch → 以参数注入）
 // ---------------------------------------------------------------------------
+function CustomEventStub(type, opts) {
+  this.type = type;
+  this.detail = (opts && opts.detail) || {};
+  this.bubbles = !!(opts && opts.bubbles);
+}
 function loadWM(doc, win, fetchStub) {
   const code = fs.readFileSync(
     path.join(__dirname, "..", "..", "app", "web", "static", "js", "window-manager.js"),
     "utf8");
-  const fn = new Function("window", "document", "fetch", code + "\nreturn window.WM;");
-  return fn(win, doc, fetchStub);
+  const fn = new Function("window", "document", "fetch", "CustomEvent",
+    code + "\nreturn window.WM;");
+  return fn(win, doc, fetchStub, CustomEventStub);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,9 +276,9 @@ async function main() {
     ok(el, "open: .wm-win 在 root 内");
     const tb = r.children.find((c) => c.id === "wm-taskbar");
     ok(tb, "open: #wm-taskbar 在 root 内");
-    const chip = tb.children.find((c) => c._cls.has("wm-task"));
+    const chip = tb.querySelector(".wm-task");
     ok(chip, "open: chip 在任务条内（回归）");
-    ok(chip && chip.parentNode === tb, "open: chip.parentNode === #wm-taskbar（回归）");
+    ok(chip && tb.contains(chip), "open: chip 被 #wm-taskbar 包含（含 chip 容器）（回归）");
     eq(wmState(WM).length, 1, "open: state 有一个窗口");
 
     // 标题转义（XSS）：titlebar 的原始 innerHTML 必须是转义后的
@@ -289,7 +302,7 @@ async function main() {
     eq(wmState(WM)[0].content, 0, "minimize: 内容 DOM 已销毁");
     ok(w.el._cls.has("wm-min"), "minimize: wm-min 类已加");
     const tb = taskbarOf(doc);
-    ok(tb.children.some((c) => c._cls.has("wm-task")), "minimize: chip 保留在任务条");
+    ok(!!tb.querySelector(".wm-task"), "minimize: chip 保留在任务条");
   }
 
   // 4. restore：内容重建 + 类移除
@@ -312,7 +325,8 @@ async function main() {
     const r = doc.body.children.find((c) => c.id === "wm-root");
     ok(!r.children.some((c) => c._cls.has("wm-win")), "close: 窗口 DOM 已移除");
     const tb = r.children.find((c) => c.id === "wm-taskbar");
-    eq(tb.children.length, 0, "close: chip 已移除");
+    const chips = tb.children.find((c) => c._cls.has("wm-task-chips"));
+    eq(chips.children.length, 0, "close: chip 已移除");
     eq(tb.style.display, "none", "close: 任务条隐藏");
   }
 
@@ -413,6 +427,128 @@ async function main() {
     ok(w.contentEl.querySelector(".vw-err"), "factory 异常: 降级错误框");
     ok(w.contentEl.querySelector(".vw-err").innerHTML.indexOf("kaput") !== -1,
       "factory 异常: 错误信息展示");
+  }
+
+  // 15. 按需加载：同 src 只注入一次；失败摘除并可重试
+  {
+    const { WM, doc } = fresh();
+    const p1 = WM.loadScript("/static/js/pdf.js");
+    const p2 = WM.loadScript("/static/js/pdf.js");
+    ok(p1 === p2, "loadScript: 同 src 返回同一 promise（不重复注入）");
+    const tags = doc.head.children.filter((c) => c.tagName === "SCRIPT");
+    eq(tags.length, 1, "loadScript: 只注入一个 script 标签");
+    eq(tags[0].src, "/static/js/pdf.js", "loadScript: src 正确");
+    tags[0].onload();
+    await p1;
+    ok(true, "loadScript: onload 后 resolve");
+    const p3 = WM.loadScript("/static/js/bad.js");
+    const bad = doc.head.children.filter((c) => c.tagName === "SCRIPT" && c.src === "/static/js/bad.js")[0];
+    ok(!!bad, "loadScript: 失败前标签已注入");
+    bad.onerror();
+    let rejected = false;
+    try { await p3; } catch (e) { rejected = true; }
+    ok(rejected, "loadScript: onerror 后 reject");
+    ok(doc.head.children.filter((c) => c.tagName === "SCRIPT" && c.src === "/static/js/bad.js").length === 0,
+      "loadScript: 失败摘除标签");
+    const p4 = WM.loadScript("/static/js/bad.js");
+    ok(p4 !== p3, "loadScript: 失败后可重试（缓存已清）");
+  }
+
+  // 16. 多任务栏：计数 + 全部还原/关闭 + 同文件单例
+  {
+    const { doc, WM } = fresh();
+    const tb = () => taskbarOf(doc);
+    const status = () => tb().children.find((c) => c._cls.has("wm-task-status"))._text
+      || tb().children.find((c) => c._cls.has("wm-task-status")).textContent;
+    const w1 = openText(WM, { rel: "a.txt" });
+    const w2 = openText(WM, { rel: "b.txt" });
+    ok(status().indexOf("2 个窗口") !== -1, "任务条: 2 个窗口计数");
+    WM.minimize(w1.id); WM.minimize(w2.id);
+    ok(status().indexOf("2 个已最小化") !== -1, "任务条: 最小化计数");
+    WM.restoreAll();
+    eq(wmState(WM).filter((w) => w.min).length, 0, "全部还原: 无最小化窗口");
+    ok(status().indexOf("已最小化") === -1, "任务条: 还原后计数清零");
+    WM.closeAll();
+    eq(wmState(WM).length, 0, "全部关闭: state 为空");
+    eq(tb().style.display, "none", "全部关闭: 任务条隐藏");
+  }
+  // 17. openFile 同文件单例：重复打开聚焦已有窗口，不新增
+  {
+    const desc = { ok: true, kind: "text", rel: "same.txt", name: "same.txt",
+                   size: 3, text: "hi", truncated: false };
+    const { WM } = fresh(() => Promise.resolve({
+      ok: true, status: 200, json: () => desc,
+    }));
+    WM.openFile({ rel: "same.txt" });
+    await tick(); await tick();
+    eq(wmState(WM).length, 1, "openFile: 首次打开建窗");
+    const first = wmState(WM)[0].id;
+    WM.openFile({ rel: "same.txt" });
+    await tick(); await tick();
+    eq(wmState(WM).length, 1, "openFile: 重复打开不新增窗口");
+    eq(wmState(WM)[0].id, first, "openFile: 聚焦的是同一窗口");
+    WM.openFile({ rel: "other.txt" });
+    await tick(); await tick();
+    eq(wmState(WM).length, 2, "openFile: 不同文件正常多开");
+  }
+
+  // 18. 不可预览类型：不建窗 + toast + 直接下载
+  {
+    const desc = { ok: false, kind: "none", rel: "scratch/a.exe", name: "a.exe", size: 10 };
+    const seen = [];
+    const { doc, win, WM } = fresh(() => Promise.resolve({
+      ok: true, status: 200, json: () => desc,
+    }));
+    // 拦截锚点点击，记录下载 href（真实浏览器里走原生下载）
+    const _append = doc.body.appendChild.bind(doc.body);
+    doc.body.appendChild = (c) => {
+      if (c.tagName === "A" && String(c.href).indexOf("dl=1") !== -1) seen.push(c.href);
+      return _append(c);
+    };
+    let toasted = null;
+    doc.body.addEventListener("console:toast", (e) => { toasted = e.detail; });
+    WM.openFile({ rel: "scratch/a.exe" });
+    await tick(); await tick();
+    eq(wmState(WM).length, 0, "不可预览: 不建窗口");
+    ok(toasted && toasted.message.indexOf("不支持在线预览") !== -1,
+      "不可预览: toast 提示");
+    eq(seen.length, 1, "不可预览: 触发一次下载");
+    ok(seen[0].indexOf(encodeURIComponent("scratch/a.exe")) !== -1,
+      "不可预览: 下载指向原文件");
+    eq(win._alerts.length, 0, "不可预览: 无错误弹窗");
+  }
+
+  // 19. HTML 沙盒预览三档：纯静态 → 脚本开 → 完整预览（确认）→ 纯静态
+  {
+    const { win, WM } = fresh();
+    const w = WM.open({ title: "p.html", kind: "html", rel: "p.html",
+                        name: "p.html", size: 100 });
+    const frame = w.contentEl.querySelector("iframe.vw-html");
+    ok(frame, "html: 沙盒 iframe 已构建");
+    eq(frame.attributes.sandbox, "", "html: 默认纯静态（sandbox 空）");
+    ok(frame.src.indexOf("/files/raw?path=") !== -1 && frame.src.indexOf("raw-html") === -1,
+      "html: 默认源走严格 raw");
+    const tgl = w.contentEl.querySelector("button.vw-tbtn");
+    ok(tgl, "html: 模式开关按钮存在");
+    tgl.click();
+    eq(frame.attributes.sandbox, "allow-scripts allow-forms", "html: 脚本开");
+    eq(tgl.textContent, "脚本开", "html: 二档文案");
+    ok(frame.src.indexOf("/files/raw?path=") !== -1, "html: 脚本开仍走严格 raw");
+    tgl.click();
+    eq(win._confirms.length, 1, "html: 进完整预览前显式确认");
+    eq(tgl.textContent, "完整预览", "html: 三档文案");
+    ok(frame.src.indexOf("/files/raw-html?path=") !== -1, "html: 完整预览走宽松源");
+    // 拒绝确认 → 停在二档
+    win._confirmRet = false;
+    tgl.click();  // 回纯静态（无需确认）
+    eq(tgl.textContent, "纯静态", "html: 可回纯静态");
+    tgl.click();  // 进脚本开
+    tgl.click();  // 进完整预览 → 被拒
+    eq(tgl.textContent, "脚本开", "html: 拒绝确认则停在脚本开");
+    const open = w.contentEl.querySelector("a.vw-tbtn");
+    ok(open && open.href.indexOf("/files/raw-html?path=") !== -1,
+      "html: 新标签页打开走宽松源（顶层同样被沙盒）");
+    WM.close(w.id);
   }
 
   console.log(passed + " passed, " + failed.length + " failed");

@@ -143,14 +143,30 @@ def create_app() -> FastAPI:
         async def dispatch(self, request, call_next):
             response = await call_next(request)
             h = response.headers
-            h.setdefault("X-Frame-Options", "DENY")
+            # /files/raw 是文件预览源（PDF/HTML 走同源 iframe 框嵌）：
+            # 框嵌只放行同源（点击劫持防护不全局放宽），其余页面保持 DENY。
+            # script-src 放行 'unsafe-inline'：HTML 预览的脚本执行由各 viewer
+            # 的 sandbox 属性门控（默认纯静态全禁），CSP 只管框嵌关系不管执行。
+            # /files/raw-html 是宽松档专用源（WI-19B）：短名单 CDN + 顶层同样沙盒。
+            if request.url.path == "/files/raw-html":
+                from app.web.preview_csp import csp_for_raw_html
+                h["X-Frame-Options"] = "SAMEORIGIN"
+                csp = csp_for_raw_html()
+            elif request.url.path == "/files/raw":
+                h["X-Frame-Options"] = "SAMEORIGIN"
+                csp = (
+                    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                    "script-src 'self' 'unsafe-inline'; frame-ancestors 'self'; base-uri 'self'"
+                )
+            else:
+                h.setdefault("X-Frame-Options", "DENY")
+                csp = (
+                    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+                    "script-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+                )
             h.setdefault("X-Content-Type-Options", "nosniff")
             h.setdefault("Referrer-Policy", "same-origin")
-            h.setdefault(
-                "Content-Security-Policy",
-                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
-                "script-src 'self'; frame-ancestors 'none'; base-uri 'self'",
-            )
+            h.setdefault("Content-Security-Policy", csp)
             return response
 
     app.add_middleware(SessionMiddleware)

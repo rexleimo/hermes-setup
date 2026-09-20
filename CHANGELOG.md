@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.8.30 — 2026-09-20（WebOS 窗口体验五项：PDF/编辑/多任务/不可预览/HTML 沙盒）
+
+### Added
+- **HTML 沙盒预览三档**（WI-19/B）：纯静态 → 脚本开 → 完整预览。
+  新 `html` kind（`.html/.htm` 从 text 拆出）+ `sandbox` iframe；完整预览
+  进档前显式确认，走 `/files/raw-html` 宽松源（`preview_csp` 短名单：
+  jsdelivr/unpkg/cdnjs/Google Fonts/Tailwind，可配 `preview_cdn_allowlist`
+  增补）；顶层文档同样被 `sandbox`（无身份）。未命中名单的资源逐个
+  降级，整页不白屏。
+- **文本编辑保存**（WI-16）：viewer 工具条编辑/保存/另存副本；新
+  `POST /files/save`（覆盖记 `files_save_overwrite`，副本自动唯一化记
+  `files_save_copy`）；截断大文件禁覆盖防丢数据；`win.onBeforeClose`
+  未保存提醒（通用钩子）。
+- **多任务栏**（WI-17）：窗口计数徽标（N 个窗口/M 已最小化）+ 全部
+  还原/关闭 + chip 横向容器 + 同文件重复双击聚焦已有窗口。
+- **按需加载机制**（WI-15）：`WM.loadScript()`（promise 缓存、失败摘除
+  可重试），重型 viewer 依赖只在首次打开对应类型时注入。
+
+### Fixed
+- **PDF 打不开**（WI-15）：根因是全局 `X-Frame-Options: DENY` +
+  `frame-ancestors 'none'` 拦了同源 iframe。`/files/raw`（inline）豁免
+  为 `SAMEORIGIN` + `'self'`，其余页面保持；框内文档继承全局 CSP，
+  raw 分支 `script-src` 加 `'unsafe-inline'`（执行门仍在 sandbox）。
+- **窗口不可缩放**（WI-16）：`.wm-win` 加 `resize: both`（Windows 式右下
+  手柄，全屏/最小化禁用）。
+- **换页选中残留 ReferenceError**：`afterSwap` 经 `window.__wbClearSel`
+  守卫调用。
+- **归档 `htmx.ajax` 静默丢弃**：source 须是已挂载节点，改挂隐藏表单。
+- **exe 等不可预览**（WI-18）：双击不建窗不渲染，toast + 直接下载。
+
+### Tests
+- shim 83 断言（任务条/单例/按需加载/不可预览/HTML 三档）+ 
+  `test_files_save.py` 6 项 + viewer/raw/raw-html 回归；全套件 245
+  passed。E2E 实锤：PDF 原生渲染、窗口编辑保存落盘、双开双最小化
+  计数与一键还原、exe 无窗下载、沙盒开关与 CDN 对照。
+
 ## 0.8.29 — 2026-09-20（文件管理器 HTMX 补完：上传/归档/导航无整页刷新）
 
 ### Added
