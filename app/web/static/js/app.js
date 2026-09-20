@@ -5,8 +5,6 @@
   // ------------------------------------------------------------------
   // Toast
   // ------------------------------------------------------------------
-  var stack = document.getElementById("toast-stack");
-
   var ICONS = {
     success: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
     error: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>',
@@ -14,13 +12,22 @@
     info: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>'
   };
 
+  // toast 队列：boosted 整页换页会换掉 #toast-stack 的 DOM，
+  // 换页后把被毁掉的 toast 在新页面上重放（片段换页不动 #toast-stack，不会重复弹）。
+  var toastQueue = [];
+  function toastStack() {
+    return document.getElementById("toast-stack");
+  }
   function showToast(message, level) {
     level = level || "success";
+    var stack = toastStack();
+    if (!stack) return;
     var el = document.createElement("div");
     el.className = "toast toast-" + level;
     el.innerHTML = (ICONS[level] || ICONS.info) + "<span></span>";
     el.querySelector("span").textContent = message;
     stack.appendChild(el);
+    toastQueue.push({ message: message, level: level, el: el, at: Date.now() });
     setTimeout(function () {
       el.classList.add("leaving");
       setTimeout(function () { el.remove(); }, 260);
@@ -30,6 +37,15 @@
   document.body.addEventListener("console:toast", function (e) {
     var d = e.detail || {};
     showToast(d.message || "操作完成", d.level);
+  });
+
+  document.body.addEventListener("htmx:afterSwap", function () {
+    var now = Date.now();
+    toastQueue = toastQueue.filter(function (t) {
+      var alive = !!(t.el && t.el.isConnected);
+      if (!alive && now - t.at < 4000) showToast(t.message, t.level);
+      return alive;
+    });
   });
 
   // ------------------------------------------------------------------
@@ -393,6 +409,9 @@
       e.target.scrollIntoView({ behavior: "smooth", block: "start" });
     }
     applyConditionalFields();
+    // 文件管理器换页后（boosted 导航 / 归档局部刷新）：清旧选中 + 重算状态栏
+    // wbSelect 在文件工作台 IIFE 内，跨作用域经 window.__wbClearSel 调用。
+    if ($id("osfm-items") && window.__wbClearSel) window.__wbClearSel();
   });
 })();
 
@@ -477,14 +496,41 @@
                 { target: "#wb-preview", swap: "innerHTML" });
     }
   }
+  function wbNav(href) {
+    // boosted 导航：经 #osfm-root（hx-boost 容器）内的 <a> 点击 → HTMX 换页 + 历史记录；
+    // HTMX 未加载时退化为整页加载（原生锚点行为）。
+    var a = document.createElement("a");
+    a.href = href;
+    var host = $id("osfm-root") || document.body;
+    host.appendChild(a); a.click(); a.remove();
+  }
   function wbOpen(item) {
-    if (item.dataset.dir === "1") window.location.href = item.dataset.href;
+    if (item.dataset.dir === "1") wbNav(item.dataset.href);
     else if (window.WM && WM.openFile) WM.openFile({ rel: item.dataset.rel });
     else wbPreviewContent(item.dataset.rel);   // WM 未加载时回退侧栏预览
   }
   function wbArchive(rel) {
     if (!window.confirm("归档 " + rel + " → archive/？（移动，不留副本）")) return;
+    var root = $id("osfm-root");
+    var here = root && root.dataset.here ? String(root.dataset.here).split("?")[1] || "" : "";
+    var cf = document.querySelector(".osfm-upload input[name=_csrf]");
     var meta = document.querySelector('meta[name="csrf"]');
+    var csrf = cf ? cf.value : (meta ? meta.content : "");
+    if (window.htmx) {
+      // 局部更新：服务端重渲染当前视图 + 侧栏 OOB 换入，不整页刷新
+      // 注意：htmx.ajax 要求 source 已挂载（1.9 内部 se() 连通性检查，
+      // 未挂载的表单会被静默丢弃），故挂一个隐藏表单，请求结束后移除。
+      var f = document.createElement("form");
+      f.style.display = "none";
+      f.innerHTML = '<input name="path" value="' + esc(rel) + '">'
+        + '<input name="here" value="' + esc(here) + '">'
+        + '<input name="_csrf" value="' + esc(csrf) + '">';
+      document.body.appendChild(f);
+      f.addEventListener("htmx:afterRequest", function () { f.remove(); }, { once: true });
+      setTimeout(function () { if (f.parentNode) f.remove(); }, 30000);
+      htmx.ajax("POST", "/files/move", { source: f, target: "#osfm-content", swap: "innerHTML" });
+      return;
+    }
     var fd = new FormData();
     fd.append("path", rel);
     fetch("/files/move", { method: "POST",
@@ -497,6 +543,8 @@
     if (item) { item.classList.add("selected"); item.focus({ preventScroll: true }); }
     wbCmdbar(item); wbDetails(item);
   }
+  // 供顶部通用 afterSwap 处理器调用（换页/局部刷新后清掉指向旧 DOM 的选中）
+  window.__wbClearSel = function () { wbSelect(null); };
 
   document.addEventListener("click", function (ev) {
     if (wbMenu && !ev.target.closest(".osfm-menu")) wbHideMenu();
@@ -557,7 +605,8 @@
     if (ev.key === "Enter" && sel) { wbOpen(sel); return; }
     if (ev.key === "Backspace") {
       var up = document.querySelector(".e-nav a.e-navbtn");
-      if (up) { ev.preventDefault(); window.location.href = up.getAttribute("href"); }
+      // up 是 boost 容器内的 <a>：有 HTMX 走局部换页，无则原生整页
+      if (up) { ev.preventDefault(); up.click(); }
     }
   });
   // 搜索：即时过滤当前视图
@@ -569,10 +618,18 @@
       items[i].style.display = items[i].dataset.name.indexOf(q) >= 0 ? "" : "none";
     }
   });
-  // 选完文件即上传
+  // 选完文件即上传：htmx 提交（hx-swap=none，不 swap），服务端回 HX-Trigger
   document.addEventListener("change", function (ev) {
     if (!ev.target || !ev.target.matches || !ev.target.matches(".osfm-upload input[type=file]")) return;
-    if (ev.target.files && ev.target.files.length) ev.target.closest("form").submit();
+    if (!ev.target.files || !ev.target.files.length) return;
+    var form = ev.target.closest("form");
+    if (window.htmx) htmx.trigger(form, "submit");
+    else form.submit();
+  });
+  // 上传完成：服务端 osfm:nav 事件 → boosted 导航到目标目录（无白屏 + 历史记录）
+  document.body.addEventListener("osfm:nav", function (ev) {
+    var to = ev.detail && ev.detail.to;
+    if (to) wbNav(to);
   });
   // 初次渲染：状态栏
   document.addEventListener("DOMContentLoaded", wbStatus);

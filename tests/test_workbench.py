@@ -82,6 +82,58 @@ def test_upload_no_overwrite_and_archive(workspace, logged_in):
     assert (workspace / "archive" / "notes.txt").exists()
 
 
+def test_move_renders_current_view_with_side_oob(workspace, logged_in):
+    """归档（带 here=当前视图）：原地重渲染 + 侧栏 OOB，不整页刷新。"""
+    c = logged_in
+    token = _token(c)
+    for name in ("a.txt", "b.txt"):
+        c.post("/files/upload", headers={"X-CSRF-Token": token},
+               files={"file": (name, name.encode(), "text/plain")},
+               follow_redirects=False)
+    r = c.post("/files/move", headers={"X-CSRF-Token": token},
+               data={"path": "downloads/a.txt",
+                     "here": "path=downloads&sort=name&view=grid",
+                     "_csrf": token})
+    assert r.status_code == 200
+    body = r.text
+    assert 'id="osfm-items"' in body, "主响应体应是当前视图网格"
+    assert 'hx-swap-oob="true"' in body and 'id="osfm-side"' in body, "侧栏计数应 OOB 换入"
+    assert "b.txt" in body and "a.txt" not in body, "归档项应从当前视图消失"
+    assert "console:toast" in r.headers.get("HX-Trigger", ""), "应带 toast 事件"
+    assert (workspace / "archive" / "a.txt").exists()
+
+
+def test_upload_htmx_returns_nav_trigger(workspace, logged_in):
+    """HTMX 上传：200 + HX-Trigger（console:toast + osfm:nav），前端 boosted 导航不白屏。
+
+    不用 HX-Redirect：HTMX 1.9 的 HX-Redirect 是整页跳转（白屏）。
+    """
+    import json as _json
+    c = logged_in
+    token = _token(c)
+    r = c.post("/files/upload",
+               headers={"X-CSRF-Token": token, "HX-Request": "true"},
+               files={"file": ("u.txt", b"U", "text/plain")},
+               follow_redirects=False)
+    assert r.status_code == 200
+    assert r.headers.get("HX-Redirect") is None
+    trig = _json.loads(r.headers["HX-Trigger"])
+    assert trig["console:toast"]["message"].endswith("downloads/u.txt")
+    assert trig["osfm:nav"]["to"] == "/files?path=downloads"
+    assert (workspace / "downloads" / "u.txt").exists()
+
+
+def test_upload_non_htmx_redirects(workspace, logged_in):
+    """非 HTMX 上传：303 → 目标目录。"""
+    c = logged_in
+    token = _token(c)
+    r = c.post("/files/upload", headers={"X-CSRF-Token": token},
+               files={"file": ("v.txt", b"V", "text/plain")},
+               follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith("/files?path=downloads")
+
+
 def test_upload_denied_for_non_admin(workspace, admin):
     appsettings.create_user("op9", "Op9!securePass", role="operator")
     c = admin

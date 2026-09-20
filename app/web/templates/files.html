@@ -57,7 +57,8 @@
 
   <div class="e-cmdbar">
     {% if is_admin %}
-    <form method="post" action="/files/upload" enctype="multipart/form-data" class="osfm-upload">
+    <form method="post" action="/files/upload" enctype="multipart/form-data" class="osfm-upload"
+          hx-post="/files/upload" hx-swap="none">
       {{ csrf() }}
       <label class="e-cmd" title="上传到 downloads/（同名自动加后缀）">{{ icon('plus') }} 上传<input type="file" name="file" hidden required></label>
     </form>
@@ -93,33 +94,8 @@
   </div>
 
   <div class="e-body">
-    <aside class="e-side">
-      <a class="e-loc {% if not cat and not path %}active{% endif %}"
-         href="/files?sort={{ sort }}&view={{ view }}">{{ wbicon('home') }}<em>主文件夹</em></a>
-      <div class="e-side-sep"></div>
-      {% for name, n in locs %}
-      <a class="e-loc {% if not cat and path == name %}active{% endif %}"
-         href="/files?path={{ name }}&sort={{ sort }}&view={{ view }}">
-        {% if name == 'projects' %}{{ wbicon('folder') }}
-        {% elif name == 'downloads' %}{{ icon('download') }}
-        {% elif name == 'documents' %}{{ wbicon('document') }}
-        {% elif name == 'pictures' %}{{ wbicon('image') }}
-        {% elif name == 'videos' %}{{ wbicon('video') }}
-        {% elif name == 'scratch' %}{{ wbicon('flask') }}
-        {% else %}{{ wbicon('archivebox') }}{% endif %}
-        <em>{{ {'projects':'项目 projects','downloads':'下载 downloads','documents':'文档 documents','pictures':'图片 pictures','videos':'视频 videos','scratch':'草稿 scratch','archive':'归档 archive'}.get(name, name) }}</em>
-        <i class="e-n">{{ n }}</i></a>
-      {% endfor %}
-      <div class="e-side-sep"></div>
-      <div class="e-side-title">智能集合</div>
-      <a class="e-loc {% if cat == 'recent' %}active{% endif %}"
-         href="/files?cat=recent&sort={{ sort }}&view={{ view }}">{{ wbicon('clock') }}<em>最近使用</em></a>
-      {% for key, label, emoji, n in counts %}
-      <a class="e-loc {% if cat == key %}active{% endif %}"
-         href="/files?cat={{ key }}&sort={{ sort }}&view={{ view }}">
-        {{ wbicon({'images':'image','videos':'video','audio':'audio','documents':'document','code':'code','archives':'archive'}.get(key,'file')) }}<em>{{ label }}</em><i class="e-n">{{ n }}</i></a>
-      {% endfor %}
-    </aside>
+    {# 侧栏可被归档/上传响应 OOB 换入（id=osfm-side），内容见 files/_side.html #}
+    <aside class="e-side" id="osfm-side">{% include "files/_side.html" %}</aside>
 
     <main class="e-content" id="osfm-content">{% include "files/_content.html" %}</main>
 

@@ -1,0 +1,27 @@
+{% from "macros.html" import icon, wbicon with context %}
+{# 侧栏（固定位置 + 智能集合）：files.html 与归档/上传 OOB 刷新共用。 #}
+<a class="e-loc {% if not cat and not path %}active{% endif %}"
+   href="/files?sort={{ sort }}&view={{ view }}">{{ wbicon('home') }}<em>主文件夹</em></a>
+<div class="e-side-sep"></div>
+{% for name, n in locs %}
+<a class="e-loc {% if not cat and path == name %}active{% endif %}"
+   href="/files?path={{ name }}&sort={{ sort }}&view={{ view }}">
+  {% if name == 'projects' %}{{ wbicon('folder') }}
+  {% elif name == 'downloads' %}{{ icon('download') }}
+  {% elif name == 'documents' %}{{ wbicon('document') }}
+  {% elif name == 'pictures' %}{{ wbicon('image') }}
+  {% elif name == 'videos' %}{{ wbicon('video') }}
+  {% elif name == 'scratch' %}{{ wbicon('flask') }}
+  {% else %}{{ wbicon('archivebox') }}{% endif %}
+  <em>{{ {'projects':'项目 projects','downloads':'下载 downloads','documents':'文档 documents','pictures':'图片 pictures','videos':'视频 videos','scratch':'草稿 scratch','archive':'归档 archive'}.get(name, name) }}</em>
+  <i class="e-n">{{ n }}</i></a>
+{% endfor %}
+<div class="e-side-sep"></div>
+<div class="e-side-title">智能集合</div>
+<a class="e-loc {% if cat == 'recent' %}active{% endif %}"
+   href="/files?cat=recent&sort={{ sort }}&view={{ view }}">{{ wbicon('clock') }}<em>最近使用</em></a>
+{% for key, label, emoji, n in counts %}
+<a class="e-loc {% if cat == key %}active{% endif %}"
+   href="/files?cat={{ key }}&sort={{ sort }}&view={{ view }}">
+  {{ wbicon({'images':'image','videos':'video','audio':'audio','documents':'document','code':'code','archives':'archive'}.get(key,'file')) }}<em>{{ label }}</em><i class="e-n">{{ n }}</i></a>
+{% endfor %}

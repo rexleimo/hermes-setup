@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.8.29 — 2026-09-20（文件管理器 HTMX 补完：上传/归档/导航无整页刷新）
+
+### Added
+- **上传 HTMX 化**（WI-A/A2）：表单 `hx-post` + `hx-swap="none"`，服务端
+  HTMX 请求回 200 + `HX-Trigger`（`console:toast` + `osfm:nav`），前端
+  `osfm:nav` 监听走 boosted 导航到目标目录——无白屏、有历史记录。
+  教训：HTMX 1.9 没有 `hx-target="none"`（2.x 语法），会按 CSS 选择器
+  查不到目标而静默弃请求；且 1.9 的 `HX-Redirect` 是整页跳转。
+- **toast 跨 boosted 换页存活**：`showToast` 每次取当前 `#toast-stack`
+ （旧节点换页后已游离），换页毁掉的 toast 在 `htmx:afterSwap` 后于新
+  页面重放；片段换页不动 toast 栈，不重复弹。
+
+### Fixed
+- **归档 `htmx.ajax` 静默不发请求**：`htmx.ajax` 的 source 须是已挂载
+  节点（1.9 内部连通性检查，未挂载表单直接丢弃）。现挂隐藏表单，
+  `htmx:afterRequest` 后移除（+ 30s 兜底）。归档后网格原地重渲染 +
+  侧栏 OOB + toast，不整页刷新。
+- **换页/局部刷新后选中残留**：通用 `afterSwap` 处理器误调工作台
+  IIFE 内的 `wbSelect`（跨作用域 ReferenceError）。现经
+  `window.__wbClearSel` 守卫调用，归档/换页后详情面板与状态栏正确
+  复位。
+- **上传目标目录计算**：根目录文件 `rsplit` 回退到 `/files`，不再产出
+  `/files?path=<文件名>` 错误导航。
+
+### Tests
+- `test_upload_htmx_returns_nav_trigger`（200 + HX-Trigger
+  toast/osfm:nav、无 HX-Redirect）+ `test_upload_non_htmx_redirects`
+  （303）。E2E 实锤：上传自动进 downloads、plan.md 开窗/最小化/
+  还原、boosted 导航任务条存活、两次归档原地消失 + 侧栏计数。
+
 ## 0.8.28 — 2026-09-20（窗口管理器前端回归测试 + 文件内容缓存再验证）
 
 ### Added

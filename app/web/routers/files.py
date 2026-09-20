@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
+from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -16,7 +17,7 @@ from app.hermes import engineering_service as eng
 from app.hermes import workspace_service as ws
 from app.hermes.paths import detect
 from app.web.deps import Admin, User, client_ip, csrf_guard
-from app.web.htmx import redirect, toast
+from app.web.htmx import is_htmx, redirect, toast
 from app.web.templating import render, render_partial
 
 router = APIRouter(prefix="/files", dependencies=[Depends(csrf_guard)])
@@ -44,6 +45,16 @@ def _list_or_404(request: Request, rel: str):
         return ws.list_dir(rel)
     except ws.WorkspaceError as exc:
         _fail(request, exc, rel or "/")
+
+
+def _side_oob(request: Request, cat: str, path: str, sort: str, view: str) -> bytes:
+    """侧栏 OOB 片段：归档/上传后计数变化，随响应换入 #osfm-side。"""
+    side = render_partial(request, "files/_side.html", {
+        "cat": cat, "path": path, "sort": sort, "view": view,
+        "locs": ws.location_counts(), "counts": ws.category_counts(),
+    }).body
+    return (b'<aside class="e-side" id="osfm-side" hx-swap-oob="true">'
+            + side + b"</aside>")
 
 
 # ---------------------------------------------------------------------------
@@ -192,26 +203,51 @@ async def upload(request: Request, admin: Admin, file: UploadFile, path: str = F
         _fail(request, exc, "upload")
     audit.record("files_upload", username=admin["username"], target=rel,
                  ip=client_ip(request))
-    resp = redirect(request, f"/files?path={rel.rsplit('/', 1)[0]}")
+    dest = rel.rsplit("/", 1)[0] if "/" in rel else ""
+    nav = f"/files?path={dest}" if dest else "/files"
+    if is_htmx(request):
+        # HTMX 1.9 的 HX-Redirect 是整页跳转（白屏）：改发 osfm:nav 事件，
+        # 前端 app.js 走 boosted 导航（无白屏 + 历史记录）。
+        resp = Response(status_code=200)
+        toast(resp, f"已上传到 {rel}", extra={"osfm:nav": {"to": nav}})
+        return resp
+    resp = redirect(request, nav)
     toast(resp, f"已上传到 {rel}")
     return resp
 
 
 @router.post("/move")
-def move(request: Request, admin: Admin, path: str = Form(...)):
+def move(request: Request, admin: Admin, path: str = Form(...), here: str = Form("")):
+    """归档：原地重渲染用户当前视图（条目消失），侧栏计数 OOB 换入，不整页刷新。
+
+    here：当前视图查询串（如 cat=images&sort=name&view=grid）；缺省回退根目录。
+    """
     try:
         rel = ws.move_to_archive(path)
     except ws.WorkspaceError as exc:
         _fail(request, exc, path)
     audit.record("files_archive", username=admin["username"], target=f"{path} → {rel}",
                  ip=client_ip(request))
-    parent = path.rsplit("/", 1)[0] if "/" in path else ""
-    entries = _list_or_404(request, parent)
-    resp = render_partial(request, "files/_content.html", {
-        "entries": entries, "path": parent, "cat": "", "sort": "name", "view": "grid",
-        "crumbs": ws.breadcrumbs(parent), "is_admin": True,
+    q = dict(parse_qsl(here, keep_blank_values=True)) if here else {}
+    v_path, v_cat = q.get("path", ""), q.get("cat", "")
+    v_sort = q.get("sort", "name")
+    v_view = q.get("view", "grid")
+    if v_sort not in ("name", "time", "size"):
+        v_sort = "name"
+    if v_view not in ("grid", "list"):
+        v_view = "grid"
+    try:
+        entries, crumbs = _listing(request, v_path, v_cat, v_sort)
+    except ws.WorkspaceError:
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        entries, crumbs = _list_or_404(request, parent), ws.breadcrumbs(parent)
+    body = render_partial(request, "files/_content.html", {
+        "entries": entries, "path": v_path, "cat": v_cat, "sort": v_sort, "view": v_view,
+        "crumbs": crumbs, "is_admin": True,
         "ws_root_name": Path(ws.root()).name,
-    })
+    }).body
+    resp = Response(body + _side_oob(request, v_cat, v_path, v_sort, v_view),
+                    media_type="text/html; charset=utf-8")
     toast(resp, f"已归档：{rel}")
     return resp
 
