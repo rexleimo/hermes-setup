@@ -1,22 +1,20 @@
-"""安装 / 更新任务执行器。
+"""安装 / 更新域：安装源、权限探测、浏览器组件补装、Gateway 动作驱动。
 
-长时间命令（官方安装脚本、hermes update）在后台线程运行，输出落盘到
-data/jobs/<id>.log；前端轮询 `/service/job` 片段展示进度。同一时刻只允许
-一个任务在跑。
+「通用后台任务引擎」已拆到 jobs.py（submit/取消/历史/日志/收尾副作用）；
+本模块保留安装域逻辑，并向下兼容重导出引擎 API（installer.submit 等旧调用
+路径不变）。
 """
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
-import threading
-from datetime import datetime
+import time
+import uuid
 
 from app.core import db
 from app.core.settings import settings
-
-_lock = threading.Lock()
-_procs: dict[int, subprocess.Popen] = {}
 
 # ---------------------------------------------------------------------------
 # 安装源：官方源，全量安装（不跳过任何组件）
@@ -56,6 +54,116 @@ def preferred_install() -> dict:
     成败与原因全在任务日志里可见）。"""
     return install_variant("official")
 
+# ---------------------------------------------------------------------------
+# 权限探测与 sudo 通道
+# ---------------------------------------------------------------------------
+# 背景：部分 Linux 账号不是 root、也没有免密 sudo，而是「sudo 要输密码」。
+# 后台任务没有 TTY（stdin 已断开），任何交互式 sudo 密码提示都会让任务卡死或
+# 静默失败。因此：
+#   1) 页面加载时探测当前账号权限，如实展示（root/免密/需密码/无 sudo）；
+#   2) 「需密码」的账号在表单里填 sudo 密码 → 任务通过 sudo -S 一次性非交互
+#      认证（密码只进 0600 临时文件，不进命令行/日志/数据库，用完即删）；
+#   3) 认证失败 1 秒内明确报错退出（exit 3），不再卡在密码提示上。
+
+_PRIV_LABELS = {
+    "root": "当前以 root 运行，安装无需 sudo",
+    "passwordless": "当前账号可免密 sudo，安装可自动完成系统组件",
+    "password": "当前账号安装系统组件需要 sudo 密码（在下方输入）",
+    "nosudo": "当前账号无 sudo——浏览器系统依赖将跳过，不影响主流程",
+    "windows": "Windows 原生安装通道，无需 sudo",
+}
+_priv_cache: tuple[float, dict] | None = None
+_PRIV_TTL = 30.0
+
+
+def _classify_privilege(euid: int, sudo_available: bool,
+                        passwordless: bool) -> str:
+    """权限分类纯函数（便于单测）：root > 免密 sudo > 需密码 sudo > 无 sudo。"""
+    if euid == 0:
+        return "root"
+    if not sudo_available:
+        return "nosudo"
+    return "passwordless" if passwordless else "password"
+
+
+def detect_privilege(force: bool = False) -> dict:
+    """探测当前运行账号的提权能力（缓存 30s，避免页面轮询反复 fork）。"""
+    global _priv_cache
+    if sys.platform == "win32":
+        return {"mode": "windows", "label": _PRIV_LABELS["windows"],
+                "needs_password": False}
+    now = time.monotonic()
+    if not force and _priv_cache and now - _priv_cache[0] < _PRIV_TTL:
+        return dict(_priv_cache[1])
+    euid = os.geteuid() if hasattr(os, "geteuid") else -1
+    sudo = shutil.which("sudo")
+    passwordless = False
+    if sudo:
+        try:
+            passwordless = (
+                subprocess.run([sudo, "-n", "true"], capture_output=True,
+                               timeout=5).returncode == 0)
+        except Exception:
+            passwordless = False
+    mode = _classify_privilege(euid, bool(sudo), passwordless)
+    info = {"mode": mode, "label": _PRIV_LABELS[mode],
+            "needs_password": mode == "password"}
+    _priv_cache = (now, info)
+    return dict(info)
+
+
+def _write_sudo_passfile(password: str):
+    """sudo 密码落 0600 临时文件（jobs 目录内）：密码不进命令行/日志/数据库，
+    任务脚本认证完即删。返回文件路径。"""
+    path = settings.jobs_dir / f"sudo-pass-{uuid.uuid4().hex[:12]}"
+    path.write_text(password + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
+
+
+# sudo 安装驱动：先非交互认证一次（sudo 凭据缓存随后几分钟内有效，官方脚本
+# 内部的 sudo 调用不再提问），认证失败立即退出并给出人话原因；成功则 exec 安装命令。
+SUDO_DRIVER_TEMPLATE = """#!/usr/bin/env bash
+# console-managed: 安装 sudo 驱动（后台任务无 TTY，密码提示会卡死任务）
+set -u
+PASSFILE="__PASSFILE__"
+CMD="__CMD__"
+if [ ! -f "$PASSFILE" ]; then
+  echo "[console] sudo 凭据文件丢失，按免密方式继续（系统组件可能跳过）"
+else
+  if printf '%s\\n' "$(cat "$PASSFILE")" | sudo -S -p '' true 2>/dev/null; then
+    echo "[console] sudo 认证成功，继续安装"
+  else
+    rm -f "$PASSFILE"
+    echo "[console] sudo 认证失败：密码不正确，或该账号不在 sudoers 中。"
+    echo "[console] 请在「安装与更新」页重新输入 sudo 密码；或由管理员在终端执行安装。"
+    exit 3
+  fi
+  rm -f "$PASSFILE"
+fi
+exec bash -c "$CMD"
+"""
+
+
+def install_command(sudo_pass: str | None = None) -> str:
+    """安装任务命令：默认裸官方命令；提供了 sudo 密码（POSIX）时包一层
+    sudo 驱动脚本——先认证后执行，密码不出现在命令行与日志里。"""
+    base = preferred_install()["cmd"]
+    if not sudo_pass or sys.platform == "win32":
+        return base
+    import json as _json
+
+    passfile = _write_sudo_passfile(sudo_pass)
+    script = settings.jobs_dir / "sudo_install.sh"
+    script.write_text(
+        SUDO_DRIVER_TEMPLATE.replace("__PASSFILE__", str(passfile))
+                            .replace("__CMD__", _json.dumps(base)),
+        encoding="utf-8")
+    return f'bash "{script}"'
+
 
 # 展示与兼容入口
 INSTALL_CMD = preferred_install()["cmd"]
@@ -85,6 +193,18 @@ set -u
 REPO="${1:-}"
 MIRROR="__MIRROR__"
 HERMES_DIR="${HERMES_HOME:-$HOME/.hermes}"
+PASSFILE="${HERMES_SUDO_PASS_FILE:-}"
+# sudo 密码文件（控制台任务提交时注入；0600，退出即删）——有了它，
+# 非 root 账号的系统依赖也能装上；没有就退回免密探测，再不行才跳过。
+if [ -n "$PASSFILE" ] && [ -f "$PASSFILE" ]; then trap 'rm -f "$PASSFILE"' EXIT; fi
+run_sudo() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; return; fi
+  if [ -n "$PASSFILE" ] && [ -f "$PASSFILE" ]; then
+    printf '%s\\n' "$(cat "$PASSFILE")" | sudo -S -p '' "$@"
+  else
+    sudo -n "$@" 2>/dev/null
+  fi
+}
 
 if [ -z "$REPO" ] || [ ! -d "$REPO" ]; then
   echo "[console] 找不到 Hermes 安装目录，无法安装浏览器组件"
@@ -148,21 +268,19 @@ if ! command -v npx >/dev/null 2>&1 && [ ! -x "$HERMES_DIR/node/bin/npx" ]; then
 fi
 
 DEPS=""
-if [ "$(id -u)" -eq 0 ] || (command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null); then
+if [ "$(id -u)" -eq 0 ] || run_sudo true; then
   DEPS="--with-deps"
-  SUDO=""
-  [ "$(id -u)" -eq 0 ] || SUDO="sudo -n"
   # 国内镜像脚本省掉的系统件（编译器/搜索/音频工具），apt 走服务器自带国内镜像
   echo "[console] 安装系统依赖（build-essential / ripgrep / ffmpeg，best-effort）..."
-  $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
-  if $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+  run_sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+  if run_sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
        build-essential ripgrep ffmpeg >/dev/null 2>&1; then
     echo "[console] 系统依赖就绪"
   else
     echo "[console] 系统依赖安装跳过/失败（非致命）"
   fi
 else
-  echo "[console] 提示：无密码 sudo，跳过系统依赖；如浏览器启动报缺库，管理员执行："
+  echo "[console] 提示：sudo 不可用（或未提供密码），跳过系统依赖；如浏览器启动报缺库，管理员执行："
   echo "[console]   sudo npx playwright install-deps chromium"
 fi
 
@@ -318,11 +436,12 @@ def install_health(paths) -> list[dict]:
     return checks
 
 
-def browser_install_job() -> str | None:
+def browser_install_job(sudo_pass: str | None = None) -> str | None:
     """生成浏览器组件补装命令（脚本写入 jobs 目录）；平台不支持/未安装时返回 None。
 
     仅 POSIX：Windows 官方安装器里浏览器步骤是 best-effort（失败只警告、不阻塞），
-    且 exec 沿用官方通道即可，无需本脚本。"""
+    且 exec 沿用官方通道即可，无需本脚本。提供 sudo_pass 时，脚本内 run_sudo
+    用它完成系统依赖安装（密码经 0600 临时文件注入，脚本退出即删）。"""
     if sys.platform == "win32":
         return None
     from app.hermes.paths import detect, resolve_agent_repo
@@ -334,7 +453,11 @@ def browser_install_job() -> str | None:
     script = settings.jobs_dir / "browser_install.sh"
     script.write_text(BROWSER_SCRIPT.replace("__MIRROR__", BROWSER_MIRROR),
                       encoding="utf-8")
-    return f'bash "{script}" "{repo}"'
+    command = f'bash "{script}" "{repo}"'
+    if sudo_pass:
+        passfile = _write_sudo_passfile(sudo_pass)
+        command = f'HERMES_SUDO_PASS_FILE="{passfile}" {command}'
+    return command
 
 
 def browser_installed() -> bool:
@@ -352,10 +475,6 @@ def browser_installed() -> bool:
         return any(p.name.startswith("chromium") for p in base.iterdir())
     except OSError:
         return False
-
-
-class JobBusy(Exception):
-    pass
 
 
 def network_reachable(url: str = "https://raw.githubusercontent.com",
@@ -386,51 +505,16 @@ NETWORK_HINT = (
     "请开代理或换网络后重试；诊断详情见「运行体检」页。")
 
 
-def active_job() -> dict | None:
-    row = db.query_one("SELECT * FROM job_runs WHERE status = 'running' ORDER BY id DESC LIMIT 1")
-    return dict(row) if row else None
-
-
-def reap_orphan_jobs() -> int:
-    """服务启动时回收孤儿任务：上次进程被杀时正在跑的任务会永久停在 running，
-    既堵死 submit（，已有任务在执行中），又让 /service 页反复轮询旧面板。
-    在进程启动、线程必然不存在时调用，把它们标为失败。"""
-    rows = db.query("SELECT id FROM job_runs WHERE status = 'running'")
-    for r in rows:
-        db.execute(
-            "UPDATE job_runs SET status = 'failed', exit_code = -9, "
-            "finished_at = datetime('now') WHERE id = ?", (r["id"],))
-        path = settings.jobs_dir / f"job-{r['id']}.log"
-        try:
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write("\n[console] 服务重启，任务已中断\n")
-        except OSError:
-            pass
-    return len(rows)
-
-
-def last_job() -> dict | None:
-    row = db.query_one("SELECT * FROM job_runs ORDER BY id DESC LIMIT 1")
-    return dict(row) if row else None
-
-
-# kind → 小白能看懂的中文标签（新增后台任务时在这里补一行）
-JOB_KIND_LABELS = {
-    "install": "安装 Hermes",
-    "update": "检查并更新",
-    "install_messaging": "安装微信依赖",
-    "weixin_qr_login": "微信扫码接入",
-    "plugin_install": "安装插件",
-    "browser_install": "补装浏览器组件",
-    "gateway_start": "启动 Gateway",
-    "gateway_stop": "停止 Gateway",
-    "gateway_restart": "重启 Gateway",
-}
-
 # 网关动作驱动脚本：由控制台以「后台任务」方式运行（输出实时进终端 + 任务面板 + 日志文件，
 # 可取消、可回查）。此前是同步调用——阻塞页面、且没有任何流水日志。
 GATEWAY_ACTION_DRIVER = '''# console-managed: 网关动作驱动（start / stop / restart）
 import sys
+
+try:
+    # 双保险：即便没继承 PYTHONIOENCODING，也不允许 GBK 代码页崩掉任务
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    pass
 
 sys.path.insert(0, __ROOT__)
 
@@ -460,245 +544,32 @@ def gateway_action_job(action: str) -> str:
     import json
     from pathlib import Path
 
+    from app.hermes.jobs import write_job_script   # 延迟导入避免循环
+
     root = str(Path(__file__).resolve().parents[2])   # 控制台仓库根
-    script = settings.jobs_dir / "gateway_action.py"
-    script.write_text(
+    return write_job_script(
+        "gateway_action.py",
         GATEWAY_ACTION_DRIVER.replace("__ROOT__", json.dumps(root)),
-        encoding="utf-8")
-    return f'"{sys.executable}" "{script}" {action}'
+        args=(action,),
+    )
 
 
-def job_history(limit: int = 15) -> list[dict]:
-    """最近后台任务（含已结束）：此前任务一结束面板就消失，无任何历史可回溯。"""
-    rows = db.query(
-        "SELECT id, kind, command, status, started_at, finished_at, exit_code "
-        "FROM job_runs ORDER BY id DESC LIMIT ?", (int(limit),))
-    out = []
-    for r in rows:
-        d = dict(r)
-        d["label"] = JOB_KIND_LABELS.get(d["kind"], d["kind"])
-        out.append(d)
-    return out
 
-
-def job_log(job_id: int, tail: int = 60) -> list[str]:
-    row = db.query_one("SELECT log_path FROM job_runs WHERE id = ?", (job_id,))
-    if row is None:
-        return []
-    path = settings.jobs_dir / f"job-{job_id}.log"
-    if not path.exists():
-        return []
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        return lines[-tail:]
-    except OSError:
-        return []
-
-
-def job_log_delta(job_id: int, offset: int) -> tuple[list[str], int]:
-    """从字节偏移增量读取任务日志（SSE 推送用）：返回 (新增完整行, 新偏移)。
-    只交付以换行结束的完整行；未完结的半行留给下一次，避免前端重复/半截。"""
-    path = settings.jobs_dir / f"job-{job_id}.log"
-    try:
-        with open(path, "rb") as fh:
-            fh.seek(0, 2)
-            size = fh.tell()
-            if size < offset:
-                offset = 0
-            if size == offset:
-                return [], offset
-            fh.seek(offset)
-            chunk = fh.read()
-    except OSError:
-        return [], offset
-    nl = chunk.rfind(b"\n")
-    if nl == -1:
-        return [], offset
-    lines = chunk[:nl].decode("utf-8", "replace").splitlines()
-    return lines, offset + nl + 1
-
-
-def _kill_tree(proc: subprocess.Popen) -> None:
-    """终止整个进程树：POSIX 用独立进程组 + killpg（sh → curl/bash 子孙一起走）；
-    Windows 用 taskkill /T /F。"""
-    if os.name == "posix":
-        import signal as _signal
-
-        try:
-            os.killpg(os.getpgid(proc.pid), _signal.SIGTERM)
-        except OSError:
-            return
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(os.getpgid(proc.pid), _signal.SIGKILL)
-            except OSError:
-                pass
-    else:
-        try:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                           capture_output=True, timeout=20)
-        except (OSError, subprocess.TimeoutExpired):
-            proc.kill()
-
-
-def cancel(job_id: int) -> str:
-    """取消运行中的任务（连同它的子进程）。返回面向用户的中文结果。"""
-    row = db.query_one("SELECT status FROM job_runs WHERE id = ?", (job_id,))
-    if row is None:
-        return "任务不存在"
-    if row["status"] != "running":
-        return "任务已结束，无需取消"
-    with _lock:
-        proc = _procs.get(job_id)
-    if proc is None or proc.poll() is not None:
-        # 进程已退出但状态行还没收尾（竞态）：直接把状态纠正掉
-        db.execute(
-            "UPDATE job_runs SET status = 'failed', exit_code = -15, "
-            "finished_at = datetime('now') WHERE id = ? AND status = 'running'",
-            (job_id,))
-        return "任务已停止"
-    try:
-        with open(settings.jobs_dir / f"job-{job_id}.log", "a", encoding="utf-8") as fh:
-            fh.write("\n[console] 任务已被手动取消\n")
-    except OSError:
-        pass
-    _kill_tree(proc)
-    return "已取消任务"
-
-
-def _chain_after(kind: str, ok: bool) -> None:
-    """安装成功后自动接力浏览器组件任务（Agent 核心能力，默认必装）。
-
-    拆两步的目的不是"跳过"，而是：浏览器下载（cdn.playwright.dev，约 270MB）
-    在国内常卡死——主安装先快速收口（可取消），浏览器组件随后自动接力，
-    官方源优先、自动切镜像、可单独重试；失败了主安装也不受影响。"""
-    if not ok or kind != "install" or sys.platform == "win32":
-        return
-    if browser_installed():
-        return
-    try:
-        command = browser_install_job()
-    except OSError:
-        return
-    if not command:
-        return
-    try:
-        submit("browser_install", command)
-    except JobBusy:
-        pass
-
-
-def _echo_console(text: str) -> None:
-    """把任务输出同时打到控制台终端（和 uvicorn 日志并排），终端编码不支持时静默跳过。"""
-    try:
-        sys.stdout.write(text)
-        sys.stdout.flush()
-    except (OSError, ValueError):
-        pass
-
-
-def _pump_output(stream, fh) -> None:
-    """读子进程输出：写日志文件 + 实时回显到终端（tee 语义）。"""
-    try:
-        for raw in iter(stream.readline, b""):
-            text = raw.decode("utf-8", "replace")
-            try:
-                fh.write(text)
-                fh.flush()
-            except OSError:
-                pass
-            _echo_console(text)
-    finally:
-        try:
-            stream.close()
-        except OSError:
-            pass
-
-
-def submit(kind: str, command: str, *, shell: bool = True, cwd: str | None = None) -> int:
-    """提交后台任务；返回 job id。"""
-    with _lock:
-        if active_job():
-            raise JobBusy("已有任务在执行中，请等待完成")
-        job_id = db.execute(
-            "INSERT INTO job_runs (kind, command, log_path) VALUES (?,?,?)",
-            (kind, command, f"jobs/job-LOG.log"),
-        )
-        log_path = settings.jobs_dir / f"job-{job_id}.log"
-        db.execute("UPDATE job_runs SET log_path = ? WHERE id = ?",
-                   (str(log_path.relative_to(settings.data_dir)), job_id))
-
-    # 同步写"已启动 + 命令"：POST 返回的首屏（任务面板/最近任务）就能看到，
-    # 绝不出现空白期（此前 curl 下载脚本的几十秒全静默，像"点了没反应"）。
-    started = datetime.now().strftime("%H:%M:%S")
-    header = (f"[console] 任务已启动（{started}）\n"
-              f"[console] $ {command}\n"
-              "[console] —— 以下为实时输出（首段下载 / 环境检查可能需要一两分钟）——\n")
-    try:
-        log_path.write_text(header, encoding="utf-8")
-        _echo_console(header)
-    except OSError:
-        pass
-
-    def _worker() -> None:
-        # 继承控制台进程的完整环境（PATH/HOME/SYSTEMROOT 等）。
-        # 不能整体替换成硬编码 POSIX PATH：Windows 下会导致子进程 python
-        # 找不到 System32，Winsock 初始化失败（WinError 10106），
-        # 扫码驱动在 import asyncio 时即崩溃、二维码永远出不来。
-        env = dict(os.environ)
-        env.setdefault("HOME", os.path.expanduser("~"))
-        code = -2
-        fh = None
-        try:
-            fh = open(log_path, "a", encoding="utf-8")
-            kwargs: dict = {}
-            if os.name == "posix":
-                # 独立进程组：取消 / 超时时能整树终止（sh → curl/bash 子孙进程）
-                kwargs["start_new_session"] = True
-            proc = subprocess.Popen(
-                command, shell=shell, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                # stdin 断开：后台任务绝不继承终端的 TTY。否则 hermes CLI 用
-                # sys.stdin.isatty() 判定"有人在交互"，弹出 Y/n 提问等回车——
-                # 后台无人应答，卡满超时（实机踩过：gateway install 的
-                # "Start the gateway now? [Y/n]"）。断开后自动走非交互默认值。
-                stdin=subprocess.DEVNULL,
-                env=env, cwd=cwd, **kwargs,
-            )
-            with _lock:
-                _procs[job_id] = proc
-            pump = threading.Thread(target=_pump_output,
-                                    args=(proc.stdout, fh), daemon=True)
-            pump.start()
-            try:
-                code = proc.wait(timeout=1800)
-            except subprocess.TimeoutExpired:
-                _kill_tree(proc)
-                fh.write("\n[console] 任务超时（30 分钟），已终止\n")
-                fh.flush()
-                code = -1
-            pump.join(timeout=5)
-        except OSError as exc:
-            with open(log_path, "a", encoding="utf-8") as fh2:
-                fh2.write(f"\n[console] 启动失败：{exc}\n")
-            _echo_console(f"[console] 任务 {job_id} 启动失败：{exc}\n")
-        finally:
-            if fh is not None:
-                try:
-                    fh.close()
-                except OSError:
-                    pass
-            with _lock:
-                _procs.pop(job_id, None)
-        db.execute(
-            "UPDATE job_runs SET status = ?, exit_code = ?, finished_at = datetime('now') "
-            "WHERE id = ?",
-            ("ok" if code == 0 else "failed", code, job_id),
-        )
-        # 主安装成功 → 自动接力浏览器组件（核心能力，默认必装；详见 _chain_after）
-        _chain_after(kind, code == 0)
-
-    threading.Thread(target=_worker, name=f"job-{job_id}", daemon=True).start()
-    return job_id
+# ---------------------------------------------------------------------------
+# 通用后台任务引擎（现居 jobs.py）——重导出保持旧调用路径（installer.submit 等）
+# ---------------------------------------------------------------------------
+from app.hermes.jobs import (  # noqa: E402,F401
+    JOB_KIND_LABELS,
+    JobBusy,
+    _chain_after,
+    _finish_job,
+    _procs,
+    active_job,
+    cancel,
+    job_history,
+    job_log,
+    job_log_delta,
+    last_job,
+    reap_orphan_jobs,
+    submit,
+)

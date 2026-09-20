@@ -967,3 +967,121 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 .catalog-category summary::before { content:"▸"; transition:transform .15s; font-size:11px; }
 .catalog-category[open] summary::before { transform:rotate(90deg); }
 .inline-form { display:inline; }
+
+/* ==================================================================
+   WebOS 窗口管理器（WM）+ 文件 Viewer（window-manager.js）
+   窗口覆盖在页面上方；任务条固定底部；内容 DOM 最小化即销毁
+   ================================================================== */
+#wm-root { position: fixed; inset: 0; pointer-events: none; z-index: 900; }
+#wm-root .wm-win, #wm-root #wm-taskbar { pointer-events: auto; }
+
+.wm-win {
+  position: fixed; display: flex; flex-direction: column;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #d9dee6);
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, .28);
+}
+.wm-win.wm-min { display: none; }
+.wm-win.wm-fs {
+  left: 0 !important; top: 0 !important;
+  width: 100vw !important; height: 100vh !important;
+  border-radius: 0; border: none;
+}
+.wm-titlebar {
+  display: flex; align-items: center; gap: 8px;
+  height: 40px; padding: 0 6px 0 12px; flex: none;
+  background: var(--bg-subtle, #f7f7f7);
+  border-bottom: 1px solid var(--border, #e3e7ee);
+  user-select: none;
+}
+.wm-ico { width: 18px; height: 18px; flex: none; }
+.wm-title {
+  font-size: 13px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wm-spacer { flex: 1; }
+.wm-btn {
+  width: 34px; height: 28px; flex: none;
+  border: none; background: transparent; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-secondary, #5b6472); cursor: pointer;
+}
+.wm-btn svg { width: 14px; height: 14px; }
+.wm-btn:hover { background: rgba(120, 130, 150, .16); color: var(--text, #1a1a1a); }
+.wm-btn.wm-close:hover { background: #e81123; color: #fff; }
+.wm-content {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  background: var(--bg, #fff);
+}
+
+/* ---- Viewer 通用 ---- */
+.vw-toolbar {
+  flex: none; display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-bottom: 1px solid var(--border, #e3e7ee);
+}
+.vw-tbtn {
+  border: 1px solid var(--border, #d9dee6); background: transparent;
+  border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  color: var(--text-secondary, #5b6472);
+}
+.vw-tbtn.on { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
+.vw-flex { flex: 1; }
+.vw-meta { font-size: 12px; color: var(--text-secondary, #5b6472); }
+.vw-media { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: auto; }
+.vw-note { flex: none; margin: 0; padding: 8px 16px; font-size: 12px; color: var(--text-secondary, #5b6472); }
+.vw-err { padding: 20px; font-size: 13px; }
+
+/* ---- 图片 ---- */
+.vw-image img { max-width: 100%; max-height: 100%; width: auto; height: auto; }
+
+/* ---- 视频 ---- */
+.vw-video video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* ---- 音频 ---- */
+.vw-audio {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px; padding: 24px;
+}
+.vw-audio-ico { width: 72px; height: 72px; opacity: .9; }
+.vw-audio-meta { text-align: center; }
+.vw-audio-name { font-weight: 600; font-size: 14px; word-break: break-all; }
+.vw-audio-sub { font-size: 12px; color: var(--text-secondary, #5b6472); margin-top: 2px; }
+
+/* ---- PDF ---- */
+.vw-pdf { flex: 1; width: 100%; min-height: 0; border: none; background: #525659; }
+
+/* ---- 文本 / 代码 ---- */
+.vw-text { flex: 1; margin: 0; padding: 14px 16px; overflow: auto; font-size: 12.5px; line-height: 1.6; }
+
+/* ---- 不支持的类型 ---- */
+.vw-unsupported {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  color: var(--text-secondary, #5b6472); text-align: center;
+}
+.vw-unsupported p { margin: 0; }
+.vw-uns-ico { width: 56px; height: 56px; opacity: .8; }
+.vw-uns-hint { font-size: 13px; }
+
+/* ---- 任务条 ---- */
+#wm-taskbar {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: stretch; gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-elevated, rgba(255, 255, 255, .95));
+  border-top: 1px solid var(--border, #d9dee6);
+  box-shadow: 0 -8px 24px rgba(15, 23, 42, .12);
+  z-index: 950;
+}
+.wm-task {
+  display: inline-flex; align-items: center; gap: 8px;
+  max-width: 220px; padding: 7px 12px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: rgba(120, 130, 150, .08); cursor: pointer;
+  font-size: 12.5px; color: var(--text, #1a1a1a);
+}
+.wm-task:hover { background: rgba(120, 130, 150, .16); }
+.wm-task.active { background: rgba(120, 130, 150, .22); border-color: var(--border, #d9dee6); }
+.wm-task-ico { width: 18px; height: 18px; flex: none; }
+.wm-task-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -1,6 +1,6 @@
 {% from "macros.html" import icon with context %}
 {% if job %}
-<div id="job-panel">
+<div id="job-panel" hx-get="/memory/job" hx-trigger="every 3s" hx-swap="outerHTML">
   <div class="card">
     <div class="card-header">
       <h3>依赖安装任务</h3>
@@ -18,7 +18,19 @@
 {% endfor %}{%- else -%}<span class="log-empty">等待输出…</span>{%- endif -%}</pre>
     </div>
   </div>
+  {% if restart_pending %}
+  <div class="alert alert-info" style="margin-top:10px;">
+    {{ icon('info') }} agentmemory 插件已安装：<b>重启 Gateway 后生效</b>（服务管理 → 重启）。
+  </div>
+  {% endif %}
 </div>
 {% else %}
-<div id="job-panel" class="hidden"></div>
+<div id="job-panel" hx-get="/memory/job" hx-trigger="every 3s" hx-swap="outerHTML"
+     {% if not restart_pending %}class="hidden"{% endif %}>
+  {% if restart_pending %}
+  <div class="alert alert-info">
+    {{ icon('info') }} agentmemory 插件已安装：<b>重启 Gateway 后生效</b>（服务管理 → 重启）。
+  </div>
+  {% endif %}
+</div>
 {% endif %}

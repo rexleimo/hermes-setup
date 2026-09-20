@@ -252,3 +252,160 @@ def test_submit_install_job_validation(hermes_home):
 
     with pytest.raises(mem.MemoryError):
         mem.submit_install_job("holographic")   # 无依赖无任务
+
+
+# ---------------------------------------------------------------------------
+# agentmemory 插件安装驱动（跨平台；旧 POSIX 一行命令在 Windows 上必挂）
+# ---------------------------------------------------------------------------
+
+def _make_tarball_bytes(tmp_path):
+    import tarfile
+
+    src = tmp_path / "agentmemory-main" / "integrations" / "hermes"
+    src.mkdir(parents=True)
+    (src / "plugin.json").write_text('{"name": "agentmemory"}', encoding="utf-8")
+    tgz = tmp_path / "am.tgz"
+    with tarfile.open(tgz, "w:gz") as tf:
+        tf.add(tmp_path / "agentmemory-main", arcname="agentmemory-main")
+    return tgz.read_bytes()
+
+
+def _patch_jobs_dir(monkeypatch, tmp_path):
+    from app.core.settings import settings as st
+
+    # installer.submit 会 log_path.relative_to(data_dir) → jobs 必须落在 data_dir 下
+    jobs = st.data_dir / "jobs"
+    jobs.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(type(st), "jobs_dir", property(lambda self: jobs))
+    return jobs
+
+
+def _patched_jobs():
+    from app.core.settings import settings as st
+
+    return st.jobs_dir
+
+
+def test_agentmemory_plugin_job_command_is_cross_platform(hermes_home, monkeypatch, tmp_path):
+    jobs = _patch_jobs_dir(monkeypatch, tmp_path)
+    cmd = mem.agentmemory_plugin_job()
+    script = jobs / "agentmemory_plugin.py"
+    assert script.exists()
+    assert str(script) in cmd
+    text = script.read_text(encoding="utf-8")
+    # 编译通过；不再依赖 shell 的 /tmp 与 $HOME
+    compile(text, str(script), "exec")
+    assert "$HOME" not in text and "/tmp/" not in text
+    assert "integrations" in text and "ghproxy" in text  # 双通道下载
+
+
+def test_agentmemory_plugin_driver_installs(hermes_home, monkeypatch, tmp_path):
+    """进程内执行驱动脚本：假 tarball → 落到真实 hermes home 的插件目录。"""
+    import io
+    import urllib.request
+
+    _patch_jobs_dir(monkeypatch, tmp_path)
+    data = _make_tarball_bytes(tmp_path)
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda req, timeout=None: io.BytesIO(data))
+    mem.agentmemory_plugin_job()
+    script = _patched_jobs() / "agentmemory_plugin.py"
+    exec(compile(script.read_text(encoding="utf-8"), str(script), "exec"),
+         {"__name__": "__main__"})
+    dest = hermes_home.home / "plugins" / "memory" / "agentmemory" / "plugin.json"
+    assert dest.exists()
+    assert dest.read_text(encoding="utf-8") == '{"name": "agentmemory"}'
+
+
+def test_agentmemory_plugin_driver_download_failure(hermes_home, monkeypatch, tmp_path):
+    import urllib.request
+
+    _patch_jobs_dir(monkeypatch, tmp_path)
+
+    def boom(req, timeout=None):
+        raise urllib.error.URLError("timeout")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    mem.agentmemory_plugin_job()
+    script = _patched_jobs() / "agentmemory_plugin.py"
+    try:
+        exec(compile(script.read_text(encoding="utf-8"), str(script), "exec"),
+             {"__name__": "__main__"})
+        raised = None
+    except SystemExit as exc:
+        raised = exc.code
+    assert raised == 3   # 全部通道失败 → 快速失败并给出手动指引
+
+
+def test_submit_install_job_agentmemory_uses_driver(hermes_home, monkeypatch, tmp_path):
+    import pytest
+
+    from app.hermes import installer
+
+    _patch_jobs_dir(monkeypatch, tmp_path)
+    captured = {}
+
+    def fake_submit(kind, command, **kw):
+        captured[kind] = command
+        return 99
+
+    monkeypatch.setattr(installer, "submit", fake_submit)
+    job_id = mem.submit_install_job("agentmemory")
+    assert job_id == 99
+    assert "agentmemory_plugin.py" in captured["memory_agentmemory"]
+    assert "/tmp" not in captured["memory_agentmemory"]
+
+
+# ---------------------------------------------------------------------------
+# WI-4：插件装完「重启 Gateway 后生效」提醒
+# ---------------------------------------------------------------------------
+
+def test_plugin_restart_flag_set_on_job_success(hermes_home):
+    """插件任务成功收尾 → 置「重启后生效」提醒；失败/其他任务不动它。"""
+    from app.core import appsettings
+    from app.hermes import installer
+
+    appsettings.set_setting("plugin_restart_pending", "")
+    installer._finish_job(1, "memory_agentmemory", 0)
+    assert appsettings.get_setting("plugin_restart_pending") == "1"
+    # 失败任务不覆盖、不清除
+    installer._finish_job(2, "memory_agentmemory", 7)
+    assert appsettings.get_setting("plugin_restart_pending") == "1"
+    # 其他成功任务也不动
+    installer._finish_job(3, "gateway_restart", 0)
+    assert appsettings.get_setting("plugin_restart_pending") == "1"
+
+
+def _csrf_token(c, page_url: str) -> str:
+    import re
+
+    m = re.search(r'name="_csrf" value="([^"]*)"', c.get(page_url).text)
+    assert m, "csrf token not found on " + page_url
+    return m.group(1)
+
+
+def test_plugin_restart_flag_cleared_on_gateway_action(logged_in, monkeypatch):
+    from app.core import appsettings
+    from app.hermes import installer
+
+    appsettings.set_setting("plugin_restart_pending", "123")
+    monkeypatch.setattr(installer, "gateway_action_job", lambda action: "exit 0")
+    token = _csrf_token(logged_in, "/service")
+    resp = logged_in.post("/service/action",
+                          data={"action": "restart", "confirm": "重启",
+                                "_csrf": token},
+                          follow_redirects=False)
+    # 非 HTMX 请求：_after_change 返回整页（200）而非重定向
+    assert resp.status_code == 200
+    assert appsettings.get_setting("plugin_restart_pending") == ""
+
+
+def test_memory_job_fragment_shows_restart_banner(logged_in):
+    from app.core import appsettings
+
+    appsettings.set_setting("plugin_restart_pending", "1")
+    body = logged_in.get("/memory/job").text
+    assert "重启 Gateway 后生效" in body
+    appsettings.set_setting("plugin_restart_pending", "")
+    body = logged_in.get("/memory/job").text
+    assert "重启 Gateway 后生效" not in body

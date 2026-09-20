@@ -42,10 +42,17 @@
 
   // ------------------------------------------------------------------
   // 任务日志 SSE 实时推送（新行即时上屏；替代轮询）
+  // 任务面板是可被 HTMX 换入的片段：每次 afterSwap 都重新探测并挂载，
+  // 否则动作按钮局部提交后，新面板的实时日志会静默丢失（只看到首屏快照）。
   // ------------------------------------------------------------------
-  (function initJobStream() {
+  var jobEs = null;
+  var jobLogEl = null;
+  function attachJobStream() {
     var logEl = document.getElementById("job-log");
     if (!logEl || logEl.dataset.stream !== "1" || !window.EventSource) return;
+    if (jobLogEl === logEl && jobEs) return;   // 同一片段已挂载，不重复开流
+    if (jobEs) { jobEs.close(); jobEs = null; }
+    jobLogEl = logEl;
     var stick = true;
     logEl.addEventListener("scroll", function () {
       stick = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
@@ -63,6 +70,7 @@
       if (stick) logEl.scrollTop = logEl.scrollHeight;
     }
     var es = new EventSource("/service/job/stream");
+    jobEs = es;
     es.onmessage = function (e) {
       var d;
       try { d = JSON.parse(e.data); } catch (err) { return; }
@@ -78,6 +86,7 @@
         if (title && d.label) title.textContent = d.label;
       } else if (d.type === "done") {
         es.close();
+        jobEs = null; jobLogEl = null;   // 允许后续重新挂载（新任务 / 新面板）
         var tag = document.getElementById("job-status-tag");
         if (tag) {
           tag.className = "tag " + (d.status === "ok" ? "tag-ok" : "tag-error");
@@ -87,8 +96,10 @@
         if (cancelWrap) cancelWrap.remove();
       }
     };
-    es.onerror = function () { es.close(); };
-  })();
+    es.onerror = function () { es.close(); jobEs = null; jobLogEl = null; };
+  }
+  attachJobStream();
+  document.body.addEventListener("htmx:afterSwap", attachJobStream);
 
   // ------------------------------------------------------------------
   // 确认弹窗（data-confirm：纯文案确认；data-confirm-word：输词确认）
@@ -152,7 +163,17 @@
         // 确认词就地写入隐藏字段（data-confirm-field），服务端校验用。
         var field = form.querySelector("[data-confirm-field]");
         if (field) field.value = typed || "";
-        form.submit();
+        if (window.htmx && form.hasAttribute("hx-post")) {
+          // HTMX 表单：局部提交（响应是任务面板片段 + toast + 状态刷新），
+          // 不再整页跳转；form.submit() 不会触发 htmx，必须显式走 htmx.ajax。
+          htmx.ajax("POST", form.getAttribute("hx-post"), {
+            source: form,
+            target: form.getAttribute("hx-target") || "body",
+            swap: form.getAttribute("hx-swap") || "innerHTML"
+          });
+        } else {
+          form.submit();
+        }
       }
     });
   }, true);
@@ -458,7 +479,8 @@
   }
   function wbOpen(item) {
     if (item.dataset.dir === "1") window.location.href = item.dataset.href;
-    else wbPreviewContent(item.dataset.rel);
+    else if (window.WM && WM.openFile) WM.openFile({ rel: item.dataset.rel });
+    else wbPreviewContent(item.dataset.rel);   // WM 未加载时回退侧栏预览
   }
   function wbArchive(rel) {
     if (!window.confirm("归档 " + rel + " → archive/？（移动，不留副本）")) return;

@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.8.27 — 2026-09-20（WebOS 窗口管理器：文件双击开窗在线查看）
+
+### Added
+- **WebOS 窗口管理器**（WI-10/11）：新增 `window-manager.js` 通用 WM——
+  文件管理器双击文件在 OS 风格窗口中打开（标题栏：图标 + 名称 +
+  最小化/全屏/关闭；可拖拽、级联定位、z-order 焦点）。底部任务条
+  （chip）：最小化只留 chip，点 chip 还原窗口并重建内容；关闭销毁
+  DOM 与 chip。`#wm-root` 在 `htmx:afterSwap` 后重挂，窗口跨页面
+  导航存活（OS 语义）。多个窗口可同时打开。
+- **六个内置 viewer**（WI-11）：image（适配/原始大小切换）、video
+  （原生控件、默认 78% 宽、还原时续播保存位置）、audio（大图标 +
+  原生控件、续播）、pdf（iframe 浏览器原生渲染）、text/code（pre +
+  截断提示）、none（不支持在线打开 + 下载）。新增文件类型 = 后端
+  一行分类 + `WM.register` 一个条目。
+- **Viewer 描述符 API**（WI-9）：`GET /files/viewer?path=...` 返回
+  `{ok, kind, rel, name, size, text?, truncated?}`；文本文件带 512KB
+  截断内容；记 `files_open` 审计。
+- **测试**（WI-12）：`tests/test_files_viewer.py`——六类 kind 映射、
+  文本截断、缺失文件 404、需登录。
+
+### Changed
+- 文件管理器双击文件由跳预览碎片改为开窗在线查看（保留旧
+  `wbPreviewContent` 作降级回退）。
+
+### Fixed
+- 任务条 chip 误 append 到 `#wm-root`（丢失定位 + `pointer-events:none`
+  不可点）→ 改 append 到 `#wm-taskbar`。
+- `window-manager.js` 漏声明 `var viewers = {}`（加载即 ReferenceError）。
+- `WM.openFile` 改扁平描述符契约（`{title, kind, rel, name, size, text,
+  truncated, width}`），viewer 工厂直接读 `d.name/d.size/d.text`。
+
+## 0.8.26 — 2026-07-21（Linux sudo 安装流 + 服务页 HTMX + agentmemory 跨平台 + 结构拆分）
+
+### Added
+- **Linux sudo 安装流**（WI-1）：`detect_privilege` 五态探测（windows/root/
+  passwordless/password/nosudo，30s 缓存）；需要密码时表单收密码，经 0600
+  passfile 注入 `sudo -S`（不进命令行、不进 job_runs.command、不进审计
+  details），浏览器组件补装同款通道。
+- **服务页 HTMX 局部刷新**（WI-2）：所有动作表单改 `hx-post` +
+  `hx-target=#job-panel`；SSE 重挂幂等（`attachJobStream`）；确认弹窗走
+  `htmx.ajax` 提交；操作完成 toast 提示。
+- **agentmemory 插件安装跨平台**（WI-3）：POSIX 一行命令换成 Python 驱动
+  脚本（GitHub 直连 → ghproxy.cn 镜像双通道，gzip 魔数校验，分步进度，
+  真实 hermes home 落位），Windows 实机 8s 装完 30MB。
+- **插件装完"重启 Gateway 生效"提醒**（WI-4）：任务收尾置
+  `plugin_restart_pending` 标记，记忆页任务碎片 3s 轮询自动显示横幅，
+  提交 Gateway 动作即清除。
+
+### Changed
+- **结构拆分**（WI-5）：`installer.py`（856 行）拆出 `jobs.py`（通用后台
+  任务引擎：submit/取消/历史/日志/收尾副作用）+ 新增 `write_job_script`
+  驱动脚本统一落盘助手（网关动作、agentmemory 两处复用，不再各拼引号）；
+  `memory_service.py` 拆出 `memory_providers.py`（方案定义目录，新增
+  provider 只改这里）。旧调用路径（`installer.submit` 等）重导出兼容，
+  行为零变化。
+
+### Fixed
+- **conftest 双重导入拆数据目录**（测试基建真 bug）：pytest 以顶层
+  `conftest`、测试文件又以 `tests.conftest` 各导一次，模块级
+  `HERMES_CONSOLE_DATA` 被重置——已建立的 DB 连接跨两个目录，登录
+  401/任务状态错乱。环境初始化改幂等（`setdefault` 哨兵）。
+
 ## 0.8.25 — 2026-09-17（Linux 状态查询 500 修复：_pid_alive 误用 signal.kill）
 
 ### Fixed

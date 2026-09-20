@@ -13,14 +13,17 @@ def is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
-def toast(response: Response, message: str, level: str = "success") -> None:
+def toast(response: Response, message: str, level: str = "success",
+          extra: dict | None = None) -> None:
     """在响应上注入 toast 事件（前端 app.js 监听后弹出）。
 
     HTTP 头仅允许 latin-1，中文必须以 \\uXXXX 转义（htmx 会按 JSON 解码）。
+    extra：同一次响应上需要一起触发的其他 HTMX 事件（如 "svc-refresh"）。
     """
-    response.headers["HX-Trigger"] = json.dumps(
-        {TOAST_TRIGGER: {"message": message, "level": level}}, ensure_ascii=True
-    )
+    payload = {TOAST_TRIGGER: {"message": message, "level": level}}
+    if extra:
+        payload.update(extra)
+    response.headers["HX-Trigger"] = json.dumps(payload, ensure_ascii=True)
 
 
 def htmx_redirect(url: str) -> Response:

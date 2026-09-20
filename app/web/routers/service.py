@@ -5,7 +5,7 @@ import sys
 
 from fastapi import APIRouter, Depends, Form, Request
 
-from app.core import audit
+from app.core import appsettings, audit
 from app.core.settings import settings
 from app.hermes import installer, supervisor
 from app.hermes.paths import detect, resolve_agent_repo
@@ -64,6 +64,8 @@ def _service_view(request: Request, error: str = "", code: int = 200,
         "show_force_install": show_force_install,
         # 安装完整性逐项体检：装没装完，如实呈现（不再用"二进制存在"糊弄）
         "install_health": installer.install_health(paths),
+        # 当前账号提权能力：需密码 sudo 的账号在安装表单里输入密码（见 installer.detect_privilege）
+        "privilege": installer.detect_privilege(),
         **_job_panel_ctx(),
         **_readiness(),
     }, status_code=code)
@@ -111,6 +113,8 @@ def service_action(request: Request, user: User, action: str = Form(...),
                      detail=str(exc), ip=ip)
         return _reject(request, str(exc))
 
+    # Gateway 要动（启动/停止/重启）→ 插件「重启后生效」提醒完成使命
+    appsettings.set_setting("plugin_restart_pending", "")
     audit.record(f"gateway_{action}", username=username,
                  detail="已提交后台任务", ip=ip)
     return _after_change(
@@ -119,23 +123,25 @@ def service_action(request: Request, user: User, action: str = Form(...),
 
 
 @router.post("/install")
-def install(request: Request, user: Admin, force: str = Form("")):
+def install(request: Request, user: Admin, force: str = Form(""),
+            sudo_pass: str = Form("")):
     """官方源全量安装（不跳过任何组件）。点击即提交任务——**不做预检拦截**：
     执行与否、成败原因，全在任务日志里实时可见（页顶任务面板 / 终端 / jobs 文件）。"""
     chosen = installer.preferred_install()
-    return _submit_job(request, user, "install", chosen["cmd"],
+    return _submit_job(request, user, "install",
+                       installer.install_command(sudo_pass.strip() or None),
                        f"开始安装 Hermes Agent（{chosen['label']}）",
-                       force=bool(force.strip()))
+                       force=bool(force.strip()), sudo_note=bool(sudo_pass.strip()))
 
 
 @router.post("/browser")
-def browser_backfill(request: Request, user: Admin):
+def browser_backfill(request: Request, user: Admin, sudo_pass: str = Form("")):
     """补装浏览器组件：官方源优先、国内镜像兜底（见 installer.browser_install_job）。"""
-    command = installer.browser_install_job()
+    command = installer.browser_install_job(sudo_pass.strip() or None)
     if command is None:
         return _reject(request, "未找到 Hermes 安装目录（或平台不支持），请先完成 Hermes 安装")
     return _submit_job(request, user, "browser_install", command,
-                       "开始补装浏览器组件")
+                       "开始补装浏览器组件", sudo_note=bool(sudo_pass.strip()))
 
 
 @router.post("/job/cancel")
@@ -152,9 +158,10 @@ def update(request: Request, user: Admin):
 
 
 def _submit_job(request: Request, user, kind: str, command: str, message: str,
-                force: bool = False):
+                force: bool = False, sudo_note: bool = False):
     """提交后台任务。不做预检拦截：必败任务也会先跑起来并把真实错误写进日志
-    （curl/pip 的报错就是最好的诊断），不再让"点了没反应"发生。"""
+    （curl/pip 的报错就是最好的诊断），不再让"点了没反应"发生。
+    sudo_note：审计只记"提供了 sudo 密码"，绝不记密码本身。"""
     paths = detect()
     if force:
         message = message + "（手动触发）"
@@ -165,7 +172,8 @@ def _submit_job(request: Request, user, kind: str, command: str, message: str,
         installer.submit(kind, command, cwd=str(settings.jobs_dir))
     except installer.JobBusy as exc:
         return _reject(request, str(exc))
-    audit.record(f"job_{kind}", username=user["username"], detail=command,
+    detail = command + "（含 sudo 密码，未落盘）" if sudo_note else command
+    audit.record(f"job_{kind}", username=user["username"], detail=detail,
                  ip=client_ip(request))
     return _after_change(request, paths, message)
 
@@ -275,21 +283,25 @@ def pill_fragment(request: Request, user: User):
 def _reject(request: Request, message: str, code: int = 400,
             show_force_install: bool = False):
     if is_htmx(request):
+        # 错误提示 + 原任务面板一起换入：只回一个 alert 会把面板整个顶掉，
+        # 用户就再也看不到之前的日志了。
         from fastapi.responses import HTMLResponse
 
+        panel = render_partial(request, "service/_job_panel.html",
+                               _job_panel_ctx()).body.decode("utf-8")
         return HTMLResponse(
-            f"<div class='alert alert-danger'>{message}</div>", status_code=code)
+            f"<div class='alert alert-danger'>{message}</div>" + panel,
+            status_code=code)
     return _service_view(request, error=message, code=code,
                          show_force_install=show_force_install)
 
 
 def _after_change(request: Request, paths, message: str):
     if is_htmx(request):
-        resp = render_partial(request, "service/_status_brief.html", {
-            "status": supervisor.status(paths), "paths": paths,
-            "version": supervisor.version(paths),
-        })
-        toast(resp, message)
+        # 局部刷新：任务面板原地换入（SSE 继续实时推送，app.js 会重新挂载），
+        # svc-refresh 事件让状态区即时刷新，不再整页跳转。
+        resp = render_partial(request, "service/_job_panel.html", _job_panel_ctx())
+        toast(resp, message, extra={"svc-refresh": True})
         resp.headers["HX-Push-Url"] = "false"
         return resp
     return _service_view(request, notice=message)

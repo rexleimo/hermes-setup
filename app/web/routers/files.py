@@ -116,6 +116,37 @@ def preview_fragment(request: Request, user: User, path: str = ""):
     return render_partial(request, "files/_preview.html", {"pv": data})
 
 
+@router.get("/viewer")
+def viewer_descriptor(request: Request, user: User, path: str = ""):
+    """双击窗口层的内容描述符（JSON）：前端按 kind 查 Viewer 注册表构建视图。
+
+    新增文件类型 = preview_class 加一个分支 + 前端注册表加一个条目；
+    本端点保持稳定。src 由前端按 rel 拼（/files/raw），不在此重复。"""
+    from fastapi.responses import JSONResponse
+
+    try:
+        p = ws.file_for_download(path)
+    except ws.WorkspaceError as exc:
+        _fail(request, exc, path)
+    kind = ws.preview_class(path)
+    size = p.stat().st_size
+    desc: dict = {
+        "ok": kind != "none",
+        "kind": kind,
+        "rel": path,
+        "name": p.name,
+        "size": size,
+    }
+    if kind == "text":
+        data = p.read_bytes()[:ws.PREVIEW_LIMIT]
+        desc["text"] = data.decode("utf-8", errors="replace")
+        desc["truncated"] = size > ws.PREVIEW_LIMIT
+    audit.record("files_open", username=user["username"],
+                 target=f"{path}（{kind}）", ip=client_ip(request),
+                 outcome="ok" if kind != "none" else "unsupported")
+    return JSONResponse(desc)
+
+
 # ---------------------------------------------------------------------------
 # 原始字节 / 打包
 # ---------------------------------------------------------------------------

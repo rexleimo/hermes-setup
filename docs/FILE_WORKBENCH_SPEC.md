@@ -108,3 +108,38 @@ app/web/templates/files/*.html      # HTMX 局部交换，零构建链不变
 
 约束遵守：零新依赖（缩略图/播放用浏览器原生能力）、零构建链（交互为 app.js 委托事件）、
 jail/审计/上传落 downloads/归档不复制等执法规则全部未变。
+
+---
+
+## 修订 R2（v0.8.27）— WebOS 窗口层（双击开窗在线查看）
+
+用户反馈：R1 的预览面板「不够像操作系统」，要求双击文件像 Windows/Finder
+一样**开窗**，支持最小化/还原/全屏/多窗口，文件在浏览器内直接打开（底座
+是 Linux/WebOS，`.exe` 无意义，不做本地执行委托）。
+
+落地（三层解耦，扩展点单向）：
+
+1. **后端描述符 API**（WI-9）：`GET /files/viewer?path=...` 返回
+   `{ok, kind, rel, name, size, text?, truncated?}`——走 `file_for_download`
+   同一 jail，登录必需，记 `files_open` 审计；文本内容 512KB 截断。
+   端点刻意不带 `src`（前端按 `rel` 拼 `/files/raw`），加类型时端点不变。
+2. **通用窗口管理器**（WI-10）：`static/js/window-manager.js`（原生 JS
+   IIFE，零构建链不变）——`WM.open(desc)` 开 OS 风格窗口（标题栏：图标 +
+   名称 + 最小化/全屏/关闭；拖拽、级联定位、z-order 焦点）；任务条 chip
+   固定底部；`#wm-root` 在 `htmx:afterSwap` 后重挂，窗口跨 hx-boost 页面
+   导航存活（OS 语义）。
+3. **Viewer 注册表**（WI-11）：内置 image（适配/原始大小）、video（原生
+   控件、还原续播）、audio、pdf（iframe）、text/code（pre）、none（不支持
+   在线打开 + 下载）。**新增文件类型 = 后端 `preview_class` 一个分支 +
+   `WM.register(kind, factory)` 一个条目。**
+
+窗口记忆语义：最小化 = 销毁内容 DOM（释放解码内存）+ 保留描述符指针，
+还原 = 按描述符重建（媒体回保存位置）；关闭 = DOM 全销毁。无最大化按钮
+（最小化/全屏/关闭三键）；多窗口并存。
+
+约束遵守：零新依赖、零构建链（CSP `script-src 'self'`，全外部 JS）、
+web 层不碰文件系统（仍走 workspace_service）、无 DB 迁移。
+
+已知边界：window-manager.js 无自动化前端测试（项目无前端测试框架，
+与零构建链决策一致），以浏览器 E2E 人工回归（文本/图片/视频/最小化/
+还原/全屏/多窗口/关闭全场景，2026-09-20 实机通过）。

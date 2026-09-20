@@ -54,7 +54,7 @@ def test_job_worker_inherits_full_environment(monkeypatch):
     子进程 python Winsock 初始化失败，二维码任务直接崩溃）。"""
     import io
     import os
-    from app.hermes import installer
+    from app.hermes import installer, jobs
 
     captured = {}
 
@@ -83,8 +83,9 @@ def test_job_worker_inherits_full_environment(monkeypatch):
         def join(self, timeout=None):
             return None
 
-    monkeypatch.setattr(installer.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(installer.threading, "Thread", FakeThread)
+    # 任务引擎在 jobs.py（_worker 在那里）——patch 要打在它身上
+    monkeypatch.setattr(jobs.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(jobs.threading, "Thread", FakeThread)
     installer.submit("test_env", "true")
     assert captured["env"]["PATH"] == os.environ["PATH"]
     # stdin 必须断开：继承终端 TTY 会让 hermes CLI 弹交互提问卡死后台任务

@@ -4,9 +4,13 @@ from __future__ import annotations
 import os
 import tempfile
 
-# 必须在导入 app 之前设置环境（settings 是导入期实例化的单例）
+# 必须在导入 app 之前设置环境（settings 是导入期实例化的单例）。
+# 幂等：conftest 会被双重导入（pytest 以顶层 `conftest`、测试文件又以
+# `tests.conftest` 各导一次）——若第二次导入重置 HERMES_CONSOLE_DATA，
+# 已建立的 DB 连接会跨两个数据目录，登录/任务状态全部错乱（实踩）。
 _TMP = tempfile.mkdtemp(prefix="hermes-console-test-")
-os.environ["HERMES_CONSOLE_DATA"] = _TMP
+os.environ.setdefault("_HERMES_CONSOLE_TEST_TMP", _TMP)
+os.environ["HERMES_CONSOLE_DATA"] = os.environ["_HERMES_CONSOLE_TEST_TMP"]
 os.environ["HERMES_CONSOLE_SECRET"] = "test-secret-key-for-pytest-only-0123456789"
 os.environ["HERMES_CONSOLE_SESSION_TTL"] = "60"
 os.environ["HERMES_CONSOLE_IDLE_TTL"] = "30"

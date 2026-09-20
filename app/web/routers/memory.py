@@ -132,6 +132,7 @@ async def install_job(request: Request, user: User, pid: str):
 
 @router.get("/job")
 def job_fragment(request: Request, user: User):
+    from app.core import appsettings
     from app.hermes import installer
 
     job = installer.active_job() or installer.last_job()
@@ -139,6 +140,7 @@ def job_fragment(request: Request, user: User):
     return render_partial(request, "memory/_job_panel.html", {
         "job": job, "job_lines": lines,
         "done": job is None or job["status"] != "running",
+        "restart_pending": bool(appsettings.get_setting("plugin_restart_pending")),
     })
 
 
