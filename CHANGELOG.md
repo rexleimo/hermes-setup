@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.28 — 2026-09-20（窗口管理器前端回归测试 + 文件内容缓存再验证）
+
+### Added
+- **window-manager.js 前端回归测试**：零依赖 Node mini-DOM shim 直跑
+  `tests/js/wm-test.js`（47 断言：开/最小化/还原/关闭/全屏/多窗口
+  z-order、任务条 chip 归属、媒体续播、viewer 注册表、openFile 扁平
+  描述符、标题 XSS 转义、工厂异常降级）；`tests/test_window_manager_js.py`
+  pytest 包装（无 Node 时跳过）。消除 spec R2 声明的"无自动化前端
+  测试"边界。
+
+### Fixed
+- **`/files/raw`、`/files/zip` 加 `Cache-Control: no-cache`**：工作区文件
+  可变（Agent 随时产出），此前浏览器启发式缓存会让 viewer/缩略图拿到
+  更新前的旧内容（E2E 实锤：换图后窗口里还是坏图）。现强制按 ETag
+  再验证。
+
 ## 0.8.27 — 2026-09-20（WebOS 窗口管理器：文件双击开窗在线查看）
 
 ### Added

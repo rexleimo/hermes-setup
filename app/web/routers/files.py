@@ -161,8 +161,11 @@ def raw(request: Request, user: User, path: str = "", dl: int = 0):
     audit.record("files_download" if dl else "files_view_file",
                  username=user["username"], target=path, ip=client_ip(request),
                  outcome="ok")
+    # 工作区文件会随时变化（Agent 产出）：no-cache 强制浏览器按 ETag 再验证，
+    # 避免 viewer/缩略图拿到更新前的旧内容（E2E 实锤过坏图缓存问题）
     return FileResponse(p, media_type=media, filename=p.name if dl else None,
-                        content_disposition_type="attachment" if dl else "inline")
+                        content_disposition_type="attachment" if dl else "inline",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/zip")
@@ -173,7 +176,8 @@ def zip_dir(request: Request, user: User, path: str = ""):
         _fail(request, exc, path)
     audit.record("files_zip", username=user["username"], target=path, ip=client_ip(request))
     return Response(blob, media_type="application/zip",
-                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+                    headers={"Cache-Control": "no-cache",
+                             "Content-Disposition": f'attachment; filename="{name}"'})
 
 
 # ---------------------------------------------------------------------------

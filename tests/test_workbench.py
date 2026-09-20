@@ -53,6 +53,15 @@ def test_browse_and_preview(workspace, logged_in):
     assert pv.text.strip() != ""
 
 
+def test_raw_no_cache_revalidation(workspace, logged_in):
+    # 工作区文件可变（Agent 随时产出）：no-cache 强制按 ETag 再验证，
+    # 否则 viewer/缩略图会缓存到更新前的旧内容（E2E 实锤过坏图问题）
+    r = logged_in.get("/files/raw", params={"path": "README.md"})
+    assert r.status_code == 200
+    assert r.headers.get("cache-control") == "no-cache"
+    assert r.headers.get("etag"), "FileResponse 应提供 ETag 供再验证"
+
+
 def test_upload_no_overwrite_and_archive(workspace, logged_in):
     c = logged_in
     token = _token(c)

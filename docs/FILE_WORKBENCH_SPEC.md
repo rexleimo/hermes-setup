@@ -140,6 +140,13 @@ jail/审计/上传落 downloads/归档不复制等执法规则全部未变。
 约束遵守：零新依赖、零构建链（CSP `script-src 'self'`，全外部 JS）、
 web 层不碰文件系统（仍走 workspace_service）、无 DB 迁移。
 
-已知边界：window-manager.js 无自动化前端测试（项目无前端测试框架，
-与零构建链决策一致），以浏览器 E2E 人工回归（文本/图片/视频/最小化/
-还原/全屏/多窗口/关闭全场景，2026-09-20 实机通过）。
+前端回归测试：项目无前端测试框架（零构建链决策），故用零依赖 Node
+mini-DOM shim 直跑 `tests/js/wm-test.js`（47 断言：生命周期 / 任务条
+chip 归属 / 媒体续播 / 注册表 / 扁平描述符 / XSS 转义 / 工厂异常降级），
+`tests/test_window_manager_js.py` 做 pytest 包装（无 Node 时跳过）。
+另经浏览器 E2E 人工回归（文本/图片/视频/最小化/还原/全屏/多窗口/
+关闭全场景，2026-09-20 实机通过）。
+
+缓存语义：`/files/raw` 与 `/files/zip` 带 `Cache-Control: no-cache`
+（工作区文件可变，强制浏览器按 ETag 再验证，防止 viewer/缩略图拿到
+更新前的旧内容）。
