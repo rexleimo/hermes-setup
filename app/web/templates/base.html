@@ -22,7 +22,9 @@
         <small>Agent 运维中台</small>
       </span>
     </a>
-    <nav class="side-nav">
+    <!-- hx-boost：换页走 HTMX 局部替换，不再整文档重载（app.js 的弹窗/侧栏绑定
+         已全部事件委托，toast 跨页重放内置支持） -->
+    <nav class="side-nav" hx-boost="true">
       <p class="nav-section">总览</p>
       <a class="nav-item {% if nav_active == 'dashboard' %}active{% endif %}" href="/">
         {{ icon('grid') }}<span>仪表盘</span>

@@ -119,12 +119,15 @@
 
   // ------------------------------------------------------------------
   // 确认弹窗（data-confirm：纯文案确认；data-confirm-word：输词确认）
+  // 元素每次现查：hx-boost 换页会换掉 #confirm-modal 的 DOM，
+  // 缓存旧节点会导致换页后弹窗"点了没反应"（0.8.31 侧栏 boost 前必须根治）。
   // ------------------------------------------------------------------
-  var modal = document.getElementById("confirm-modal");
   var pendingForm = null;
   var confirmWord = "";
 
   function openConfirm(opts) {
+    var modal = document.getElementById("confirm-modal");
+    if (!modal) return;
     document.getElementById("confirm-message").textContent = opts.message;
     document.getElementById("confirm-accept").className =
       "btn " + (opts.danger === false ? "btn-primary" : "btn-danger");
@@ -143,25 +146,44 @@
     if (confirmWord) input.focus();
   }
 
-  document.getElementById("confirm-accept").addEventListener("click", function () {
-    try {
-      var typed = "";
-      if (confirmWord) {
-        typed = document.getElementById("confirm-input").value.trim();
-        if (typed !== confirmWord) {
-          showToast("确认词不匹配，未执行操作", "warning");
+  document.addEventListener("click", function (e) {
+    if (e.target.closest && e.target.closest("#confirm-accept")) {
+      try {
+        var typed = "";
+        if (confirmWord) {
+          typed = document.getElementById("confirm-input").value.trim();
+          if (typed !== confirmWord) {
+            showToast("确认词不匹配，未执行操作", "warning");
+            return;
+          }
+        }
+        var modal = document.getElementById("confirm-modal");
+        if (modal) modal.close();
+        if (!pendingForm) {
+          showToast("未找到待提交的表单，请重试", "warning");
           return;
         }
+        pendingForm(typed);
+      } catch (err) {
+        // 任何异常都必须可见：不再出现"点了没反应"
+        showToast("提交失败：" + err, "error");
       }
-      modal.close();
-      if (!pendingForm) {
-        showToast("未找到待提交的表单，请重试", "warning");
-        return;
-      }
-      pendingForm(typed);
-    } catch (err) {
-      // 任何异常都必须可见：不再出现"点了没反应"
-      showToast("提交失败：" + err, "error");
+      return;
+    }
+    // dialog backdrop 关闭（点在 <dialog> 本体 = 点到 backdrop）
+    var dlg = e.target;
+    if (dlg instanceof HTMLDialogElement && dlg.classList.contains("modal") && dlg.open) {
+      dlg.close();
+    }
+    var closer = e.target.closest && e.target.closest("[data-modal-close]");
+    if (closer) {
+      var host = closer.closest("dialog");
+      if (host) host.close();
+    }
+    var opener = e.target.closest && e.target.closest("[data-modal-open]");
+    if (opener) {
+      var target = document.querySelector(opener.dataset.modalOpen);
+      if (target && target.showModal) target.showModal();
     }
   });
 
@@ -195,27 +217,9 @@
   }, true);
 
   // ------------------------------------------------------------------
-  // 弹窗开关（data-modal-open / data-modal-close）
+  // 弹窗开关（data-modal-open / data-modal-close）+ dialog backdrop 关闭
+  // （并入上方 #confirm-accept 委托处理器；直接绑定经不起 boost 换页）
   // ------------------------------------------------------------------
-  document.addEventListener("click", function (e) {
-    var opener = e.target.closest("[data-modal-open]");
-    if (opener) {
-      var target = document.querySelector(opener.dataset.modalOpen);
-      if (target && target.showModal) target.showModal();
-      return;
-    }
-    if (e.target.closest("[data-modal-close]")) {
-      var dlg = e.target.closest("dialog");
-      if (dlg) dlg.close();
-    }
-  });
-
-  // 点击 backdrop 关闭
-  document.querySelectorAll("dialog.modal").forEach(function (dlg) {
-    dlg.addEventListener("click", function (e) {
-      if (e.target === dlg) dlg.close();
-    });
-  });
 
   // ------------------------------------------------------------------
   // 复制按钮 [data-copy]
@@ -235,31 +239,24 @@
   });
 
   // ------------------------------------------------------------------
-  // 侧边栏（窄屏抽屉）
+  // 侧边栏（窄屏抽屉）— 事件委托：boost 换页会换掉 #sidebar 的 DOM，
+  // 直接绑定只在首屏有效（0.8.31 侧栏开启 hx-boost 的前置加固）。
   // ------------------------------------------------------------------
-  var sidebar = document.getElementById("sidebar");
-  var toggleBtn = document.querySelector("[data-sidebar-toggle]");
-  if (toggleBtn && sidebar) {
-    toggleBtn.addEventListener("click", function () {
+  document.addEventListener("click", function (e) {
+    var toggleHit = e.target.closest && e.target.closest("[data-sidebar-toggle]");
+    var sidebar = document.getElementById("sidebar");
+    if (toggleHit && sidebar) {
       var open = sidebar.classList.toggle("open");
       document.body.classList.toggle("drawer-open", open);
-    });
-    document.addEventListener("click", function (e) {
-      if (!sidebar.classList.contains("open")) return;
-      if (e.target.closest("[data-drawer-close]") ||
-          (!sidebar.contains(e.target) && !toggleBtn.contains(e.target))) {
-        sidebar.classList.remove("open");
-        document.body.classList.remove("drawer-open");
-      }
-    });
-    // 抽屉里点了导航项后自动收起
-    sidebar.querySelectorAll("a.nav-item").forEach(function (a) {
-      a.addEventListener("click", function () {
-        sidebar.classList.remove("open");
-        document.body.classList.remove("drawer-open");
-      });
-    });
-  }
+      return;
+    }
+    if (!sidebar || !sidebar.classList.contains("open")) return;
+    if (e.target.closest("[data-drawer-close]") ||
+        (!sidebar.contains(e.target) && !toggleHit)) {
+      sidebar.classList.remove("open");
+      document.body.classList.remove("drawer-open");
+    }
+  });
 
   // ------------------------------------------------------------------
   // 页内 Tab（data-tab-group 容器 + data-tab 按钮 + data-tab-panel 面板）
@@ -411,7 +408,7 @@
     applyConditionalFields();
     // 文件管理器换页后（boosted 导航 / 归档局部刷新）：清旧选中 + 重算状态栏
     // wbSelect 在文件工作台 IIFE 内，跨作用域经 window.__wbClearSel 调用。
-    if ($id("osfm-items") && window.__wbClearSel) window.__wbClearSel();
+    if (document.getElementById("osfm-items") && window.__wbClearSel) window.__wbClearSel();
   });
 })();
 
@@ -422,7 +419,7 @@
   // ------------------------------------------------------------------
   (function () {
   "use strict";
-  var sel = null, wbDefault = null;
+  var sel = null, wbDefault = null, selMulti = [];
 
   function $id(x) { return document.getElementById(x); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -435,17 +432,25 @@
   function wbStatus() {
     var c = $id("e-status-count"), s = $id("e-status-sel");
     if (c) c.textContent = document.querySelectorAll("#osfm-items .osfm-card-item").length + " 个项目";
-    if (s) s.textContent = sel ? "选中 1 个项目  " + sel.dataset.size : "";
+    if (s) {
+      var n = selMulti.length || (sel ? 1 : 0);
+      s.textContent = n ? ("选中 " + n + " 个项目" + (n === 1 && sel ? "  " + sel.dataset.size : "")) : "";
+    }
   }
   function wbCmdbar(item) {
     var op = $id("osfm-act-open"), arc = $id("osfm-act-archive");
     var dl = $id("osfm-act-dl"), zip = $id("osfm-act-zip");
+    var ren = $id("osfm-act-rename"), cp = $id("osfm-act-copy"), del = $id("osfm-act-delete");
+    var trash = wbIsTrash(), multi = selMulti.length > 0;
     if (op) op.disabled = !item;
-    if (arc) arc.disabled = !(item && item.dataset.bucket !== "1");
+    if (arc) arc.disabled = !(item && item.dataset.bucket !== "1" && !trash);
+    if (ren) ren.disabled = !(item && !multi);
+    if (cp) cp.disabled = !(item || multi);
+    if (del) del.disabled = !(item || multi);
     var isDir = item && item.dataset.dir === "1";
-    if (dl) { dl.style.display = item && !isDir ? "" : "none";
+    if (dl) { dl.style.display = item && !isDir && !trash ? "" : "none";
       if (item) dl.href = "/files/raw?path=" + encodeURIComponent(item.dataset.rel) + "&dl=1"; }
-    if (zip) { zip.style.display = item && isDir ? "" : "none";
+    if (zip) { zip.style.display = item && isDir && !trash ? "" : "none";
       if (item) zip.href = "/files/zip?path=" + encodeURIComponent(item.dataset.rel); }
   }
   // 与 macros.html wbicon 同源的内联 SVG（跨平台一致，不用 emoji 字体）
@@ -478,8 +483,12 @@
       + (d.dir === "0"
           ? '<a class="e-dbtn" href="/files/raw?path=' + encodeURIComponent(d.rel) + '&dl=1">下载</a>'
           : '<a class="e-dbtn" href="/files/zip?path=' + encodeURIComponent(d.rel) + '">打包</a>')
-      + (root && root.dataset.admin === "1" && d.bucket !== "1"
-          ? '<button type="button" class="e-dbtn" data-wb="archive">归档</button>' : "")
+      + (root && root.dataset.admin === "1"
+          ? (wbIsTrash()
+              ? '<button type="button" class="e-dbtn" data-wb="restore">还原</button>'
+              : (d.bucket !== "1"
+                  ? '<button type="button" class="e-dbtn" data-wb="archive">归档</button>' : ""))
+          : "")
       + "</div>";
     pane.innerHTML = '<div class="e-dthumb">' + thumb + "</div>"
       + '<div class="e-dname">' + esc(d.name0) + "</div>" + acts
@@ -509,42 +518,128 @@
     else if (window.WM && WM.openFile) WM.openFile({ rel: item.dataset.rel });
     else wbPreviewContent(item.dataset.rel);   // WM 未加载时回退侧栏预览
   }
-  function wbArchive(rel) {
-    if (!window.confirm("归档 " + rel + " → archive/？（移动，不留副本）")) return;
+  function wbHere() {
     var root = $id("osfm-root");
-    var here = root && root.dataset.here ? String(root.dataset.here).split("?")[1] || "" : "";
+    return root && root.dataset.here ? String(root.dataset.here).split("?")[1] || "" : "";
+  }
+  function wbIsTrash() { return /(^|&)cat=trash(&|$)/.test(wbHere()); }
+  function wbCsrf() {
     var cf = document.querySelector(".osfm-upload input[name=_csrf]");
     var meta = document.querySelector('meta[name="csrf"]');
-    var csrf = cf ? cf.value : (meta ? meta.content : "");
+    return cf ? cf.value : (meta ? meta.content : "");
+  }
+  function wbCurrentDir() {
+    // 当前目录 rel：here 查询串里的 path 参数（根视图 = ""）
+    var m = wbHere().match(/(^|&)path=([^&]*)/);
+    return m ? decodeURIComponent(m[2].replace(/\+/g, "%20")) : "";
+  }
+  function wbPost(url, fields, failMsg) {
+    // 局部提交：服务端重渲染当前视图 + 侧栏 OOB 换入，不整页刷新。
+    // htmx.ajax 要求 source 已挂载，故挂一个隐藏表单，请求结束后移除；
+    // fields 的值是数组时展开为多值字段（批量操作的 paths）。
+    var csrf = wbCsrf();
+    var meta = document.querySelector('meta[name="csrf"]');
     if (window.htmx) {
-      // 局部更新：服务端重渲染当前视图 + 侧栏 OOB 换入，不整页刷新
-      // 注意：htmx.ajax 要求 source 已挂载（1.9 内部 se() 连通性检查，
-      // 未挂载的表单会被静默丢弃），故挂一个隐藏表单，请求结束后移除。
       var f = document.createElement("form");
       f.style.display = "none";
-      f.innerHTML = '<input name="path" value="' + esc(rel) + '">'
-        + '<input name="here" value="' + esc(here) + '">'
-        + '<input name="_csrf" value="' + esc(csrf) + '">';
+      var html = "";
+      for (var k in fields) {
+        var v = fields[k];
+        if (v && typeof v.join === "function") {
+          for (var j = 0; j < v.length; j++)
+            html += '<input name="' + esc(k) + '" value="' + esc(v[j]) + '">';
+        } else {
+          html += '<input name="' + esc(k) + '" value="' + esc(v) + '">';
+        }
+      }
+      f.innerHTML = html + '<input name="_csrf" value="' + esc(csrf) + '">';
       document.body.appendChild(f);
       f.addEventListener("htmx:afterRequest", function () { f.remove(); }, { once: true });
       setTimeout(function () { if (f.parentNode) f.remove(); }, 30000);
-      htmx.ajax("POST", "/files/move", { source: f, target: "#osfm-content", swap: "innerHTML" });
+      htmx.ajax("POST", url, { source: f, target: "#osfm-content", swap: "innerHTML" });
       return;
     }
     var fd = new FormData();
-    fd.append("path", rel);
-    fetch("/files/move", { method: "POST",
+    for (var k2 in fields) {
+      var v2 = fields[k2];
+      if (v2 && typeof v2.join === "function") { for (var j2 = 0; j2 < v2.length; j2++) fd.append(k2, v2[j2]); }
+      else fd.append(k2, v2);
+    }
+    fd.append("_csrf", csrf);
+    fetch(url, { method: "POST",
       headers: { "X-CSRF-Token": meta ? meta.content : "" }, body: fd })
       .then(function (r) { if (!r.ok) throw new Error(r.status); window.location.reload(); })
-      .catch(function () { window.alert("归档失败"); });
+      .catch(function () { window.alert(failMsg || "操作失败"); });
+  }
+  function wbArchive(rel) {
+    if (!window.confirm("归档 " + rel + " → archive/？（移动，不留副本）")) return;
+    wbPost("/files/move", { path: rel, here: wbHere() }, "归档失败");
+  }
+  function wbRename(item) {
+    var name = window.prompt("重命名为：", item.dataset.name0);
+    if (!name || name === item.dataset.name0) return;
+    wbPost("/files/rename", { path: item.dataset.rel, name: name, here: wbHere() }, "重命名失败");
+  }
+  function wbSelRels() {
+    if (selMulti.length) return selMulti.map(function (el) { return el.dataset.rel; });
+    return sel ? [sel.dataset.rel] : [];
+  }
+  function wbCopy() {
+    var rels = wbSelRels();
+    if (!rels.length) return;
+    wbPost("/files/batch", { op: "copy", paths: rels, here: wbHere() }, "复制失败");
+  }
+  function wbDelete() {
+    var rels = wbSelRels();
+    if (!rels.length) return;
+    var msg = rels.length === 1
+      ? "把 " + rels[0] + " 移入回收站？（可在回收站还原）"
+      : "把选中的 " + rels.length + " 项移入回收站？（可在回收站还原）";
+    if (!window.confirm(msg)) return;
+    wbPost("/files/batch", { op: "delete", paths: rels, here: wbHere() }, "删除失败");
+  }
+  function wbRestore(item) {
+    wbPost("/files/restore", { path: item.dataset.rel, here: wbHere() }, "还原失败");
+  }
+  function wbNew(kind) {
+    var name = window.prompt(kind === "folder" ? "新文件夹名称：" : "新文件名称：", "");
+    if (!name) return;
+    wbPost("/files/new", { dir: wbCurrentDir(), kind: kind, name: name, here: wbHere() }, "创建失败");
   }
   function wbSelect(item) {
-    wbClearSel(); sel = item;
+    wbClearSel(); selMulti = []; sel = item;
     if (item) { item.classList.add("selected"); item.focus({ preventScroll: true }); }
     wbCmdbar(item); wbDetails(item);
   }
+  function wbToggleSel(item) {
+    var idx = selMulti.indexOf(item);
+    if (idx >= 0) {
+      selMulti.splice(idx, 1);
+      item.classList.remove("selected");
+      if (sel === item) sel = selMulti[selMulti.length - 1] || null;
+    } else {
+      selMulti.push(item);
+      item.classList.add("selected");
+      sel = item;
+    }
+    if (!selMulti.length && !sel) wbClearSel();
+    else if (sel) sel.classList.add("selected");
+    wbCmdbar(sel); wbDetails(selMulti.length === 1 ? sel : null);
+    if (!sel && !selMulti.length) wbDetails(null);
+    wbStatus();
+  }
+  function wbRangeSel(item) {
+    var items = Array.prototype.slice.call(
+      document.querySelectorAll("#osfm-items .osfm-card-item"));
+    var a = items.indexOf(sel), b = items.indexOf(item);
+    if (a < 0 || b < 0) { wbSelect(item); return; }
+    if (a > b) { var t = a; a = b; b = t; }
+    wbClearSel(); selMulti = items.slice(a, b + 1); sel = item;
+    for (var i = 0; i < selMulti.length; i++) selMulti[i].classList.add("selected");
+    wbCmdbar(sel); wbDetails(null); wbStatus();
+  }
   // 供顶部通用 afterSwap 处理器调用（换页/局部刷新后清掉指向旧 DOM 的选中）
-  window.__wbClearSel = function () { wbSelect(null); };
+  window.__wbClearSel = function () { selMulti = []; wbSelect(null); };
 
   document.addEventListener("click", function (ev) {
     if (wbMenu && !ev.target.closest(".osfm-menu")) wbHideMenu();
@@ -552,6 +647,13 @@
     if (act) {
       if ((act.id === "osfm-act-open" || act.dataset.wb === "open") && sel) { wbOpen(sel); return; }
       if ((act.id === "osfm-act-archive" || act.dataset.wb === "archive") && sel) { wbArchive(sel.dataset.rel); return; }
+      if (act.id === "osfm-act-rename" && sel) { wbRename(sel); return; }
+      if (act.id === "osfm-act-copy") { wbCopy(); return; }
+      if (act.id === "osfm-act-delete") { wbDelete(); return; }
+      if (act.id === "osfm-act-new-folder") { wbNew("folder"); return; }
+      if (act.id === "osfm-act-new-file") { wbNew("file"); return; }
+      if (act.id === "osfm-act-restore" && sel) { wbRestore(sel); return; }
+      if (act.dataset.wb === "restore" && sel) { wbRestore(sel); return; }
     }
     if (ev.target.closest && ev.target.closest("#e-back")) { history.back(); return; }
     if (ev.target.closest && ev.target.closest("#e-fwd")) { history.forward(); return; }
@@ -559,7 +661,9 @@
       var root = $id("osfm-root"); if (root) root.classList.toggle("e-nodetails"); return;
     }
     var item = wbItem(ev);
-    if (!item) { if (ev.target.closest && !ev.target.closest(".e-side,.e-menu,.osfm-upload,input")) wbSelect(null); return; }
+    if (!item) { if (ev.target.closest && !ev.target.closest(".e-side,.e-menu,.osfm-upload,input")) { selMulti = []; wbSelect(null); } return; }
+    if (ev.ctrlKey || ev.metaKey) { wbToggleSel(item); return; }
+    if (ev.shiftKey && sel) { wbRangeSel(item); return; }
     wbSelect(item);
   });
   document.addEventListener("dblclick", function (ev) {
@@ -571,6 +675,14 @@
   // 右键上下文菜单
   var wbMenu = null;
   function wbHideMenu() { if (wbMenu) wbMenu.style.display = "none"; }
+  function wbEnsureMenu() {
+    if (!wbMenu) { wbMenu = document.createElement("div"); wbMenu.className = "osfm-menu"; document.body.appendChild(wbMenu); }
+  }
+  function wbShowMenu(ev) {
+    wbMenu.style.display = "block";
+    wbMenu.style.left = Math.min(ev.clientX, window.innerWidth - wbMenu.offsetWidth - 8) + "px";
+    wbMenu.style.top = Math.min(ev.clientY, window.innerHeight - wbMenu.offsetHeight - 8) + "px";
+  }
   function wbMenuAdd(label, fn) {
     var b = document.createElement("button");
     b.type = "button"; b.textContent = label;
@@ -578,31 +690,61 @@
     wbMenu.appendChild(b);
   }
   document.addEventListener("contextmenu", function (ev) {
+    var root = $id("osfm-root");
+    if (!root) return;
     var item = wbItem(ev);
-    if (!item) return;
+    if (!item) {
+      // 空白处右键：新建（仅目录视图 + 管理员；集合/搜索/回收站视图不适用）
+      if (root.dataset.admin !== "1" || wbIsTrash() ||
+          /[?&](cat|q)=/.test(wbHere())) return;
+      if (!ev.target.closest || !ev.target.closest("#osfm-content")) return;
+      ev.preventDefault();
+      wbEnsureMenu(); wbMenu.innerHTML = "";
+      wbMenuAdd("新建文件夹", function () { wbNew("folder"); });
+      wbMenuAdd("新建文件", function () { wbNew("file"); });
+      wbShowMenu(ev);
+      return;
+    }
     ev.preventDefault();
     wbSelect(item);
-    if (!wbMenu) { wbMenu = document.createElement("div"); wbMenu.className = "osfm-menu"; document.body.appendChild(wbMenu); }
-    wbMenu.innerHTML = "";
+    wbEnsureMenu(); wbMenu.innerHTML = "";
+    var trash = wbIsTrash();
+    if (trash) {
+      wbMenuAdd("还原到原位置", function () { wbRestore(item); });
+      wbShowMenu(ev);
+      return;
+    }
     wbMenuAdd("打开", function () { wbOpen(item); });
     if (item.dataset.dir === "0")
       wbMenuAdd("下载", function () { location.href = "/files/raw?path=" + encodeURIComponent(item.dataset.rel) + "&dl=1"; });
     if (item.dataset.dir === "1")
       wbMenuAdd("打包下载（zip）", function () { location.href = "/files/zip?path=" + encodeURIComponent(item.dataset.rel); });
-    var root = $id("osfm-root");
-    if (root && root.dataset.admin === "1" && item.dataset.bucket !== "1")
-      wbMenuAdd("归档到 archive/", function () { wbArchive(item.dataset.rel); });
-    wbMenu.style.display = "block";
-    wbMenu.style.left = Math.min(ev.clientX, window.innerWidth - wbMenu.offsetWidth - 8) + "px";
-    wbMenu.style.top = Math.min(ev.clientY, window.innerHeight - wbMenu.offsetHeight - 8) + "px";
+    if (root.dataset.admin === "1") {
+      wbMenuAdd("重命名", function () { wbRename(item); });
+      wbMenuAdd("复制副本", function () { wbCopy(); });
+      if (item.dataset.bucket !== "1")
+        wbMenuAdd("删除（移入回收站）", function () { wbDelete(); });
+      if (item.dataset.bucket !== "1")
+        wbMenuAdd("归档到 archive/", function () { wbArchive(item.dataset.rel); });
+    }
+    wbShowMenu(ev);
   });
 
-  // 键盘：Esc 取消 / Enter 打开 / Backspace 上一级
+  // 键盘：Esc 取消 / Enter 打开 / Backspace 上一级 / Delete 删除 / F2 重命名
   document.addEventListener("keydown", function (ev) {
-    if (ev.key === "Escape") { wbHideMenu(); wbSelect(null); return; }
+    if (ev.key === "Enter" && ev.target && ev.target.id === "osfm-search") {
+      // 全局搜索：回车按名字搜整个工作区；输入过程仍是当前视图即时过滤
+      var q = ev.target.value.trim();
+      if (q) wbNav("/files?q=" + encodeURIComponent(q) + "&sort=name&view=grid");
+      return;
+    }
+    if (ev.key === "Escape") { wbHideMenu(); selMulti = []; wbSelect(null); return; }
     var tag = (document.activeElement || {}).tagName || "";
     if (/INPUT|TEXTAREA|SELECT/i.test(tag)) return;
+    if (!$id("osfm-root")) return;
     if (ev.key === "Enter" && sel) { wbOpen(sel); return; }
+    if (ev.key === "Delete" && (sel || selMulti.length)) { ev.preventDefault(); wbDelete(); return; }
+    if (ev.key === "F2" && sel && !selMulti.length) { ev.preventDefault(); wbRename(sel); return; }
     if (ev.key === "Backspace") {
       var up = document.querySelector(".e-nav a.e-navbtn");
       // up 是 boost 容器内的 <a>：有 HTMX 走局部换页，无则原生整页
@@ -618,6 +760,87 @@
       items[i].style.display = items[i].dataset.name.indexOf(q) >= 0 ? "" : "none";
     }
   });
+
+  // 拖拽移动：拖到目录卡片 / 面包屑 / 侧栏位置上即移入该目录
+  var dragRel = null;
+  function wbDropTarget(ev) {
+    var item = ev.target.closest && ev.target.closest(".osfm-card-item");
+    if (item && item.dataset.dir === "1" && item.dataset.rel !== dragRel)
+      return { dirRel: item.dataset.rel };
+    var crumb = ev.target.closest && ev.target.closest(".e-address a");
+    if (crumb) {
+      var m = (crumb.getAttribute("href") || "").match(/[?&]path=([^&]*)/);
+      return { dirRel: m ? decodeURIComponent(m[1].replace(/\+/g, "%20")) : "" };
+    }
+    var loc = ev.target.closest && ev.target.closest(".e-side a.e-loc");
+    if (loc) {
+      var m2 = (loc.getAttribute("href") || "").match(/[?&]path=([^&]*)/);
+      if (m2) return { dirRel: decodeURIComponent(m2[1].replace(/\+/g, "%20")) };
+    }
+    return null;
+  }
+  document.addEventListener("dragstart", function (ev) {
+    var item = wbItem(ev);
+    if (!item || wbIsTrash()) return;
+    dragRel = item.dataset.rel;
+    if (ev.dataTransfer) {
+      ev.dataTransfer.setData("text/plain", dragRel);
+      ev.dataTransfer.effectAllowed = "move";
+    }
+  });
+  document.addEventListener("dragend", function () { dragRel = null; });
+  document.addEventListener("dragover", function (ev) {
+    if (!dragRel) return;
+    if (wbDropTarget(ev)) {
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+    }
+  });
+  document.addEventListener("drop", function (ev) {
+    if (!dragRel) return;
+    var dest = wbDropTarget(ev);
+    if (!dest) return;
+    ev.preventDefault();
+    var rel = dragRel; dragRel = null;
+    if (dest.dirRel === rel || dest.dirRel.indexOf(rel + "/") === 0) {
+      showToast("不能把目录移进它自己", "warning");
+      return;
+    }
+    wbPost("/files/move", { path: rel, dest: dest.dirRel, here: wbHere() }, "移动失败");
+  });
+
+  // 目录变更监听（W16）：Agent 在另一头写文件时，打开中的目录自动刷新。
+  // 弹窗打开 / 有选中 / 正在输入时不刷，避免打断操作。
+  var watchEs = null, watchUrl = "";
+  function attachWatch() {
+    if (!window.EventSource) return;
+    var root = $id("osfm-root");
+    if (!root) {
+      if (watchEs) { watchEs.close(); watchEs = null; watchUrl = ""; }
+      return;
+    }
+    var here = wbHere();
+    if (/(^|&)q=/.test(here)) return;   // 搜索结果视图不监听
+    var url = "/files/watch" + (here ? "?" + here : "");
+    if (watchEs && watchUrl === url) return;
+    if (watchEs) watchEs.close();
+    watchUrl = url;
+    var es = new EventSource(url);
+    watchEs = es;
+    es.addEventListener("changed", function () {
+      if (document.querySelector("dialog[open]")) return;
+      if (sel || selMulti.length) return;
+      if (document.activeElement &&
+          /INPUT|TEXTAREA/.test(document.activeElement.tagName || "")) return;
+      wbNav("/files" + (here ? "?" + here : ""));
+    });
+    es.onerror = function () {
+      es.close();
+      if (watchEs === es) { watchEs = null; watchUrl = ""; }
+    };
+  }
+  attachWatch();
+  document.body.addEventListener("htmx:afterSwap", attachWatch);
   // 选完文件即上传：htmx 提交（hx-swap=none，不 swap），服务端回 HX-Trigger
   document.addEventListener("change", function (ev) {
     if (!ev.target || !ev.target.matches || !ev.target.matches(".osfm-upload input[type=file]")) return;

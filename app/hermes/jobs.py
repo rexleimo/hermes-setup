@@ -333,4 +333,30 @@ def _finish_job(job_id: int, kind: str, code: int) -> None:
             appsettings.set_setting("plugin_restart_pending", str(job_id))
         except Exception:  # 提醒失败不影响任务结果
             pass
+    # Gateway 动作/安装/更新结束 → 状态探测缓存立刻失效（否则顶栏 pill 要等 TTL）
+    if kind.startswith(("gateway_", "update", "install")):
+        try:
+            from app.hermes import supervisor
+
+            supervisor.invalidate_status_cache()
+        except Exception:
+            pass
+    # 官方 CLI 带 --enable 装插件；万一所装版本不认该参数，收尾兜底补白名单，
+    # 不让"装完即隐身"发生（白名单里有名无目录时插件页会如实显示「目录缺失」）
+    if kind == "plugin_install" and code == 0:
+        try:
+            import re as _re
+
+            row = db.query_one("SELECT command FROM job_runs WHERE id = ?", (job_id,))
+            m = _re.search(r"plugins install ([A-Za-z0-9._-]+)", row["command"] or "") \
+                if row else None
+            if m:
+                from app.hermes import plugins_service as psvc
+
+                name = m.group(1)
+                if (psvc.plugins_dir() / name / "plugin.yaml").exists() \
+                        and name not in psvc.enabled_names():
+                    psvc.set_enabled(name, True)
+        except Exception:  # 兜底失败不改变任务结果，页面仍可手动启用
+            pass
 

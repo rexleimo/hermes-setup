@@ -239,6 +239,81 @@ def agentmemory_plugin_job() -> str:
         AGENTMEMORY_PLUGIN_DRIVER.replace("__ROOT__", json.dumps(root)),
     )
 
+# ---------------------------------------------------------------------------
+# 连接测试（W9）：此前 API Key 只写 .env、从不校验——填错 Key 也提示"启用成功"，
+# 要回 Agent 会话里才发现记忆不动。这里做通用探测：端点可达性 + 密钥是否被拒
+# （401/403）。不是完整鉴权，但能挡住"Key 填错""网络不通"这两类最高频问题。
+# ---------------------------------------------------------------------------
+
+_PROBE_TIMEOUT = 8
+
+
+def _probe_key(d, values: dict) -> str:
+    """密钥取值：表单当前值优先，回落已保存的 .env（用户可能没重填表单）。"""
+    if d.probe_auth_field:
+        raw = str(values.get(d.probe_auth_field) or "").strip()
+        if not raw:
+            raw = (EnvStore.load().get(d.probe_auth_field) or "").strip()
+        return raw
+    return ""
+
+
+def test_connection(pid: str, values: dict | None = None) -> dict:
+    values = values or {}
+    d = get_provider_def(pid)
+    probe = d.probe
+    if pid == "hindsight" and values.get("mode") == "local":
+        return {"level": "skip", "title": "本地模式",
+                "message": "本地模式连接本机 Hindsight 服务，无云端端点可探测；"
+                           "重启 Gateway 后在会话中验证。"}
+    if pid == "agentmemory":
+        url = values.get("agentmemory_api_url") or ""
+        if not url:
+            return {"level": "skip", "title": "本机模式",
+                    "message": "MCP 本机模式由 Gateway 经 npx 拉起，无需探测；"
+                               "已有服务端模式填入服务端地址后可测试。"}
+        probe = url
+    elif pid == "mem0" and values.get("host"):
+        probe = values["host"].rstrip("/") + "/v1/ping/"
+    elif pid == "honcho" and values.get("baseUrl"):
+        probe = values["baseUrl"]
+    if not probe:
+        return {"level": "skip", "title": "纯本地方案",
+                "message": f"{d.label} 不依赖外部服务，无需探测；重启 Gateway 后生效。"}
+    # {FIELD} 占位符通用替换（不绑死 probe_auth_field：openviking 的探针
+    # 占位符是端点地址而非密钥字段，绑死的话永远替换不掉）
+    url = probe
+    if "{" in url:
+        import re as _re
+
+        for fld in _re.findall(r"\{([A-Za-z0-9_]+)\}", url):
+            url = url.replace("{%s}" % fld, str(values.get(fld) or "").strip())
+    if not url.startswith(("http://", "https://")):
+        return {"level": "error", "title": "地址不合法",
+                "message": f"探测地址 {url!r} 不是 http(s) URL"}
+    headers = {"User-Agent": "hermes-console"}
+    key = _probe_key(d, values)
+    if key and d.probe_auth_field:
+        headers["Authorization"] = f"{d.probe_auth_scheme} {key}"
+    import urllib.error
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=_PROBE_TIMEOUT) as resp:
+            code = resp.status
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+    except Exception as exc:
+        return {"level": "error", "title": "无法连接",
+                "message": f"{url} 连接失败：{exc}。检查服务是否启动、地址与代理设置。"}
+    if code in (401, 403):
+        return {"level": "error", "title": "密钥被拒绝",
+                "message": f"端点可达但返回 {code}——API Key 无效或权限不足，请核对后重填。"}
+    return {"level": "ok", "title": f"连接正常（HTTP {code}）",
+            "message": "端点可达，密钥未被拒绝。启用并重启 Gateway 后在会话中验证记忆读写。"}
+
+
 def _set_provider(config: CommentedMap, pid: str | None) -> None:
     node = ensure_path(config, "memory")
     if pid:
@@ -448,18 +523,69 @@ def disable_provider(keep_mcp: bool = True) -> list[str]:
 # ---------------------------------------------------------------------------
 # 依赖安装任务：把 Provider 所需的 Python 包装进 Hermes 的运行环境
 # ---------------------------------------------------------------------------
+# 跨平台 Python 驱动（同 agentmemory 插件驱动的模式）：旧的 POSIX 一行命令
+# （$HOME/.hermes/.../pip + $PIP）在 Windows cmd.exe 下必挂——cmd 不认单引号、
+# 不展开 $HOME，路径分隔符也不对。驱动里用 paths.detect() 定位 Hermes 虚拟
+# 环境的解释器（Windows 是 .venv/Scripts/python.exe，POSIX 是 .venv/bin/python），
+# 全部经列表参数 subprocess.run，不再拼 shell 字符串。
+PIP_DRIVER = '''# console-managed: 记忆 provider 依赖安装驱动（跨平台）
+import pathlib
+import subprocess
+import sys
 
-PIP_RESOLVE = (
-    'PIP=""\n'
-    'for c in "$HOME/.hermes/hermes-agent/.venv/bin/pip"'
-    ' "$HOME/.hermes/hermes-agent/venv/bin/pip"; do'
-    ' [ -x "$c" ] && PIP="$c" && break; done\n'
-    '[ -z "$PIP" ] && PIP="pip3"\n'
-)
+sys.path.insert(0, __ROOT__)
+
+try:
+    # 防 Windows GBK 控制台代码页把任务崩掉
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    pass
+
+from app.hermes.paths import detect  # noqa: E402
+
+PKGS = __PKGS__
+
+
+def venv_python() -> pathlib.Path | None:
+    paths = detect()
+    if not paths.home:
+        return None
+    repo = pathlib.Path(paths.home) / "hermes-agent" / ".venv"
+    exe = "python.exe" if sys.platform == "win32" else "python"
+    for cand in (repo / ("Scripts" if sys.platform == "win32" else "bin") / exe,):
+        if cand.exists():
+            return cand
+    return None
+
+
+def main() -> None:
+    py = venv_python()
+    if py is None:
+        print("[console] 未找到 Hermes 虚拟环境（~/.hermes/hermes-agent/.venv）。")
+        print("[console] 请先完成 Hermes 安装，再回来执行依赖安装。")
+        sys.exit(2)
+    print(f"[console] 使用解释器：{py}", flush=True)
+    for pkg in PKGS:
+        print(f"[console] pip install {pkg} …", flush=True)
+        proc = subprocess.run([str(py), "-m", "pip", "install", "--quiet", pkg])
+        if proc.returncode != 0:
+            print(f"[console] 安装失败：{pkg}（exit {proc.returncode}）"
+                  "——网络需要代理时请先配好代理再重试")
+            sys.exit(proc.returncode or 1)
+    print(f"[console] deps installed: {' '.join(PKGS)}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
+'''
 
 
 def deps_command(pid: str, values: dict | None = None) -> str:
-    """生成依赖安装命令；返回空串表示无需安装。"""
+    """生成依赖安装命令（跨平台 Python 驱动）；返回空串表示无需安装。"""
+    import json
+
+    from app.hermes.jobs import write_job_script
+
     values = values or {}
     d = get_provider_def(pid)
     if pid == "hindsight" and d.deps_dynamic:
@@ -468,17 +594,64 @@ def deps_command(pid: str, values: dict | None = None) -> str:
         pkgs = d.deps_pip
     if not pkgs:
         return ""
-    return (
-        "{ " + PIP_RESOLVE +
-        " " + " ".join(f'"$PIP" install --quiet "{pkg}" &&' for pkg in pkgs[:-1]) +
-        f' "$PIP" install --quiet "{pkgs[-1]}" && echo "deps installed: {" ".join(pkgs)}"; }}'
+    root = str(Path(__file__).resolve().parents[2])
+    return write_job_script(
+        f"memory_deps_{pid}.py",
+        PIP_DRIVER.replace("__ROOT__", json.dumps(root))
+                  .replace("__PKGS__", json.dumps(list(pkgs))),
     )
+
+
+BYTEROVER_DRIVER = '''# console-managed: ByteRover CLI 安装驱动（跨平台）
+import shutil
+import subprocess
+import sys
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    pass
+
+
+def main() -> None:
+    if shutil.which("brv"):
+        print("[console] brv CLI 已存在，跳过安装", flush=True)
+        return
+    npm = shutil.which("npm")
+    if npm is None:
+        print("[console] 未找到 npm（需要 Node.js）。")
+        print("[console] 安装 Node.js 后执行：npm install -g byterover-cli")
+        sys.exit(2)
+    print("[console] npm install -g byterover-cli …", flush=True)
+    proc = subprocess.run([npm, "install", "-g", "byterover-cli"])
+    if proc.returncode != 0:
+        print("[console] npm 安装失败（exit %d）——检查网络/代理后重试" % proc.returncode)
+        sys.exit(proc.returncode or 1)
+    print("[console] brv CLI 安装完成（npm 通道，三平台通用）", flush=True)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def byterover_cli_job() -> str:
+    """ByteRover CLI 安装命令：跨平台 npm 通道（官方 curl|sh 不支持 Windows）。"""
+    import json
+
+    from app.hermes.jobs import write_job_script
+
+    root = str(Path(__file__).resolve().parents[2])
+    return write_job_script("byterover_cli.py", BYTEROVER_DRIVER.replace("__ROOT__", json.dumps(root)))
 
 
 def submit_install_job(pid: str, values: dict | None = None) -> int:
     from app.hermes import installer
 
-    command = deps_command(pid, values)
+    if pid == "byterover":
+        command = byterover_cli_job()
+    else:
+        command = deps_command(pid, values)
     if not command and pid == "agentmemory":
         # 跨平台驱动：旧的 POSIX 一行命令在 Windows 上必挂（见 AGENTMEMORY_PLUGIN_DRIVER 注释）
         command = agentmemory_plugin_job()

@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.8.31 — 2026-09-21（单迭代合入：HTMX 卡顿根治 + 插件/记忆装得上用得起 + 文件管理器 OS 化基本盘）
+
+### Added
+- **文件管理器 OS 级基本盘**：重命名 / 软删除（`.trash/` 回收站，manifest 记原位置，
+  侧栏新入口「回收站（可还原）」）/ 复制副本（`xxx-副本` 自动后缀）/ 新建文件夹·文件 /
+  多选（Ctrl 点选 + Shift 范围）与批量删除·复制·归档 / 拖拽移动（进文件夹、面包屑、
+  侧栏位置）/ 右键菜单补全（重命名·复制副本·删除·新建，空白云右键也可新建）/
+  键盘 Delete·F2·搜索框 Enter 直达全局搜索。
+- **全局搜索**：`GET /files?q=` 按名字子串匹配整个工作区（隐藏目录与 `.trash` 除外，
+  rglob 凑满即停），搜索结果独立视图 + 写操作后原地重渲染。
+- **目录变更自动刷新**：`GET /files/watch`（SSE，2.5s 单层签名对比，变化才推
+  `changed`，30 分钟收尾；聚合视图直接 `bye`）。前端仅在文件页挂载、进对话框/
+  有选中/输入中时抑制自动刷新。
+- **记忆 provider 连接测试**：表单「测试连接」按钮 → `POST /memory/test/{pid}`，
+  按 provider 探测（mem0/supermemory/hindsight/retaindb/honcho 官方端点，
+  openviking 用自建地址占位替换，本地方案如实返回「无需探测」）；密钥表单值
+  优先、回落 `.env`；401/403 明确报「密钥被拒绝」。`{FIELD}` 占位符通用替换
+  （openviking 的端点占位此前绑死 probe_auth_field 永远替换不到）。
+- **渠道稳定度分层**（社区调研落地）：`PlatformDef.stability`（官方 API /
+  非官方桥·可能掉线 / 需自建服务 / 无需外部平台）+ 卡片徽标；飞书·Telegram·
+  企业微信·钉钉标记推荐并排卡片墙前列，WhatsApp/Signal 如实标注掉线风险。
+- **忘记密码自助重置**：`start.bat reset [用户名]` / `./start.sh reset [用户名]`
+  直接进 `console_admin.py reset-password` 重置向导，不用再登服务器翻库；
+  启动横幅加提示。
+- **ByteRover CLI 安装改 npm 通道**：`npm install -g byterover-cli` 三平台通用，
+  弃 curl|sh（Windows 无 sh）。agentmemory 装完收尾仍按需走 venv pip 兜底。
+
+### Fixed
+- **插件安装 Windows 必挂**（0.8.30 实机根因）：命令拼接从 shlex.quote（POSIX
+  单引号，cmd.exe 不认）改为 win32 走 `subprocess.list2cmdline`、POSIX 走
+  `shlex.join`；显式带 `--enable`（后台无 TTY，官方 "Enable now? [y/N]" 永远
+  取默认 No，装完即隐身）；任务收尾兜底——CLI 不认参数时按命令回读插件名补
+  白名单。
+- **嵌套插件不可见**：插件页扫描从单层 glob 改递归两层（`plugins/memory/<name>`
+  等官方豁免类目此前永远不显示）；豁免类目显示「自动加载 + 官方豁免白名单」，
+  不再提供误导性启停开关；删除按真实相对目录定位。
+- **记忆依赖安装 POSIX-only**：依赖安装改 Python 驱动脚本（自动探测 hermes
+  venv 解释器，Windows `Scripts/python.exe` / POSIX `bin/python`），不再拼
+  shell；hindsight 按 local/cloud 模式装对应依赖。
+- **memory 路由补认证**：`/memory/*` 挂 router 级 csrf_guard（此前仅 samesite
+  cookie 单防线，与其余写路由不一致）。
+- **HTMX 操作卡顿四连修**：
+  1. `supervisor.status/version` 加进程内 TTL 缓存（10s/300s，按 home 键控），
+     顶栏 pill（15s 轮询）与服务页（8s 轮询）不再每次现起 `hermes` 子进程；
+     Gateway 动作/安装类任务收尾（`jobs._finish_job`）与动作提交前主动失效，
+     体检页 `force=True` 仍真实时探测；
+  2. 文件工作台 category/location/inspect 计数加 30s 缓存，上传/归档/重命名/
+     删除/复制/新建/移动/保存后主动失效（此前每次 boosted 导航都全树递归）；
+  3. 侧栏导航 `hx-boost` 化，换页不再整页白屏；
+  4. app.js `afterSwap` 里未定义的 `$id` ReferenceError 修复（换页后工作台
+     半瘫的根因）；模态/抽屉/侧栏全部改事件委托，boost 换 DOM 后不再失灵。
+- **审计注水**：`/files/raw` 只在 `dl=1`（真下载）记 `files_download`——此前
+  每个缩略图 `<img>` 都写一条 INSERT，开一个图片目录几十上百条。
+- **DB 快照句柄泄漏**：`sqlite3` 连接的 with 只管事务不关句柄，Windows 上
+  轮转 unlink 旧快照报 WinError 32（全套件因此红一条，pre-existing）；
+  改 `closing()` 显式关闭。
+- **页脚版本号失真**：`app/__init__.__version__` 停在 0.8.0，UI 显示与
+  pyproject 脱节；两处统一随本次抬到 0.8.31。
+
+### Tests
+- 新 `tests/test_iteration_0831.py` 25 项：安装命令跨平台与 `--enable`、嵌套
+  插件可见/自动加载/删除、`_finish_job` 白名单兜底、状态/版本缓存命中与失效、
+  工作区基本盘全操作与护栏、计数缓存失效、全局搜索、路由回路（新建→重命名→
+  复制→批量删→回收站→还原）、move dest、搜索页、watch 聚合视图、连接测试
+  （本地跳过/拒绝连接/非法协议）、渠道稳定度与推荐排序、memory 路由 CSRF。
+- `test_memory.py` 驱动脚本断言重写（落盘脚本含 pip 调用与双平台 venv 布局）
+  + ByteRover npm 通道断言。
+- 全套件通过（Windows 实机）+ WM shim 83 断言全过。
+
 ## 0.8.30 — 2026-09-20（WebOS 窗口体验五项：PDF/编辑/多任务/不可预览/HTML 沙盒）
 
 ### Added

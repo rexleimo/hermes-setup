@@ -7,6 +7,13 @@ rem  服务器对外：先 set HERMES_CONSOLE_HOST=0.0.0.0 再双击（先配好
 rem ============================================================
 setlocal
 cd /d "%~dp0"
+rem ---- 忘记管理员密码？start.bat reset 直接进重置向导 ----
+if /i "%~1"=="reset" (
+  echo === Hermes Console 管理员密码重置 ===
+  uv run python scripts/console_admin.py reset-password %~2
+  pause
+  exit /b 0
+)
 if not defined PORT set PORT=%HERMES_CONSOLE_PORT%
 if not defined PORT set PORT=8420
 if not defined HOST set HOST=%HERMES_CONSOLE_HOST%
@@ -56,6 +63,7 @@ if /i not "%HOST%"=="127.0.0.1" if /i not "%HOST%"=="localhost" (
   echo   请务必设置 HERMES_CONSOLE_SECRET，并前置 HTTPS 且用 HERMES_CONSOLE_ALLOWED_IPS 限制来源。
 )
 echo [2/2] 启动控制台 http://%HOST%:%PORT% （本机/局域网/公网均可达，关窗即停）
+echo [提示] 忘记管理员密码？重开一个窗口运行：start.bat reset
 rem 浏览器打开回环地址：部分新版浏览器打不开 0.0.0.0，127.0.0.1 恒可达
 set BROWSE_HOST=%HOST%
 if /i "%HOST%"=="0.0.0.0" set BROWSE_HOST=127.0.0.1

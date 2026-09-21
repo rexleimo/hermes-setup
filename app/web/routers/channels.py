@@ -21,6 +21,8 @@ router = APIRouter(prefix="/channels", dependencies=[Depends(csrf_guard)])
 @router.get("")
 def list_page(request: Request, user: User):
     views = list_channels()
+    # 推荐渠道（官方 API、接入门槛低）排前，其余保持字母序
+    views.sort(key=lambda v: not v.definition.recommended)
     enabled = [v for v in views if v.enabled]
     return render(request, "channels/list.html", {
         "nav_active": "channels",

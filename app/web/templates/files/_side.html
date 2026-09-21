@@ -17,6 +17,9 @@
   <i class="e-n">{{ n }}</i></a>
 {% endfor %}
 <div class="e-side-sep"></div>
+<a class="e-loc {% if cat == 'trash' %}active{% endif %}"
+   href="/files?cat=trash&sort={{ sort }}&view={{ view }}">{{ icon('trash') }}<em>回收站（可还原）</em></a>
+<div class="e-side-sep"></div>
 <div class="e-side-title">智能集合</div>
 <a class="e-loc {% if cat == 'recent' %}active{% endif %}"
    href="/files?cat=recent&sort={{ sort }}&view={{ view }}">{{ wbicon('clock') }}<em>最近使用</em></a>

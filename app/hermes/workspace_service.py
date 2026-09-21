@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import io
 import re
+import shutil
+import time
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -187,25 +189,53 @@ def list_recent(limit: int = 100) -> list[Entry]:
     return _sort_entries(files, "time")[:limit]
 
 
+# ---------------------------------------------------------------------------
+# 计数缓存（W6）：category/location/inspect 每次都是全工作区递归遍历，Windows
+# 上一转就是秒级，而它们在每次页面渲染、每次 boosted 导航都被调用。加进程内
+# TTL 缓存，写操作（上传/归档/重命名/删除/复制/新建/移动/保存）后主动失效。
+# ---------------------------------------------------------------------------
+
+_COUNTS_TTL = 30.0
+_counts_cache: dict[tuple[str, str], tuple[float, object]] = {}
+
+
+def invalidate_caches() -> None:
+    _counts_cache.clear()
+
+
+def _cached_counts(key: str, fn):
+    k = (str(root()), key)
+    hit = _counts_cache.get(k)
+    if hit is not None and time.monotonic() - hit[0] < _COUNTS_TTL:
+        return hit[1]
+    val = fn()
+    _counts_cache[k] = (time.monotonic(), val)
+    return val
+
+
 def category_counts() -> list[tuple[str, str, str, int]]:
     """[(key, 标签, emoji, 数量)]，侧栏用。"""
-    counts = {k: 0 for k, *_ in CATEGORIES}
-    for e in _walk_files():
-        c = e.category
-        if c:
-            counts[c] += 1
-    return [(k, CATEGORY_MAP[k][0], CATEGORY_MAP[k][1], counts[k]) for k in counts]
+    def _calc() -> list[tuple[str, str, str, int]]:
+        counts = {k: 0 for k, *_ in CATEGORIES}
+        for e in _walk_files():
+            c = e.category
+            if c:
+                counts[c] += 1
+        return [(k, CATEGORY_MAP[k][0], CATEGORY_MAP[k][1], counts[k]) for k in counts]
+    return _cached_counts("category", _calc)
 
 
 def location_counts() -> list[tuple[str, int]]:
     """标准目录（位置）的文件总数，侧栏用。"""
-    base = root()
-    out = []
-    for d in BUCKETS:
-        p = base / d
-        n = sum(1 for f in p.rglob("*") if f.is_file()) if p.is_dir() else 0
-        out.append((d, n))
-    return out
+    def _calc() -> list[tuple[str, int]]:
+        base = root()
+        out = []
+        for d in BUCKETS:
+            p = base / d
+            n = sum(1 for f in p.rglob("*") if f.is_file()) if p.is_dir() else 0
+            out.append((d, n))
+        return out
+    return _cached_counts("location", _calc)
 
 
 def list_dir(rel: str = "", sort: str = "name") -> list[Entry]:
@@ -315,10 +345,12 @@ def save_text(rel: str, content: str, mode: str = "overwrite", name: str = "") -
         want = (name or "").strip() or f"{stem}-副本{suffix}"
         target = _unique(src.parent / _sanitize_name(want))
         target.write_bytes(data)
+        invalidate_caches()
         return rel_of(target)
     if src.stat().st_size > PREVIEW_LIMIT:
         raise WorkspaceError("文件过大（预览已截断），只读：请下载修改后上传")
     src.write_bytes(data)
+    invalidate_caches()
     return rel_of(src)
 
 
@@ -391,6 +423,7 @@ def upload(filename: str, data: bytes, dest_rel: str = "downloads") -> str:
     dest_dir.mkdir(parents=True, exist_ok=True)
     target = _unique(dest_dir / _sanitize_name(filename))
     target.write_bytes(data)
+    invalidate_caches()
     return rel_of(target)
 
 
@@ -408,7 +441,197 @@ def move_to_archive(rel: str) -> str:
     name = f"{src.name}-{stamp}" if src.parent == base / "projects" else src.name
     target = _unique(archive / name)
     src.rename(target)
+    invalidate_caches()
     return rel_of(target)
+
+
+# ---------------------------------------------------------------------------
+# 基本盘文件操作（W13）：重命名 / 软删除 / 复制 / 新建 / 移动。
+# 全部复用 resolve_rel 的 jail 校验；规范目录（BUCKETS）与 .trash 受保护；
+# 永不静默覆盖（目标存在即报错或自动后缀）。删除是软删除，进 .trash 可还原。
+# ---------------------------------------------------------------------------
+
+TRASH_DIR = ".trash"
+
+
+def _guard_protected(src: Path) -> None:
+    """规范目录与回收站本身不可改名/删除/移出。"""
+    base = root()
+    if src == base:
+        raise UnsafePath("不能对工作区根本身操作")
+    if src.parent == base and src.name in (BUCKETS + (TRASH_DIR,)):
+        raise UnsafePath(f"「{src.name}」是工作区规范目录，不允许该操作")
+
+
+def rename_entry(rel: str, new_name: str) -> str:
+    src = resolve_rel(rel)
+    _guard_protected(src)
+    if not src.exists():
+        raise NotFound(f"不存在：{rel}")
+    name = _sanitize_name(new_name)
+    if name == src.name:
+        return rel_of(src)
+    target = src.parent / name
+    if target.exists():
+        raise WorkspaceError(f"同名条目已存在：{name}")
+    src.rename(target)
+    invalidate_caches()
+    return rel_of(target)
+
+
+def delete_entry(rel: str) -> str:
+    """软删除：移入 workspace/.trash/（时间戳后缀防撞名），manifest 记录原位置。"""
+    src = resolve_rel(rel)
+    _guard_protected(src)
+    if not src.exists():
+        raise NotFound(f"不存在：{rel}")
+    base = root()
+    trash = base / TRASH_DIR
+    trash.mkdir(exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    target = trash / f"{src.name}-{stamp}"
+    src.rename(target)
+    manifest = _trash_manifest()
+    manifest[rel_of(target)] = rel_of(src)
+    _save_trash_manifest(manifest)
+    invalidate_caches()
+    return rel_of(target)
+
+
+def _trash_manifest() -> dict:
+    import json
+
+    f = root() / TRASH_DIR / "manifest.json"
+    if not f.exists():
+        return {}
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_trash_manifest(manifest: dict) -> None:
+    import json
+
+    f = root() / TRASH_DIR / "manifest.json"
+    f.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def restore_entry(trash_rel: str) -> str:
+    """从 .trash 还原到删除时的原位置（原位置被占则自动加后缀）。"""
+    src = resolve_rel(trash_rel)
+    base = root()
+    if base / TRASH_DIR not in src.parents:
+        raise UnsafePath("只能还原回收站内的条目")
+    if not src.exists():
+        raise NotFound(f"不存在：{trash_rel}")
+    manifest = _trash_manifest()
+    origin_rel = manifest.get(rel_of(src), "")
+    origin = resolve_rel(origin_rel) if origin_rel else base / src.name
+    origin.parent.mkdir(parents=True, exist_ok=True)
+    target = _unique(origin)
+    src.rename(target)
+    manifest.pop(rel_of(src), None)
+    _save_trash_manifest(manifest)
+    invalidate_caches()
+    return rel_of(target)
+
+
+def trash_list() -> list[Entry]:
+    """回收站内容（.trash 被 jail 常规列表隐藏，这里显式读）。"""
+    trash = root() / TRASH_DIR
+    if not trash.is_dir():
+        return []
+    base = root()
+    out = []
+    for p in trash.iterdir():
+        if p.name.startswith(".") or p.name == "manifest.json":
+            continue
+        try:
+            out.append(_entry(p, base))
+        except OSError:
+            continue
+    return out
+
+
+def copy_entry(rel: str) -> str:
+    """同目录复制副本（「xxx-副本」自动后缀），目录递归复制。"""
+    src = resolve_rel(rel)
+    _guard_protected(src)
+    if not src.exists():
+        raise NotFound(f"不存在：{rel}")
+    want = src.with_name(f"{src.stem}-副本{src.suffix}")
+    target = _unique(want)
+    if src.is_dir():
+        shutil.copytree(src, target)
+    else:
+        shutil.copy2(src, target)
+    invalidate_caches()
+    return rel_of(target)
+
+
+def mkdir_entry(parent_rel: str, name: str) -> str:
+    parent = resolve_rel(parent_rel)
+    if not parent.is_dir():
+        raise NotFound("目标目录不存在")
+    target = _unique(parent / _sanitize_name(name))
+    target.mkdir()
+    invalidate_caches()
+    return rel_of(target)
+
+
+def mkfile_entry(parent_rel: str, name: str) -> str:
+    parent = resolve_rel(parent_rel)
+    if not parent.is_dir():
+        raise NotFound("目标目录不存在")
+    target = _unique(parent / _sanitize_name(name))
+    target.write_bytes(b"")
+    invalidate_caches()
+    return rel_of(target)
+
+
+def move_entry(rel: str, dest_rel: str) -> str:
+    """移动到指定目录（拖拽放入文件夹）；目标同名自动加后缀，绝不覆盖。"""
+    src = resolve_rel(rel)
+    _guard_protected(src)
+    dest_dir = resolve_rel(dest_rel)
+    if not dest_dir.is_dir():
+        raise NotFound(f"目标目录不存在：{dest_rel}")
+    if src == dest_dir or src in dest_dir.parents:
+        raise UnsafePath("不能把目录移进它自己（或自己的子目录）")
+    if src.parent == dest_dir:
+        return rel_of(src)
+    target = _unique(dest_dir / src.name)
+    src.rename(target)
+    invalidate_caches()
+    return rel_of(target)
+
+
+def search(query: str, limit: int = 500) -> list[Entry]:
+    """全局搜索：按文件名子串匹配整个工作区（隐藏目录/.trash 除外）。
+
+    rglob 是惰性生成器，凑满 limit 即停，不强制全树扫完。"""
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+    base = root()
+    out: list[Entry] = []
+    for p in base.rglob("*"):
+        if len(out) >= limit:
+            break
+        try:
+            parts = p.relative_to(base).parts
+        except OSError:
+            continue
+        if any(part.startswith(".") for part in parts):
+            continue
+        if q in p.name.lower():
+            try:
+                out.append(_entry(p, base))
+            except OSError:
+                continue
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -416,28 +639,30 @@ def move_to_archive(rel: str) -> str:
 # ---------------------------------------------------------------------------
 
 def inspect_summary() -> dict:
-    base = root()
-    if not base.is_dir():
-        return {"available": False}
-    stray = sorted(p.name for p in base.iterdir()
-                   if p.name not in BUCKETS and not p.name.startswith("."))
-    now = datetime.now(timezone.utc).timestamp()
-    stale_scratch = 0
-    scratch = base / "scratch"
-    if scratch.is_dir():
-        stale_scratch = sum(1 for p in scratch.iterdir()
-                            if now - p.stat().st_mtime > SCRATCH_STALE_DAYS * 86400)
-    projects = base / "projects"
-    no_req = []
-    if projects.is_dir():
-        for d in sorted(p for p in projects.iterdir() if p.is_dir()):
-            if d.name in ("example-project",):
-                continue
-            if not (d / "docs" / "requirements.md").exists():
-                no_req.append(d.name)
-    return {
-        "available": True,
-        "stray": stray,
-        "stale_scratch": stale_scratch,
-        "projects_without_requirements": no_req,
-    }
+    def _calc() -> dict:
+        base = root()
+        if not base.is_dir():
+            return {"available": False}
+        stray = sorted(p.name for p in base.iterdir()
+                       if p.name not in BUCKETS and not p.name.startswith("."))
+        now = datetime.now(timezone.utc).timestamp()
+        stale_scratch = 0
+        scratch = base / "scratch"
+        if scratch.is_dir():
+            stale_scratch = sum(1 for p in scratch.iterdir()
+                                if now - p.stat().st_mtime > SCRATCH_STALE_DAYS * 86400)
+        projects = base / "projects"
+        no_req = []
+        if projects.is_dir():
+            for d in sorted(p for p in projects.iterdir() if p.is_dir()):
+                if d.name in ("example-project",):
+                    continue
+                if not (d / "docs" / "requirements.md").exists():
+                    no_req.append(d.name)
+        return {
+            "available": True,
+            "stray": stray,
+            "stale_scratch": stale_scratch,
+            "projects_without_requirements": no_req,
+        }
+    return _cached_counts("inspect", _calc)

@@ -14,7 +14,7 @@
 {% if view != 'list' %}
 <div class="e-grid" id="osfm-items">
   {% for e in entries %}
-  <div class="osfm-card-item" tabindex="0"
+  <div class="osfm-card-item" tabindex="0" draggable="true"
        data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}" data-name0="{{ e.name }}"
        data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
        data-cat="{{ e.category or 'file' }}"
@@ -42,7 +42,7 @@
   <thead><tr><th>名称</th><th>修改日期</th><th>类型</th><th>大小</th></tr></thead>
   <tbody>
     {% for e in entries %}
-    <tr class="osfm-card-item" tabindex="0"
+    <tr class="osfm-card-item" tabindex="0" draggable="true"
         data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}" data-name0="{{ e.name }}"
         data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
         data-cat="{{ e.category or 'file' }}"

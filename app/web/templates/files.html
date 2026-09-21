@@ -68,6 +68,11 @@
     <a class="e-cmd" id="osfm-act-dl" style="display:none">下载</a>
     <a class="e-cmd" id="osfm-act-zip" style="display:none">打包</a>
     {% if is_admin %}
+    <button class="e-cmd" id="osfm-act-new-folder" type="button" title="在当前目录新建文件夹">{{ icon('folder') }} 新建文件夹</button>
+    <button class="e-cmd" id="osfm-act-new-file" type="button" title="在当前目录新建空文件">新建文件</button>
+    <button class="e-cmd" id="osfm-act-rename" type="button" disabled>重命名</button>
+    <button class="e-cmd" id="osfm-act-copy" type="button" disabled>复制副本</button>
+    <button class="e-cmd" id="osfm-act-delete" type="button" disabled>删除</button>
     <button class="e-cmd" id="osfm-act-archive" type="button" disabled>归档</button>
     {% endif %}
     <span class="e-sep"></span>

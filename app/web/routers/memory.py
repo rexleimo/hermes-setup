@@ -1,17 +1,18 @@
 """记忆系统路由：状态总览、内置调优、外置方案选择与自动配置。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 
 from app.core import audit
 from app.hermes import memory_service as mem
 from app.hermes.memory_service import MemoryError
 from app.hermes.paths import detect
-from app.web.deps import User, client_ip
+from app.web.deps import User, client_ip, csrf_guard
 from app.web.htmx import is_htmx, redirect, toast
 from app.web.templating import render, render_partial
 
-router = APIRouter(prefix="/memory")
+# csrf_guard：与其余路由对齐（此前缺失，仅靠 samesite=strict 兜底——防纵深要一致）
+router = APIRouter(prefix="/memory", dependencies=[Depends(csrf_guard)])
 
 
 @router.get("")
@@ -128,6 +129,24 @@ async def install_job(request: Request, user: User, pid: str):
     resp = redirect(request, "/memory")
     toast(resp, d.job_label + "：任务已提交")
     return resp
+
+
+@router.post("/test/{pid}")
+async def test_provider(request: Request, user: User, pid: str):
+    """连接测试：用表单当前值（未保存也行，缺失回落 .env）探测端点可达性与密钥有效性。"""
+    try:
+        d = mem.get_provider_def(pid)
+    except MemoryError as exc:
+        return _reject(request, str(exc), 404)
+    form = await request.form()
+    values = {k: str(v) for k, v in form.items() if k != "_csrf"}
+    result = mem.test_connection(pid, values)
+    audit.record("memory_provider_test", username=user["username"], target=pid,
+                 outcome=result["level"], detail=result["message"][:300],
+                 ip=client_ip(request))
+    return render_partial(request, "memory/_test_result.html",
+                          {"d": d, "result": result},
+                          status_code=200 if result["level"] == "ok" else 502)
 
 
 @router.get("/job")

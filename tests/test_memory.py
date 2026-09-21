@@ -226,11 +226,21 @@ def test_provider_counts_and_descriptors():
 
 
 def test_deps_commands(hermes_home):
-    cmd = mem.deps_command("honcho")
-    assert "honcho-ai" in cmd and ".venv/bin/pip" in cmd
+    # 跨平台 Python 驱动（0.8.31）：命令只是「解释器 + 脚本路径」，包名在脚本里；
+    # 旧的 POSIX 行内 shell（$HOME/.../pip、$PIP）在 Windows cmd 下必挂，已废弃。
+    from app.core.settings import settings
+
+    mem.deps_command("honcho")
+    text = (settings.jobs_dir / "memory_deps_honcho.py").read_text(encoding="utf-8")
+    assert "honcho-ai" in text
+    assert '"-m", "pip", "install"' in text or '-m", "pip", "install"' in text
+    assert "Scripts" in text and "python.exe" in text      # Windows venv 布局
+    assert "bin" in text                                   # POSIX venv 布局
     # hindsight 依赖随模式变化
-    assert "hindsight-all" in mem.deps_command("hindsight", {"mode": "local"})
-    assert "hindsight-client" in mem.deps_command("hindsight", {"mode": "cloud"})
+    mem.deps_command("hindsight", {"mode": "local"})
+    assert "hindsight-all" in (settings.jobs_dir / "memory_deps_hindsight.py").read_text(encoding="utf-8")
+    mem.deps_command("hindsight", {"mode": "cloud"})
+    assert "hindsight-client" in (settings.jobs_dir / "memory_deps_hindsight.py").read_text(encoding="utf-8")
     # 无依赖的方案返回空
     assert mem.deps_command("holographic") == ""
     import os
@@ -243,6 +253,15 @@ def test_deps_commands(hermes_home):
                         ("mem0", {"mode": "platform"})]:
         r = subprocess.run(["bash", "-n", "-c", mem.deps_command(pid, values)])
         assert r.returncode == 0
+
+
+def test_byterover_job_is_cross_platform_npm_driver(hermes_home):
+    from app.core.settings import settings
+
+    mem.byterover_cli_job()
+    text = (settings.jobs_dir / "byterover_cli.py").read_text(encoding="utf-8")
+    assert "byterover-cli" in text and "npm" in text
+    assert "| sh" not in text and "curl" not in text   # Windows 必挂的 POSIX 通道已移除
 
 
 def test_submit_install_job_validation(hermes_home):

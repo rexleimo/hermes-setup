@@ -1,0 +1,6 @@
+{# 记忆方案连接测试结果（/memory/test/<pid> 片段）：level = ok | skip | error #}
+{% set cls = {'ok': 'success', 'skip': 'info', 'warn': 'warn', 'error': 'danger'}.get(result.level, 'info') %}
+{% set ico = {'ok': 'check', 'skip': 'info', 'warn': 'alert', 'error': 'x'}.get(result.level, 'info') %}
+<div class="alert alert-{{ cls }}" id="mem-test-result-line">
+  {{ icon(ico) }} <strong>{{ d.label }} · {{ result.title }}</strong> — {{ result.message }}
+</div>

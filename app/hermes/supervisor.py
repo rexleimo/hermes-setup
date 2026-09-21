@@ -148,9 +148,35 @@ def _child_env() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # 状态探测
 # ---------------------------------------------------------------------------
+# 缓存：状态探测每次都现跑 `hermes gateway status` 子进程（Windows 上 spawn
+# CLI 是秒级开销），而顶栏 pill 每 15s、服务页每 8s 都在轮询——不加缓存的话
+# 控制台永远在起子进程，UI 整体发卡。按 home 路径键控（测试 override 互不串味），
+# Gateway 动作/安装类任务收尾时由 jobs._finish_job 调 invalidate_status_cache()。
 
-def status(paths: HermesPaths | None = None) -> GatewayStatus:
+STATUS_TTL = 10.0
+VERSION_TTL = 300.0
+_status_cache: dict[str, tuple[float, GatewayStatus]] = {}
+_version_cache: dict[str, tuple[float, str]] = {}
+
+
+def invalidate_status_cache() -> None:
+    _status_cache.clear()
+    _version_cache.clear()
+
+
+def status(paths: HermesPaths | None = None, force: bool = False) -> GatewayStatus:
     paths = paths or detect()
+    key = str(paths.home)
+    if not force:
+        hit = _status_cache.get(key)
+        if hit is not None and time.monotonic() - hit[0] < STATUS_TTL:
+            return hit[1]
+    st = _probe_status(paths)
+    _status_cache[key] = (time.monotonic(), st)
+    return st
+
+
+def _probe_status(paths: HermesPaths) -> GatewayStatus:
     st = GatewayStatus(running=None)
 
     # 信号 1：官方 CLI status
@@ -311,15 +337,23 @@ def restart(paths: HermesPaths | None = None) -> str:
     return out or "网关已重启"
 
 
-def version(paths: HermesPaths | None = None) -> str | None:
+def version(paths: HermesPaths | None = None, force: bool = False) -> str | None:
     paths = paths or detect()
     if not paths.bin:
         return None
+    key = str(paths.home)
+    if not force:
+        hit = _version_cache.get(key)
+        if hit is not None and time.monotonic() - hit[0] < VERSION_TTL:
+            return hit[1]
     try:
         code, out = _run_cli(paths, "--version")
-        return out.strip().splitlines()[-1] if out.strip() and code == 0 else None
+        ver = out.strip().splitlines()[-1] if out.strip() and code == 0 else None
     except SupervisorError:
         return None
+    if ver:
+        _version_cache[key] = (time.monotonic(), ver)
+    return ver
 
 
 # ---------------------------------------------------------------------------

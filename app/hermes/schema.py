@@ -161,13 +161,25 @@ class PlatformDef:
     verified: bool = True
     note: str = ""
     config_scope: str = "platforms"   # config_keys 写入位置：platforms.<id> | 顶层 <id>
+    # 稳定度（W11）：official=官方 API 长连接/轮询 | bridge=非官方桥（可能掉线）
+    # | selfhost=需自建配套服务 | local=无需外部平台。推荐渠道排卡片墙前列。
+    stability: str = "official"
+    recommended: bool = False
 
 
 COMMON_POLICIES = ("open", "allowlist", "disabled")
 
+STABILITY_LABELS = {
+    "official": "官方 API",
+    "bridge": "非官方桥 · 可能掉线",
+    "selfhost": "需自建服务",
+    "local": "无需外部平台",
+}
+
 PLATFORMS: dict[str, PlatformDef] = {
     "feishu": PlatformDef(
         id="feishu", label="飞书 / Lark", emoji="🕊️",
+        stability="official", recommended=True,
         doc="https://hermes-agent.nousresearch.com/docs/zh-Hans/user-guide/messaging/feishu",
         guide_steps=(
             GuideStep("打开飞书开放平台，登录后点「创建企业自建应用」，名字随意填。",
@@ -203,6 +215,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "telegram": PlatformDef(
         id="telegram", label="Telegram", emoji="✈️",
+        stability="official", recommended=True,
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/telegram",
         guide_steps=(
             GuideStep("在手机/电脑 Telegram 里打开下面的链接，对 BotFather 发送 /newbot。",
@@ -228,6 +241,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "discord": PlatformDef(
         id="discord", label="Discord", emoji="🎮",
+        stability="official",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/discord",
         guide_steps=(
             GuideStep("打开 Discord 开发者后台，点右上角「New Application」建一个应用。",
@@ -252,6 +266,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "slack": PlatformDef(
         id="slack", label="Slack", emoji="#️⃣",
+        stability="official",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/slack",
         guide_steps=(
             GuideStep("打开 Slack 应用后台，点「Create New App → From scratch」建应用。",
@@ -275,6 +290,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "qqbot": PlatformDef(
         id="qqbot", label="QQ 机器人", emoji="🐧",
+        stability="official",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/qqbot",
         guide_steps=(
             GuideStep("打开 QQ 开放平台，注册/登录后创建机器人（选「QQ 机器人」）。",
@@ -305,6 +321,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "wecom": PlatformDef(
         id="wecom", label="企业微信", emoji="💼",
+        stability="official", recommended=True,
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/wecom",
         guide_steps=(
             GuideStep("用有管理员权限的账号打开企业微信管理后台。",
@@ -334,6 +351,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "weixin": PlatformDef(
         id="weixin", label="微信（iLink Bot）", emoji="💚",
+        stability="official",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/weixin",
         env_fields=(
             FieldDef("WEIXIN_ALLOWED_USERS", "用户白名单", kind="textarea"),
@@ -350,6 +368,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "dingtalk": PlatformDef(
         id="dingtalk", label="钉钉", emoji="🔗",
+        stability="official", recommended=True,
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/dingtalk",
         guide_steps=(
             GuideStep("打开钉钉开放平台，登录后「应用开发 → 创建应用」。",
@@ -367,6 +386,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "email": PlatformDef(
         id="email", label="Email（IMAP/SMTP）", emoji="📧",
+        stability="official",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/email",
         guide_steps=(
             GuideStep("在浏览器登录邮箱网页版并打开设置（QQ 邮箱：设置 → 账号；163：设置 → POP3/SMTP）。",
@@ -386,6 +406,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "whatsapp": PlatformDef(
         id="whatsapp", label="WhatsApp", emoji="🌍",
+        stability="bridge",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/whatsapp",
         guide_steps=(
             GuideStep("WhatsApp 渠道靠 Node.js 桥接：先在运行 Gateway 的机器上安装 Node.js LTS。",
@@ -402,6 +423,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "signal": PlatformDef(
         id="signal", label="Signal", emoji="🔒",
+        stability="selfhost",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/signal",
         guide_steps=(
             GuideStep("Signal 渠道需要自己跑一个 signal-cli REST 服务（同机安装并注册手机号）。",
@@ -421,6 +443,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "matrix": PlatformDef(
         id="matrix", label="Matrix", emoji="🟠",
+        stability="official",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/matrix",
         guide_steps=(
             GuideStep("在 Element 网页端注册一个机器人账号（或用现有 homeserver 账号登录）。",
@@ -439,6 +462,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "webhook": PlatformDef(
         id="webhook", label="Webhook", emoji="🪝",
+        stability="local",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/webhooks",
         guide_steps=(
             GuideStep("Webhook 不需要外部平台账号：把接收脚本放进当前 profile 的 scripts 目录，脚本从 stdin 读 webhook JSON。",
@@ -452,6 +476,7 @@ PLATFORMS: dict[str, PlatformDef] = {
     ),
     "api_server": PlatformDef(
         id="api_server", label="API Server", emoji="🛰️",
+        stability="local",
         doc="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/",
         guide_steps=(
             GuideStep("API Server 不需要外部平台账号：它把 Gateway 开放成 HTTP 接口，供你自建的网页/App 调用。"),
@@ -496,6 +521,6 @@ def platform_enabled_fields(p: PlatformDef) -> tuple[FieldDef, ...]:
 
 __all__ = [
     "FieldDef", "ProtocolDef", "PresetDef", "PlatformDef",
-    "PROTOCOLS", "PRESETS", "PLATFORMS", "PLATFORM_TOOLSET_KEYS",
+    "PROTOCOLS", "PRESETS", "PLATFORMS", "STABILITY_LABELS", "PLATFORM_TOOLSET_KEYS",
     "TOOLSET_CHOICES", "TOOLSET_PRESETS", "platform_enabled_fields",
 ]

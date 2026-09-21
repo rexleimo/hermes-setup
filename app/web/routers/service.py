@@ -104,6 +104,8 @@ def service_action(request: Request, user: User, action: str = Form(...),
             return _reject(request, "请输入正确的确认词以继续")
 
     label = {"start": "启动", "stop": "停止", "restart": "重启"}[action]
+    # 状态即将改变：探测缓存立即失效，动作提交后的 svc-refresh 才能拿到新状态
+    supervisor.invalidate_status_cache()
     try:
         installer.submit(f"gateway_{action}",
                          installer.gateway_action_job(action),

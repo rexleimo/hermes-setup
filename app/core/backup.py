@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,8 +51,10 @@ def create_backup() -> Path | None:
     while dst_path.exists():  # 同一秒多次备份（如恢复前的安全备份）：加序号，绝不覆盖既有快照
         dst_path = backups_dir() / f"console-{stamp}-{n}.db"
         n += 1
-    with sqlite3.connect(src_path, timeout=15) as src, \
-         sqlite3.connect(dst_path) as dst:
+    # closing() 必须显式关连接：sqlite3 连接的 with 只管事务提交/回滚，
+    # 不关句柄——Windows 上句柄不释放，轮转 unlink 旧快照就 WinError 32（实机踩过）
+    with closing(sqlite3.connect(src_path, timeout=15)) as src, \
+         closing(sqlite3.connect(dst_path)) as dst:
         src.backup(dst)
     for stale in list_backups()[KEEP:]:
         stale.unlink(missing_ok=True)

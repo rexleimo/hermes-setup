@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 import shlex
 import shutil
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -44,12 +46,22 @@ class PluginView:
     provides_hooks: list[str] = field(default_factory=list)
     enabled: bool = False            # 是否在 plugins.enabled 白名单
     broken: bool = False             # 白名单里有但目录缺失（残留脏键）
+    dir: str = ""                    # 相对 plugins/ 的目录（嵌套为 "memory/agentmemory"）
+    auto_loaded: bool = False        # 官方豁免类目（memory/platforms/…）：不依赖白名单自动加载
 
     @property
     def state_label(self) -> str:
         if self.broken:
             return "目录缺失"
+        if self.auto_loaded:
+            return "自动加载"
         return "已启用" if self.enabled else "已禁用"
+
+
+# 嵌套子目录的官方豁免类目：走专用加载器自动加载，不经 plugins.enabled 白名单
+# （官方 plugins 文档：bundled infrastructure — platform adapters / image-gen /
+#   memory providers / context engines / model providers）。
+EXEMPT_SUBDIRS = ("platforms", "image_gen", "memory", "context_engine", "model-providers")
 
 
 def plugins_dir(paths: HermesPaths | None = None) -> Path:
@@ -68,8 +80,10 @@ def list_plugins(paths: HermesPaths | None = None) -> list[PluginView]:
     whitelist = enabled_names(paths)
     seen: set[str] = set()
     out: list[PluginView] = []
-    if base.is_dir():
-        for plugin_yaml in sorted(base.glob("*/plugin.yaml")):
+    # 递归两层：官方嵌套类目（plugins/memory/<name> 等）也是合法插件目录，
+    # 只扫一层的话 agentmemory 装完在页面上永远看不见（实机踩过）。
+    for pattern in ("*/plugin.yaml", "*/*/plugin.yaml"):
+        for plugin_yaml in sorted(base.glob(pattern)):
             try:
                 data = _yaml.load(plugin_yaml.read_text(encoding="utf-8"))
             except Exception:
@@ -77,6 +91,10 @@ def list_plugins(paths: HermesPaths | None = None) -> list[PluginView]:
             if not isinstance(data, dict):
                 data = {}
             name = str(data.get("name") or plugin_yaml.parent.name)
+            rel_dir = plugin_yaml.parent.relative_to(base).as_posix()
+            auto = "/" in rel_dir and rel_dir.split("/", 1)[0] in EXEMPT_SUBDIRS
+            if name in seen:
+                continue
             seen.add(name)
             out.append(PluginView(
                 name=name,
@@ -87,7 +105,10 @@ def list_plugins(paths: HermesPaths | None = None) -> list[PluginView]:
                 if isinstance(data.get("hooks"), list) else [],
                 provides_hooks=[str(h) for h in data.get("provides_hooks", [])]
                 if isinstance(data.get("provides_hooks"), list) else [],
-                enabled=name in whitelist,
+                enabled=name in whitelist or auto,
+                broken=False,
+                dir=rel_dir,
+                auto_loaded=auto,
             ))
     # 白名单残留：目录已删但名单没清
     for name in whitelist:
@@ -128,8 +149,12 @@ def set_enabled(name: str, enabled: bool, paths: HermesPaths | None = None) -> N
 
 def remove_plugin(name: str, paths: HermesPaths | None = None) -> list[str]:
     paths = paths or detect()
-    target = plugins_dir(paths) / name
-    if not target.is_dir():
+    target = None
+    for p in list_plugins(paths):
+        if p.name == name and not p.broken:
+            target = plugins_dir(paths) / p.dir
+            break
+    if target is None or not target.is_dir():
         raise PluginError(f"插件目录不存在：{name}")
     shutil.rmtree(target)
     notes = [f"已删除插件目录 {name}"]
@@ -214,7 +239,12 @@ def catalog(paths: HermesPaths | None = None) -> list[PluginCatalogEntry]:
 
 
 def install(name: str, paths: HermesPaths | None = None) -> int:
-    """提交官方 CLI 安装任务（sha pin / 黑名单 / 信任校验全部交给官方实现）。"""
+    """提交官方 CLI 安装任务（sha pin / 黑名单 / 信任校验全部交给官方实现）。
+
+    --enable：后台任务无 TTY，官方 CLI 装完的 "Enable now? [y/N]" 永远取默认 No，
+    不加它就是"装完即隐身"。命令按平台拼引号：shlex.quote 产出 POSIX 单引号，
+    Windows 的 cmd.exe 不认（反斜杠路径必被包进 '...'，命令必败，实机踩过）；
+    Windows 走 subprocess.list2cmdline 的双引号规则。"""
     name = name.strip()
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$", name):
         raise PluginError("插件名不合法")
@@ -223,7 +253,8 @@ def install(name: str, paths: HermesPaths | None = None) -> int:
         raise PluginError("未找到 hermes 命令，请先在「服务管理」安装 Hermes Agent")
     if _dir_exists(name, paths):
         raise PluginError(f"插件已安装：{name}（更新请用服务管理的 hermes update）")
-    command = f"{shlex.quote(paths.bin)} plugins install {shlex.quote(name)}"
+    argv = [paths.bin, "plugins", "install", name, "--enable"]
+    command = subprocess.list2cmdline(argv) if sys.platform == "win32" else shlex.join(argv)
     try:
         return installer.submit("plugin_install", command, shell=True)
     except installer.JobBusy:

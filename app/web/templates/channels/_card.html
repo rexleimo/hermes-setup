@@ -18,7 +18,11 @@
   </div>
   <div class="flex" style="gap:6px; flex-wrap:wrap;">
     {% if c.enabled %}{{ tag('已启用', 'ok') }}{% else %}{{ tag('未启用', 'muted') }}{% endif %}
-    {% if c.definition.env_fields is defined %}{% endif %}
+    {% if c.definition.recommended %}{{ tag('推荐', 'ok') }}{% endif %}
+    {% if c.definition.stability == 'official' %}{{ tag('官方 API · 稳定', 'info') }}
+    {% elif c.definition.stability == 'bridge' %}{{ tag('非官方桥 · 可能掉线', 'warn') }}
+    {% elif c.definition.stability == 'selfhost' %}{{ tag('需自建服务', 'warn') }}
+    {% elif c.definition.stability == 'local' %}{{ tag('无需外部平台', 'muted') }}{% endif %}
     {% if c.has_required %}
       {% if c.configured %}{{ tag('凭证齐备', 'info') }}{% else %}{{ tag('缺凭证', 'warn') }}{% endif %}
     {% endif %}

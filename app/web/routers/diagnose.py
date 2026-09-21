@@ -126,7 +126,7 @@ def build_checks(paths: HermesPaths) -> list[dict]:
     except Exception as exc:  # 渠道定义异常不该拖垮整个体检页
         add("消息渠道状态未知", "warn", f"读取渠道配置失败：{exc}", "", "")
 
-    st = supervisor.status(paths)
+    st = supervisor.status(paths, force=True)  # 体检页要真实时探测，不走缓存
     if st.running is True:
         add("Gateway 正在运行", "ok", "", "", "")
     elif st.running is None:

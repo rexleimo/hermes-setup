@@ -32,10 +32,15 @@ class MemoryProviderDef:
     form_fields: tuple[FieldDef, ...] = ()
     setup_hint: str = ""
     mcp_capable: bool = False       # 提供 agentmemory MCP 形态
-    job_command: str = ""           # 可选的依赖安装任务（静态命令）
+    job_command: str = ""           # 可选的依赖安装任务（静态命令；优先走跨平台驱动）
     job_label: str = ""
     deps_pip: tuple[str, ...] = ()  # 需要装入 Hermes 环境的 Python 包
     deps_dynamic: bool = False      # 依赖随表单取值变化（如 hindsight local/cloud）
+    # 连接探测（W9）：probe 为探测 URL（含占位符的字段名在 test_connection 里替换）；
+    # probe_auth_field = 提供密钥的表单字段/env 键；local = 纯本地方案，无外部端点。
+    probe: str = ""
+    probe_auth_field: str = ""
+    probe_auth_scheme: str = "Bearer"
 
 
 AGENTMEMORY_PLUGIN_JOB = (
@@ -46,6 +51,8 @@ AGENTMEMORY_PLUGIN_JOB = (
     ' && cp -r /tmp/agentmemory-main/integrations/hermes "$HOME/.hermes/plugins/memory/agentmemory"'
     ' && rm -rf /tmp/agentmemory-main /tmp/agentmemory.tgz && echo "plugin installed"'
 )
+# 已废弃：POSIX 专用，Windows 必挂。保留常量仅为兼容旧导入；
+# ByteRover 安装统一走 memory_service.byterover_cli_job() 的 npm 驱动（三平台通用）。
 BYTEROVER_CLI_JOB = "curl -fsSL https://byterover.dev/install.sh | sh"
 
 
@@ -81,6 +88,8 @@ MEMORY_PROVIDERS: dict[str, MemoryProviderDef] = {
         best_for="想完全托管记忆管理（Platform 云 / 自建 Docker 服务端）",
         requires="mem0ai（pip）+ API Key（Platform）或自建服务端",
         storage="Mem0 云 / 自建", cost="云付费 / 自建免费",
+        probe="https://api.mem0.ai/v1/ping/", probe_auth_field="MEM0_API_KEY",
+        probe_auth_scheme="Token",
         form_fields=(
             FieldDef("mode", "连接模式", kind="select",
                      options=("platform", "selfhosted"), default="platform",
@@ -94,6 +103,7 @@ MEMORY_PROVIDERS: dict[str, MemoryProviderDef] = {
     ),
     "supermemory": MemoryProviderDef(
         id="supermemory", label="Supermemory", emoji="✨", deps_pip=("supermemory",),
+    probe="https://api.supermemory.ai", probe_auth_field="SUPERMEMORY_API_KEY",
         tagline="语义长期记忆 + 用户画像召回 + 会话级图存取",
         best_for="语义召回、跨会话用户画像",
         requires="supermemory（pip）+ 云 API Key，或自建服务端（npx supermemory local）",
@@ -113,6 +123,7 @@ MEMORY_PROVIDERS: dict[str, MemoryProviderDef] = {
         best_for="自托管的结构化知识管理（L0/L1/L2 分层加载）",
         requires="openviking-server 初始化并运行中",
         storage="自托管", cost="免费开源（AGPL-3.0）",
+        probe="{OPENVIKING_ENDPOINT}", probe_auth_field="OPENVIKING_API_KEY",
         form_fields=(
             FieldDef("OPENVIKING_ENDPOINT", "服务端地址", required=True,
                      default="http://127.0.0.1:1933"),
@@ -123,6 +134,7 @@ MEMORY_PROVIDERS: dict[str, MemoryProviderDef] = {
     ),
     "hindsight": MemoryProviderDef(
         id="hindsight", label="Hindsight", emoji="🔎",
+    probe="https://api.hindsight.vectorize.io", probe_auth_field="HINDSIGHT_API_KEY",
         deps_pip=("hindsight-client",), deps_dynamic=True,
         tagline="知识图谱 + 实体消解 + reflect 跨记忆综合",
         best_for="需要实体关系推理与多策略召回",
@@ -156,6 +168,7 @@ MEMORY_PROVIDERS: dict[str, MemoryProviderDef] = {
         best_for="已在用 RetainDB 基础设施的团队",
         requires="RetainDB 账号 + API Key",
         storage="RetainDB 云", cost="$20/月",
+        probe="https://api.retaindb.com", probe_auth_field="RETAINDB_API_KEY",
         form_fields=(
             FieldDef("RETAINDB_API_KEY", "API Key", kind="password", required=True),
         ),
@@ -166,8 +179,7 @@ MEMORY_PROVIDERS: dict[str, MemoryProviderDef] = {
         best_for="想要可移植、本地优先、带 CLI 的记忆",
         requires="ByteRover CLI（可一键安装）",
         storage="本地 / 云同步可选", cost="本地免费",
-        job_command=BYTEROVER_CLI_JOB,
-        job_label="安装 ByteRover CLI（byterover.dev 官方脚本）",
+        job_label="安装 ByteRover CLI（npm 通道，三平台通用）",
         form_fields=(),
     ),
     "honcho": MemoryProviderDef(
@@ -176,6 +188,7 @@ MEMORY_PROVIDERS: dict[str, MemoryProviderDef] = {
         best_for="多 Agent 系统的用户-代理对齐建模",
         requires="honcho-ai（pip）+ 云 API Key 或自建实例",
         storage="Honcho 云 / 自建", cost="云付费 / 自建免费",
+        probe="https://api.honcho.dev", probe_auth_field="apiKey",
         form_fields=(
             FieldDef("apiKey", "API Key（云模式）", kind="password",
                      help="自建实例可留空，改填服务端地址"),

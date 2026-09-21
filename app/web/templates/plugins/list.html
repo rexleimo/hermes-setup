@@ -51,19 +51,22 @@
         </td>
         <td>
           {% if p.broken %}{{ tag('目录缺失', 'warn') }}
+          {% elif p.auto_loaded %}{{ tag('自动加载', 'ok') }}{{ tag('官方豁免白名单', 'info') }}
           {% elif p.enabled %}{{ tag('已启用', 'ok') }}
           {% else %}{{ tag('未加入白名单', 'muted') }}{% endif %}
         </td>
         <td>
           <div class="table-actions">
-            {% if not p.broken %}
+            {% if p.auto_loaded %}
+            <span class="text-muted" style="font-size:12px;">{{ p.dir }} · 随 Gateway 自动加载，无需白名单</span>
+            {% elif not p.broken %}
             <form method="post" action="/plugins/{{ p.name }}/toggle" class="inline-form">
               <input type="hidden" name="_csrf" value="{{ csrf_token }}">
               <input type="hidden" name="enable" value="{{ '0' if p.enabled else '1' }}">
               <button class="btn btn-ghost btn-sm">{{ icon('zap') }} {{ '禁用' if p.enabled else '启用' }}</button>
             </form>
             <form method="post" action="/plugins/{{ p.name }}/delete" class="inline-form"
-                  data-confirm="删除插件目录 ~/.hermes/plugins/{{ p.name }}，不可恢复。" data-confirm-word="{{ p.name }}">
+                  data-confirm="删除插件目录 ~/.hermes/plugins/{{ p.dir or p.name }}，不可恢复。" data-confirm-word="{{ p.name }}">
               <input type="hidden" name="_csrf" value="{{ csrf_token }}">
               <input type="hidden" name="confirm" value="" data-confirm-field>
               <button class="btn btn-ghost btn-sm" title="删除">{{ icon('trash') }}</button>
