@@ -48,6 +48,18 @@
     });
   });
 
+  // 服务端拒绝（400/403/404）时 htmx 默认什么都不换——不补这条 toast，
+  // 重命名撞名 / 上传超限 / 删除保护目录这类失败就是"点了没反应"（实机观感）。
+  document.body.addEventListener("htmx:responseError", function (ev) {
+    var xhr = (ev.detail && ev.detail.xhr) || {};
+    var msg = "";
+    try {
+      var data = JSON.parse(xhr.responseText || "");
+      if (data && data.detail) msg = String(data.detail);
+    } catch (e) { /* 非 JSON（如 CSRF 的 HTML 提示）走通用文案 */ }
+    showToast(msg || "操作失败（HTTP " + (xhr.status || "?") + "）", "error");
+  });
+
   // ------------------------------------------------------------------
   // 任务日志自动滚到底（安装 / 更新进度实时可见）
   // ------------------------------------------------------------------
@@ -444,9 +456,11 @@
     var trash = wbIsTrash(), multi = selMulti.length > 0;
     if (op) op.disabled = !item;
     if (arc) arc.disabled = !(item && item.dataset.bucket !== "1" && !trash);
-    if (ren) ren.disabled = !(item && !multi);
-    if (cp) cp.disabled = !(item || multi);
-    if (del) del.disabled = !(item || multi);
+    // 回收站里只提供「还原」：重命名/复制/再删除都会让回收站 manifest 指错原位置
+    var has = item || multi;
+    if (ren) ren.disabled = !(has && !multi && !trash);
+    if (cp) cp.disabled = !(has && !trash);
+    if (del) del.disabled = !(has && !trash);
     var isDir = item && item.dataset.dir === "1";
     if (dl) { dl.style.display = item && !isDir && !trash ? "" : "none";
       if (item) dl.href = "/files/raw?path=" + encodeURIComponent(item.dataset.rel) + "&dl=1"; }
@@ -743,7 +757,7 @@
     if (/INPUT|TEXTAREA|SELECT/i.test(tag)) return;
     if (!$id("osfm-root")) return;
     if (ev.key === "Enter" && sel) { wbOpen(sel); return; }
-    if (ev.key === "Delete" && (sel || selMulti.length)) { ev.preventDefault(); wbDelete(); return; }
+    if (ev.key === "Delete" && (sel || selMulti.length) && !wbIsTrash()) { ev.preventDefault(); wbDelete(); return; }
     if (ev.key === "F2" && sel && !selMulti.length) { ev.preventDefault(); wbRename(sel); return; }
     if (ev.key === "Backspace") {
       var up = document.querySelector(".e-nav a.e-navbtn");

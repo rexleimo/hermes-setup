@@ -32,7 +32,6 @@ function makeEl(tag) {
     textContent: "",
     type: "", title: "", src: "", alt: "",
     controls: false, preload: "",
-    offsetLeft: 0, offsetTop: 0,
     currentTime: 0,
     paused: true,
     setAttribute(k, v) { this.attributes[k] = String(v); },
@@ -123,6 +122,14 @@ function makeEl(tag) {
     },
     contains: (c) => el._cls.has(c),
   };
+  // offset* 与 style 同步（浏览器语义）：WM 的拖拽/八向缩放边界全靠它们
+  for (const [prop, styleKey] of [["offsetLeft", "left"], ["offsetTop", "top"],
+                                  ["offsetWidth", "width"], ["offsetHeight", "height"]]) {
+    Object.defineProperty(el, prop, {
+      get() { return parseInt(this.style[styleKey], 10) || 0; },
+      set(v) { this.style[styleKey] = v + "px"; },
+    });
+  }
   el.pause = function () { this.paused = true; };
   el.play = function () { this.paused = false; };
   return el;
@@ -292,17 +299,40 @@ async function main() {
     WM.close(w.id); WM.close(w2.id);
   }
 
-  // 3. minimize：内容 DOM 销毁 + wm-min + chip 保留
+  // 3. minimize：非媒体类内容保留（0.8.32 修订：销毁重建 = 编辑内容丢失，实机反馈）
   {
     const { doc, WM } = fresh();
     const w = openText(WM);
     ok(w.contentEl.children.length > 0, "minimize 前: 内容已构建");
     WM.minimize(w.id);
     eq(wmState(WM)[0].min, true, "minimize: state.min === true");
-    eq(wmState(WM)[0].content, 0, "minimize: 内容 DOM 已销毁");
+    ok(wmState(WM)[0].content > 0, "minimize: 文本内容 DOM 保留（不再销毁）");
     ok(w.el._cls.has("wm-min"), "minimize: wm-min 类已加");
     const tb = taskbarOf(doc);
     ok(!!tb.querySelector(".wm-task"), "minimize: chip 保留在任务条");
+
+    // 媒体类仍销毁（释放解码内存）
+    const v = WM.open({ title: "a.mp4", kind: "video", rel: "a.mp4", name: "a.mp4", size: 10 });
+    ok(v.contentEl.children.length > 0, "minimize 前: 视频内容已构建");
+    WM.minimize(v.id);
+    eq(wmState(WM).find((s) => s.id === String(v.id)).content, 0,
+      "minimize: 媒体类内容仍销毁（解码内存）");
+    WM.restore(v.id);
+    ok(wmState(WM).find((s) => s.id === String(v.id)).content > 0, "restore: 媒体类按指针重建");
+  }
+
+  // 3b. 文本编辑未保存 → 最小化再还原，内容必须还在（数据丢失回归）
+  {
+    const { WM } = fresh();
+    const w = openText(WM);
+    const ta = w.contentEl.querySelector("textarea");
+    ok(ta, "3b: 文本编辑框存在");
+    ta.value = "用户敲到一半的草稿";
+    WM.minimize(w.id);
+    WM.restore(w.id);
+    const ta2 = w.contentEl.querySelector("textarea");
+    ok(ta2 && ta2.value === "用户敲到一半的草稿",
+      "3b: 未保存的编辑跨最小化保留（实机数据丢失回归）");
   }
 
   // 4. restore：内容重建 + 类移除
@@ -312,8 +342,60 @@ async function main() {
     WM.minimize(w.id);
     WM.restore(w.id);
     eq(wmState(WM)[0].min, false, "restore: state.min === false");
-    ok(wmState(WM)[0].content > 0, "restore: 内容已重建");
+    ok(wmState(WM)[0].content > 0, "restore: 内容在");
     ok(!w.el._cls.has("wm-min"), "restore: wm-min 类已移除");
+  }
+
+  // 4b. 八向缩放手柄：8 个手柄存在；se/nw 拖拽按桌面语义改尺寸/位置
+  {
+    const { doc, WM } = fresh();
+    const w = openText(WM);
+    const r = doc.body.children.find((c) => c.id === "wm-root");
+    const el = r.children.find((c) => c._cls.has("wm-win"));
+    const handles = el.children.filter((c) => c._cls.has("wm-rz"));
+    eq(handles.length, 8, "4b: 八个缩放手柄");
+    ["wm-rz-n", "wm-rz-s", "wm-rz-e", "wm-rz-w", "wm-rz-ne", "wm-rz-nw",
+     "wm-rz-se", "wm-rz-sw"].forEach((cls) =>
+      ok(handles.some((h) => h._cls.has(cls)), "4b: 手柄 " + cls + " 存在"));
+
+    // se：向右下拖 → 变大，位置不动
+    const se = handles.find((h) => h._cls.has("wm-rz-se"));
+    el.offsetWidth = 800; el.offsetHeight = 500;
+    el.style.left = "100px"; el.style.top = "80px";
+    se.fire("pointerdown", { clientX: 900, clientY: 580, preventDefault() {} });
+    doc.fire("pointermove", { clientX: 960, clientY: 620 });
+    doc.fire("pointerup", {});
+    eq(el.style.width, "860px", "4b: se 拖拽变宽");
+    eq(el.style.height, "540px", "4b: se 拖拽变高");
+    eq(el.style.left, "100px", "4b: se 不动 left");
+    eq(el.style.top, "80px", "4b: se 不动 top");
+
+    // nw：向左上拖 → 变大且 left/top 跟移（右下角钉住）
+    const nw = handles.find((h) => h._cls.has("wm-rz-nw"));
+    el.offsetWidth = 800; el.offsetHeight = 500;
+    nw.fire("pointerdown", { clientX: 100, clientY: 80, preventDefault() {} });
+    doc.fire("pointermove", { clientX: 40, clientY: 30 });
+    doc.fire("pointerup", {});
+    eq(el.style.width, "860px", "4b: nw 反向拖变宽");
+    eq(el.style.height, "550px", "4b: nw 反向拖变高");
+    eq(el.style.left, "40px", "4b: nw left 跟移");
+    eq(el.style.top, "30px", "4b: nw top 跟移");
+
+    // 最小尺寸钳制：se 往回拖过头 → 不小于 320x200
+    se.fire("pointerdown", { clientX: 900, clientY: 610, preventDefault() {} });
+    doc.fire("pointermove", { clientX: 10, clientY: 10 });
+    doc.fire("pointerup", {});
+    ok(parseInt(el.style.width, 10) >= 320 && parseInt(el.style.height, 10) >= 200,
+      "4b: 最小尺寸钳制 320x200");
+
+    // 全屏时手柄不响应
+    WM.fullscreen(el.dataset.wmid);
+    const n = handles.find((h) => h._cls.has("wm-rz-n"));
+    const before = el.style.height;
+    n.fire("pointerdown", { clientX: 500, clientY: 0, preventDefault() {} });
+    doc.fire("pointermove", { clientX: 500, clientY: 300 });
+    doc.fire("pointerup", {});
+    eq(el.style.height, before, "4b: 全屏时手柄不缩放");
   }
 
   // 5. close：窗口 + chip 全销毁，任务条隐藏

@@ -176,17 +176,26 @@ def _walk_files() -> list[Entry]:
 
 
 def list_collection(cat: str, limit: int = COLLECTION_LIMIT) -> list[Entry]:
-    """智能集合：全工作区按类型聚合（虚拟视图，文件不动、不复制）。"""
+    """智能集合：全工作区按类型聚合（虚拟视图，文件不动、不复制）。
+
+    和侧栏计数一样走 TTL 缓存：全树 rglob 在 Windows 上是秒级，而集合视图
+    每次导航都渲染；写操作后主动失效，TTL 兜住 Agent 直接写盘的窗口。"""
     if cat not in CATEGORY_MAP:
         raise WorkspaceError(f"未知集合：{cat}")
     exts = CATEGORY_MAP[cat][2]
-    files = [e for e in _walk_files() if e.ext in exts]
-    return _sort_entries(files, "time")[:limit]
+
+    def _calc() -> list[Entry]:
+        files = [e for e in _walk_files() if e.ext in exts]
+        return _sort_entries(files, "time")[:limit]
+
+    return _cached_counts(f"collection:{cat}", _calc)
 
 
 def list_recent(limit: int = 100) -> list[Entry]:
-    files = _walk_files()
-    return _sort_entries(files, "time")[:limit]
+    def _calc() -> list[Entry]:
+        return _sort_entries(_walk_files(), "time")[:limit]
+
+    return _cached_counts("recent", _calc)
 
 
 # ---------------------------------------------------------------------------

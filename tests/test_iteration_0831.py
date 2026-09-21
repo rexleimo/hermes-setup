@@ -240,6 +240,20 @@ def test_search_by_name(workspace):
     assert all(not e.rel.startswith(".") for e in ws.search("txt"))
 
 
+def test_collection_view_cached_and_invalidated(workspace):
+    """集合/最近视图与计数同走缓存：写操作失效，直接写盘 TTL 内允许命中。"""
+    (workspace / "downloads" / "a.png").write_bytes(b"x")
+    first = ws.list_collection("images")
+    assert [e.name for e in first] == ["a.png"]
+    (workspace / "downloads" / "b.png").write_bytes(b"x")
+    assert len(ws.list_collection("images")) == 1, "直接写盘：TTL 内允许命中缓存"
+    ws.upload("c.png", b"x")
+    assert [e.name for e in ws.list_collection("images")] == ["c.png", "b.png", "a.png"], \
+        "服务层写操作必须主动失效集合缓存（视图按时间倒序）"
+    recent_names = {e.name for e in ws.list_recent()}
+    assert {"a.png", "b.png", "c.png"} <= recent_names
+
+
 # ---------------------------------------------------------------------------
 # 文件工作台路由：新端点（rename/delete/new/search/batch/move dest）
 # ---------------------------------------------------------------------------

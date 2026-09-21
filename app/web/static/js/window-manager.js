@@ -6,11 +6,12 @@
 //      与"文件"无关——任何页面都可以 WM.open(spec) 开一个窗口。
 //   2. 内容由 Viewer 注册表构建：WM.register(kind, factory)。
 //      新增文件类型 = 后端 preview_class 加分支 + 这里 register 一个条目。
-//   3. 内存语义（硬要求）：
+//   3. 内存语义（0.8.32 修订）：
 //      - 关闭：窗口框架 + 内容 DOM 全部销毁；
-//      - 最小化：内容 DOM 直接 remove（释放 <video> 解码器 / <img> 解码内存），
-//        只在 wins 里留一个"指针"描述符（含媒体播放进度），任务条显示条目；
-//      - 还原：按指针重建内容（恢复播放进度）；
+//      - 最小化：只有 video/audio 销毁内容（释放解码内存，还原按进度续播）；
+//        其余类型只隐藏——文本未保存的编辑 / HTML 预览档位 / 图片查看模式 /
+//        PDF 滚动位置都长在内容 DOM 上，销毁重建 =「最小化回来数据不对」
+//        （实机反馈：编辑中的文字最小化再还原就丢了），绝不接受；
 //      - 全屏：仅 CSS 切换，内容保留。
 //   4. #wm-root 容器挂在 body 上；hx-boost 换页后自动挂回，
 //      因此窗口/任务条跨页面导航存活（OS 语义）。
@@ -193,7 +194,7 @@
       svg(KIND_ICO[spec.kind] || "file", "wm-ico") +
       '<span class="wm-title">' + esc(spec.title) + "</span>" +
       '<span class="wm-spacer"></span>' +
-      '<button type="button" class="wm-btn wm-min" title="最小化（销毁内容，任务条保留）">' +
+      '<button type="button" class="wm-btn wm-min" title="最小化（任务条保留）">' +
         '<svg viewBox="0 0 16 16"><path d="M3 8.5h10" stroke="currentColor" stroke-width="1.4"/></svg></button>' +
       '<button type="button" class="wm-btn wm-fs" title="全屏">' +
         '<svg viewBox="0 0 16 16"><path d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3" fill="none" stroke="currentColor" stroke-width="1.4"/></svg></button>' +
@@ -205,6 +206,51 @@
 
     el.appendChild(bar);
     el.appendChild(content);
+
+    // 桌面式八向缩放（n/s/e/w + 四角）：CSS resize 只有右下角一个手柄，
+    // 实机反馈不友好。手柄贴边内嵌（.wm-win overflow:hidden 会裁掉越界部分），
+    // 拖拽边界与最小尺寸同 open() 一致；全屏时 CSS 隐藏。
+    ["n", "s", "e", "w", "ne", "nw", "se", "sw"].forEach(function (dir) {
+      var h = document.createElement("div");
+      h.className = "wm-rz wm-rz-" + dir;
+      h.addEventListener("pointerdown", function (ev) {
+        if (win.fs) return;
+        focus(id);
+        ev.preventDefault();
+        var sx = ev.clientX, sy = ev.clientY;
+        var ow = el.offsetWidth, oh = el.offsetHeight;
+        var ox = el.offsetLeft, oy = el.offsetTop;
+        var MINW = 320, MINH = 200;
+        function mv(e2) {
+          var dx = e2.clientX - sx, dy = e2.clientY - sy;
+          var nw = ow, nh = oh, nl = ox, nt = oy;
+          if (dir.indexOf("e") >= 0)
+            nw = Math.max(MINW, Math.min(ow + dx, vw - ox));
+          if (dir.indexOf("s") >= 0)
+            nh = Math.max(MINH, Math.min(oh + dy, vh - oy));
+          if (dir.indexOf("w") >= 0) {
+            nw = Math.max(MINW, Math.min(ow - dx, ox + ow));
+            nl = ox + (ow - nw);
+          }
+          if (dir.indexOf("n") >= 0) {
+            nt = Math.max(0, oy + (oh - Math.max(MINH, oh - dy)));
+            nh = oh + (oy - nt);
+          }
+          el.style.width = nw + "px";
+          el.style.height = nh + "px";
+          el.style.left = nl + "px";
+          el.style.top = nt + "px";
+        }
+        function up() {
+          document.removeEventListener("pointermove", mv);
+          document.removeEventListener("pointerup", up);
+        }
+        document.addEventListener("pointermove", mv);
+        document.addEventListener("pointerup", up);
+      });
+      el.appendChild(h);
+    });
+
     root.insertBefore(el, taskbar);
 
     var win = {
@@ -222,9 +268,11 @@
       focus(id);
       var sx = ev.clientX, sy = ev.clientY;
       var ox = el.offsetLeft, oy = el.offsetTop;
+      // 边界按拖拽开始时的当下尺寸/视口算：缩放之后还用 open() 的旧值会锁错范围
+      var cw = el.offsetWidth, vwNow = window.innerWidth, vhNow = window.innerHeight;
       function mv(e2) {
-        el.style.left = Math.min(Math.max(ox + e2.clientX - sx, -w + 120), vw - 120) + "px";
-        el.style.top = Math.min(Math.max(oy + e2.clientY - sy, 0), vh - 60) + "px";
+        el.style.left = Math.min(Math.max(ox + e2.clientX - sx, -cw + 120), vwNow - 120) + "px";
+        el.style.top = Math.min(Math.max(oy + e2.clientY - sy, 0), vhNow - 60) + "px";
       }
       function up() {
         document.removeEventListener("pointermove", mv);
@@ -277,8 +325,13 @@
   function minimize(id) {
     var win = wins[id];
     if (!win || win.min) return;
-    win.state = captureState(win);
-    destroyContent(win);
+    // 只有媒体类销毁内容（释放解码内存，还原按进度续播）。文本未保存的编辑、
+    // HTML 预览档位、图片查看模式、PDF 滚动位置都长在内容 DOM 上，销毁重建
+    // 就是「最小化回来数据不对」——这是实机反馈的数据丢失根因。
+    if (win.kind === "video" || win.kind === "audio") {
+      win.state = captureState(win);
+      destroyContent(win);
+    }
     win.min = true;
     win.el.classList.add("wm-min");
     focusedId = null;
@@ -290,7 +343,8 @@
     if (!win || !win.min) return;
     win.min = false;
     win.el.classList.remove("wm-min");
-    buildContent(win);
+    // 媒体类被销毁过才重建；其余类型内容原样还在，怎么最小化就怎么回来
+    if (!win.contentEl.children.length) buildContent(win);
     focus(id);
   }
 

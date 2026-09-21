@@ -981,15 +981,30 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
   border: 1px solid var(--border, #d9dee6);
   border-radius: 10px; overflow: hidden;
   box-shadow: 0 18px 50px rgba(15, 23, 42, .28);
-  /* Windows 式自由缩放（右下角手柄；全屏/最小化时禁用） */
-  resize: both; min-width: 320px; min-height: 220px;
+  /* 桌面式八向缩放由 JS 手柄实现（.wm-rz）：CSS resize 只有右下角一个手柄，
+     实机反馈不友好，弃用。min-* 仍保留，兜住 JS 缩放的极限值。 */
+  min-width: 320px; min-height: 200px;
 }
 .wm-win.wm-min { display: none; }
 .wm-win.wm-fs {
   left: 0 !important; top: 0 !important;
   width: 100vw !important; height: 100vh !important;
-  border-radius: 0; border: none; resize: none;
+  border-radius: 0; border: none;
 }
+.wm-win.wm-fs .wm-rz { display: none; }
+/* 八向缩放手柄：贴边内嵌（overflow:hidden 裁越界，故不出界），四角加宽好抓 */
+.wm-rz { position: absolute; z-index: 5; touch-action: none; }
+.wm-rz-n, .wm-rz-s { left: 10px; right: 10px; height: 6px; cursor: ns-resize; }
+.wm-rz-n { top: 0; }
+.wm-rz-s { bottom: 0; }
+.wm-rz-e, .wm-rz-w { top: 10px; bottom: 10px; width: 6px; cursor: ew-resize; }
+.wm-rz-e { right: 0; }
+.wm-rz-w { left: 0; }
+.wm-rz-ne, .wm-rz-nw, .wm-rz-se, .wm-rz-sw { width: 14px; height: 14px; z-index: 6; }
+.wm-rz-ne { top: 0; right: 0; cursor: nesw-resize; }
+.wm-rz-nw { top: 0; left: 0; cursor: nwse-resize; }
+.wm-rz-se { bottom: 0; right: 0; cursor: nwse-resize; }
+.wm-rz-sw { bottom: 0; left: 0; cursor: nesw-resize; }
 .wm-titlebar {
   display: flex; align-items: center; gap: 8px;
   height: 40px; padding: 0 6px 0 12px; flex: none;
