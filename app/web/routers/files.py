@@ -189,6 +189,21 @@ def raw(request: Request, user: User, path: str = "", dl: int = 0):
                         headers={"Cache-Control": "no-cache"})
 
 
+@router.get("/thumb")
+def thumb(request: Request, user: User, path: str = ""):
+    """网格缩略图（320px JPEG，磁盘缓存键含 mtime → 文件一变自动换新键）。
+
+    不记审计——同 /files/raw 的浏览语义，别让一个照片目录刷几十条 INSERT；
+    URL 内容永不变化（变化即换键），浏览器可放心长缓存。生成失败（非图片/
+    已损坏）按 404 处理，前端 onerror 回退类型图标。"""
+    try:
+        p = ws.thumb_for(path)
+    except ws.WorkspaceError as exc:
+        _fail(request, exc, path)
+    return FileResponse(p, media_type="image/jpeg",
+                        headers={"Cache-Control": "private, max-age=604800, immutable"})
+
+
 @router.get("/raw-html")
 def raw_html(request: Request, user: User, path: str = ""):
     """HTML 宽松档预览源（WI-19B）：仅 .html/.htm，其余类型 400。

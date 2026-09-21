@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.33 — 2026-09-21（图片缩略图：网格不再拉原图——文件 OS 最后一个已知大慢点）
+
+### Added
+- **图片缩略图**：网格图片此前 `<img src=/files/raw>` 直接加载原图，开一个
+  照片目录就是几百 MB 流量 + 秒级渲染。新 `GET /files/thumb`（Pillow 生成
+  最长边 320px JPEG，质量 82），落盘 `data/thumbs/`；缓存键 =
+  rel+mtime+size 的 sha1 → 文件一变自动换新键，同一 URL 的响应永不变化，
+  浏览器可放心长缓存（`private, max-age=7d, immutable`）。
+- 生成细节：JPEG `draft()` 解码降采样（大图省内存）、EXIF 自动摆正手机
+  照片、临时文件原子换名（并发首访同一文件不会读到半张 JPEG）、GIF 取首帧。
+- 前端：网格图片走 `/files/thumb?v=<mtime>`，图标垫底；生成失败（非图片/
+  已损坏）`onerror` 移除缩略图回退类型图标，不出破图。`/files/raw` 在网格
+  仅剩视频 `preload=metadata`（浏览器只拉元数据，本就不拉全片）。
+- 依赖：新增 Pillow（仅缩略图用，延迟导入，不影响启动路径）。
+
+### Tests
+- 新 `tests/test_files_thumb.py` 5 项：320px 尺寸上限、缓存复用与内容变化
+  换新键、非图片/缺失/越狱路径拒绝、未登录不可读（follow_redirects=False，
+  TestClient 默认跟重定向会假阳性 200）、模板断言网格走 thumb 端点。
+
 ## 0.8.32 — 2026-09-21（WebOS 窗口二连修：八向桌面式缩放 + 最小化数据丢失根治；文件 OS 反馈修复）
 
 ### Added

@@ -880,6 +880,9 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 .osfm-card-item:focus-visible { outline:2px solid var(--e-accent); }
 .e-thumb { position:relative; width:100%; height:92px; display:flex; align-items:center; justify-content:center; }
 .e-thumb img, .e-thumb video { width:100%; height:92px; object-fit:cover; border-radius:4px; background:#000; }
+.e-thumb .e-ticon { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+.e-thumb .e-ticon .wb-i { width:52px; height:52px; }
+.e-thumb img { position:relative; z-index:1; }
 .e-thumb .wb-i { width:52px; height:52px; }
 .e-badge { position:absolute; top:2px; right:4px; font-style:normal; font-size:10.5px;
   background:#fff; border:1px solid #ddd; border-radius:999px; padding:0 6px; color:#444; }

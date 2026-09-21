@@ -8,9 +8,12 @@ jail 校验（resolve 后仍在根内，symlink 逃逸同样被拦）。
 """
 from __future__ import annotations
 
+import hashlib
 import io
+import os
 import re
 import shutil
+import tempfile
 import time
 import zipfile
 from dataclasses import dataclass
@@ -368,6 +371,55 @@ def file_for_download(rel: str) -> Path:
     if not path.is_file():
         raise NotFound(f"文件不存在：{rel}")
     return path
+
+
+# ---------------------------------------------------------------------------
+# 缩略图：网格此前 <img src=/files/raw> 直接加载原图，开一个照片目录就是
+# 几百 MB 流量 + 秒级渲染（文件 OS 最后一个已知大慢点）。Pillow 生成最长边
+# 320px 的 JPEG 落盘缓存；缓存键含 mtime+size → 文件一变自动换新键，
+# 旧 URL 的响应永不变化，浏览器可放心长缓存（immutable）。
+# ---------------------------------------------------------------------------
+
+THUMB_MAX = 320
+_THUMB_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+
+def thumb_for(rel: str) -> Path:
+    from PIL import Image, ImageOps  # 延迟导入：缩略图只在文件工作台用到
+
+    src = resolve_rel(rel)
+    if not src.is_file():
+        raise NotFound(f"文件不存在：{rel}")
+    if src.suffix.lower() not in _THUMB_EXTS:
+        raise WorkspaceError("该类型不生成缩略图")
+    st = src.stat()
+    key = hashlib.sha1(
+        f"{rel}|{st.st_mtime_ns}|{st.st_size}".encode("utf-8")).hexdigest()[:24]
+    from app.core.settings import settings
+
+    cache_dir = settings.data_dir / "thumbs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out = cache_dir / f"{key}.jpg"
+    if out.exists():
+        return out
+    with Image.open(src) as im:
+        im.draft("RGB", (THUMB_MAX * 2, THUMB_MAX * 2))  # JPEG 解码降采样，大图省内存
+        im = ImageOps.exif_transpose(im)                 # 手机照片按 EXIF 摆正
+        im.thumbnail((THUMB_MAX, THUMB_MAX))
+        rgb = im.convert("RGB")
+        # 先写临时文件再原子换名：并发首访同一文件不会让对方读到半张 JPEG
+        fd, tmp = tempfile.mkstemp(dir=cache_dir, suffix=".jpg")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                rgb.save(fh, "JPEG", quality=82)
+            Path(tmp).replace(out)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+    return out
 
 
 def zip_rel(rel: str) -> tuple[bytes, str]:
