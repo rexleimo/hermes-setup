@@ -443,7 +443,16 @@
   }
   function wbStatus() {
     var c = $id("e-status-count"), s = $id("e-status-sel");
-    if (c) c.textContent = document.querySelectorAll("#osfm-items .osfm-card-item").length + " 个项目";
+    var items = $id("osfm-items");
+    var shown = document.querySelectorAll("#osfm-items .osfm-card-item").length;
+    var total = items ? parseInt(items.dataset.total || "0", 10) : 0;
+    if (c) {
+      // 分页后页面上只有部分条目，状态栏说清楚“共多少 / 已显示多少”，
+      // 不然用户以为工作区只剩这 120 个文件。
+      c.textContent = !total || total === shown
+        ? shown + " 个项目"
+        : "共 " + total + " 个项目 · 已显示 " + shown;
+    }
     if (s) {
       var n = selMulti.length || (sel ? 1 : 0);
       s.textContent = n ? ("选中 " + n + " 个项目" + (n === 1 && sel ? "  " + sel.dataset.size : "")) : "";
@@ -490,7 +499,11 @@
     var d = item.dataset, root = $id("osfm-root");
     var thumb;
     if (d.dir === "1") thumb = wbSvg("folder", "is-file");
-    else if (d.cat === "images") thumb = '<img src="/files/raw?path=' + encodeURIComponent(d.rel) + '" alt="">';
+    // 选中预览也用缩略图：详情栏只有 ~200px，拉 4000×3000 原图是纯浪费；
+    // 非栅格图（SVG 等）缩略图端点不服务，回原图。
+    else if (d.cat === "images") thumb = '<img src="' + (d.thumbable === "1"
+        ? "/files/thumb?path=" + encodeURIComponent(d.rel)
+        : "/files/raw?path=" + encodeURIComponent(d.rel)) + '" alt="">';
     else if (d.cat === "videos") thumb = '<video src="/files/raw?path=' + encodeURIComponent(d.rel) + '#t=0.5" preload="metadata" muted playsinline></video>';
     else thumb = wbSvg(d.cat || "file", "is-file");
     var acts = '<div class="e-dacts"><button type="button" class="e-dbtn" data-wb="open">打开</button>'
@@ -823,10 +836,115 @@
     wbPost("/files/move", { path: rel, dest: dest.dirRel, here: wbHere() }, "移动失败");
   });
 
+  // ---- 缩略图 / 视频预览的受控加载（0.8.34 性能修复）-------------------
+  // 网格里所有媒体一律 data-src（见 files/_item.html）：进入视口才挂 src，并且
+  // 全页最多 MEDIA_MAX 个请求在飞。以前首屏 120〜1000 个 <img src> 同时发出，
+  // 每个 /files/thumb 首次命中都要在服务端解码原图（CPU），浏览器和 worker 线程
+  // 池一起被堵，表现就是“文件一多整页打不开”。
+  var MEDIA_MAX = 4;
+  var mediaIO = null, mediaActive = 0, mediaQueue = [];
+
+  function mediaPump() {
+    while (mediaActive < MEDIA_MAX && mediaQueue.length) {
+      var el = mediaQueue.shift();
+      var url = el.getAttribute("data-src");
+      if (!url) continue;
+      el.removeAttribute("data-src");
+      mediaActive++;
+      (function (node) {
+        var settled = false;
+        function done() {
+          if (settled) return;
+          settled = true;
+          mediaActive--;
+          mediaPump();
+        }
+        node.addEventListener("load", done, { once: true });
+        node.addEventListener("error", done, { once: true });
+        setTimeout(done, 20000);          // 元数据事件丢了也不能永久占位
+        if (node.tagName === "VIDEO") node.preload = "metadata";
+        node.src = url;
+      })(el);
+    }
+  }
+
+  function mediaScan(scope) {
+    var host = scope || document;
+    var list = host.querySelectorAll("[data-src]");
+    if (!list.length) return;
+    if (!window.IntersectionObserver) {   // 不支持的浏览器：排队加载，仍限并发
+      for (var i = 0; i < list.length; i++) mediaQueue.push(list[i]);
+      mediaPump();
+      return;
+    }
+    if (!mediaIO) {
+      mediaIO = new IntersectionObserver(function (entries) {
+        var added = false;
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          mediaIO.unobserve(en.target);
+          mediaQueue.push(en.target);
+          added = true;
+        });
+        if (added) mediaPump();
+      }, { rootMargin: "400px 0px" });
+    }
+    for (var j = 0; j < list.length; j++) mediaIO.observe(list[j]);
+  }
+
+  function mediaOnSwap() {
+    mediaQueue.length = 0;               // 换页/导航后丢弃未发出的旧卡片
+    var items = document.getElementById("osfm-items");
+    if (items) mediaScan(items);
+  }
+  mediaOnSwap();
+
+  // ---- 「加载更多」：每次只取一页卡片，追加到按钮之前 ------------------
+  // 端点回 X-Osfm-More / X-Osfm-Offset 告知还有没有下一页，前端不自己猜。
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target && ev.target.closest ? ev.target.closest("#osfm-more") : null;
+    if (!btn || btn.disabled) return;
+    var url = btn.getAttribute("data-more-url");
+    if (!url) return;
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = "加载中…";
+    fetch(url, { credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return Promise.all([
+          r.text(),
+          r.headers.get("X-Osfm-More") || "0",
+          r.headers.get("X-Osfm-Offset") || "0",
+        ]);
+      })
+      .then(function (res) {
+        var html = res[0], more = res[1] === "1", off = res[2];
+        // 列表视图的按钮包在 <tr> 里：插到整行之前才不会插坏表格
+        var slot = btn.closest("tr") || btn;
+        if (html) slot.insertAdjacentHTML("beforebegin", html);
+        var items = $id("osfm-items");
+        if (items) mediaScan(items);
+        wbStatus();
+        if (more) {
+          btn.setAttribute("data-more-url", url.replace(/offset=\d+/, "offset=" + off));
+          btn.disabled = false;
+          btn.textContent = label;
+        } else {
+          if (slot.parentNode) slot.parentNode.removeChild(slot);
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = label || "加载更多";
+        document.body.dispatchEvent(new CustomEvent("console:toast",
+          { bubbles: true, detail: { message: "加载失败，请重试", level: "error" } }));
+      });
+  });
+
   // 目录变更监听（W16）：Agent 在另一头写文件时，打开中的目录自动刷新。
   // 弹窗打开 / 有选中 / 正在输入时不刷，避免打断操作。
-  var watchEs = null, watchUrl = "";
-  function attachWatch() {
+  var watchEs = null, watchUrl = "";  function attachWatch() {
     if (!window.EventSource) return;
     var root = $id("osfm-root");
     if (!root) {
@@ -848,6 +966,12 @@
           /INPUT|TEXTAREA/.test(document.activeElement.tagName || "")) return;
       wbNav("/files" + (here ? "?" + here : ""));
     });
+    es.addEventListener("busy", function () {
+      // 服务端监听名额满了：自己退避，别让 EventSource 每 3 秒重连一次
+      es.close();
+      if (watchEs === es) { watchEs = null; watchUrl = ""; }
+      setTimeout(attachWatch, 60000);
+    });
     es.onerror = function () {
       es.close();
       if (watchEs === es) { watchEs = null; watchUrl = ""; }
@@ -855,6 +979,8 @@
   }
   attachWatch();
   document.body.addEventListener("htmx:afterSwap", attachWatch);
+  // boosted 换页/写操作重渲染后，新卡片里的媒体同样要受控加载
+  document.body.addEventListener("htmx:afterSwap", mediaOnSwap);
   // 选完文件即上传：htmx 提交（hx-swap=none，不 swap），服务端回 HX-Trigger
   document.addEventListener("change", function (ev) {
     if (!ev.target || !ev.target.matches || !ev.target.matches(".osfm-upload input[type=file]")) return;

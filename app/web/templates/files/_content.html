@@ -1,66 +1,38 @@
-{% from "macros.html" import icon, tag, csrf, wbicon with context %}
-{%- macro typeicon(e) -%}
-  {%- if e.is_dir -%}{{ wbicon('folder') }}
-  {%- elif e.category == 'images' -%}{{ wbicon('image') }}
-  {%- elif e.category == 'videos' -%}{{ wbicon('video') }}
-  {%- elif e.category == 'audio' -%}{{ wbicon('audio') }}
-  {%- elif e.category == 'documents' -%}{{ wbicon('document') }}
-  {%- elif e.category == 'code' -%}{{ wbicon('code') }}
-  {%- elif e.category == 'archives' -%}{{ wbicon('archive') }}
-  {%- else -%}{{ wbicon('file') }}
-  {%- endif -%}
-{%- endmacro -%}
-{# 内容区（网格/详细列表），页面与 /files/list 片段共用。工具条在 files.html 窗口壳里。 #}
+{%- set moreq = ('cat=' ~ cat if cat else ('q=' ~ q|urlencode if q else 'path=' ~ path|urlencode))
+                ~ '&sort=' ~ sort ~ '&view=' ~ view ~ '&offset=' ~ next_offset -%}
+{# 内容区（网格/详细列表），页面与 /files/list 片段共用。工具条在 files.html 窗口壳里。
+
+   0.8.34 性能口径：
+   - 条目本身只渲染一页（ws.PAGE_SIZE），剩下的由「加载更多」按 offset 增量取；
+   - 单条标记在 files/_item.html（与 _more.html 共用一份，避免两套长相）；
+   - 图片/视频走 data-src + IntersectionObserver，不在首屏并发拉几百个缩略图。 #}
 {% if view != 'list' %}
-<div class="e-grid" id="osfm-items">
-  {% for e in entries %}
-  <div class="osfm-card-item" tabindex="0" draggable="true"
-       data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}" data-name0="{{ e.name }}"
-       data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
-       data-cat="{{ e.category or 'file' }}"
-       data-type="{{ '文件夹' if e.is_dir else (e.category or '文件') }}{{ ' · ' ~ e.ext[1:]|upper if not e.is_dir and e.ext else '' }}"
-       data-size="{{ e.size_text }}" data-mtime="{{ e.mtime_text }}"
-       data-parent="{{ ws_root_name ~ '/' ~ (e.rel.rsplit('/', 1)[0] if '/' in e.rel else '') }}"
-       data-href="/files?path={{ e.rel }}&sort={{ sort }}&view={{ view }}"
-       title="{{ e.rel }}">
-    <div class="e-thumb">
-      {% if e.is_dir %}{{ typeicon(e) }}
-        {% if e.count is not none %}<em class="e-badge">{{ e.count }}</em>{% endif %}
-      {% elif e.category == 'images' %}<span class="e-ticon">{{ typeicon(e) }}</span><img src="/files/thumb?path={{ e.rel }}&v={{ e.mtime }}" loading="lazy" alt="" onerror="this.remove()">
-      {% elif e.category == 'videos' %}<video src="/files/raw?path={{ e.rel }}#t=0.5" preload="metadata" muted playsinline></video><em class="e-badge e-badge-play">▶</em>
-      {% else %}{{ typeicon(e) }}{% endif %}
-    </div>
-    <div class="e-fname">{{ e.name }}</div>
+<div class="e-grid" id="osfm-items" data-total="{{ total }}" data-view="grid">
+  {% for e in entries %}{% include "files/_item.html" %}{% endfor %}
+  {% if not entries %}<div class="e-empty" style="grid-column:1/-1">此文件夹为空</div>{% endif %}
+  {# 占位行必须在容器内：新卡片插到它之前才会作为网格项排版 #}
+  {% if has_more %}
+  <div class="e-more-slot">
+    <button class="e-more" id="osfm-more" type="button" data-more-url="/files/more?{{ moreq }}">
+      加载更多（还有 {{ total - next_offset }} 项）
+    </button>
   </div>
-  {% else %}
-  <div class="e-empty" style="grid-column:1/-1">此文件夹为空</div>
-  {% endfor %}
+  {% endif %}
 </div>
 
 {% else %}
-<table class="e-table" id="osfm-items">
+<table class="e-table" id="osfm-items" data-total="{{ total }}" data-view="list">
   <thead><tr><th>名称</th><th>修改日期</th><th>类型</th><th>大小</th></tr></thead>
   <tbody>
-    {% for e in entries %}
-    <tr class="osfm-card-item" tabindex="0" draggable="true"
-        data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}" data-name0="{{ e.name }}"
-        data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
-        data-cat="{{ e.category or 'file' }}"
-        data-type="{{ '文件夹' if e.is_dir else (e.category or '文件') }}{{ ' · ' ~ e.ext[1:]|upper if not e.is_dir and e.ext else '' }}"
-        data-size="{{ e.size_text }}" data-mtime="{{ e.mtime_text }}"
-        data-parent="{{ ws_root_name ~ '/' ~ (e.rel.rsplit('/', 1)[0] if '/' in e.rel else '') }}"
-        data-href="/files?path={{ e.rel }}&sort={{ sort }}&view={{ view }}"
-        title="{{ e.rel }}">
-      <td><span class="e-temoji">{{ typeicon(e) }}</span>
-        <span class="e-tname">{{ e.name }}</span>
-        {% if e.is_bucket %}<span class="e-tchip">规范目录</span>{% endif %}</td>
-      <td class="e-tdnum">{{ e.mtime_text }}</td>
-      <td>{{ '文件夹' if e.is_dir else (e.ext[1:]|upper ~ ' 文件' if e.ext else '文件') }}</td>
-      <td class="e-tdnum">{{ e.size_text }}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="4"><div class="e-empty">此文件夹为空</div></td></tr>
-    {% endfor %}
+    {% for e in entries %}{% include "files/_item.html" %}{% endfor %}
+    {% if not entries %}<tr><td colspan="4"><div class="e-empty">此文件夹为空</div></td></tr>{% endif %}
+    {% if has_more %}
+    <tr class="e-more-slot"><td colspan="4">
+      <button class="e-more" id="osfm-more" type="button" data-more-url="/files/more?{{ moreq }}">
+        加载更多（还有 {{ total - next_offset }} 项）
+      </button>
+    </td></tr>
+    {% endif %}
   </tbody>
 </table>
 {% endif %}

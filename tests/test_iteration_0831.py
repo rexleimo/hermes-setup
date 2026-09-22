@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 
 import pytest
@@ -248,6 +249,11 @@ def test_collection_view_cached_and_invalidated(workspace):
     (workspace / "downloads" / "b.png").write_bytes(b"x")
     assert len(ws.list_collection("images")) == 1, "直接写盘：TTL 内允许命中缓存"
     ws.upload("c.png", b"x")
+    # 时间序要能分辨，就得真把 mtime 拉开：三个文件在同一时钟 tick 内写完时，
+    # “按时间倒序”本身没有定义（以前靠进盘顺序碰运气）。
+    for name, stamp in (("a.png", 100), ("b.png", 200), ("c.png", 300)):
+        os.utime(workspace / "downloads" / name, (stamp, stamp))
+    ws.invalidate_caches()
     assert [e.name for e in ws.list_collection("images")] == ["c.png", "b.png", "a.png"], \
         "服务层写操作必须主动失效集合缓存（视图按时间倒序）"
     recent_names = {e.name for e in ws.list_recent()}

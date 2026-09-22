@@ -1,6 +1,9 @@
 """平台账户与运行时设置（DB 可编辑部分）。"""
 from __future__ import annotations
 
+import threading
+import time
+
 from app.core import db
 from app.core.security import (
     decrypt_text, encrypt_text, hash_password, password_issues,
@@ -21,15 +24,38 @@ DEFAULTS: dict[str, str] = {
 }
 
 
+# 进程内 TTL 缓存：get_setting 在每次请求里被调用多次（会话鉴权 → 用户行 →
+# workspace 根 → paths.detect …），线上一个图片网格页 = 几百次 SELECT。
+# 写路径统一走 set_setting，改键即失效；clear_setting_cache() 供测试与直连
+# 写库的兜底场景使用。5s 的窗口只影响「绕过本模块直接改库」的冷门路径。
+_SETTING_TTL = 5.0
+_setting_cache: dict[str, tuple[float, str]] = {}
+_setting_lock = threading.Lock()
+
+
+def clear_setting_cache() -> None:
+    with _setting_lock:
+        _setting_cache.clear()
+
+
 def get_setting(key: str) -> str:
+    now = time.monotonic()
+    with _setting_lock:
+        hit = _setting_cache.get(key)
+        if hit is not None and now - hit[0] < _SETTING_TTL:
+            return hit[1]
     row = db.query_one("SELECT value FROM app_settings WHERE key = ?", (key,))
     if row is not None:
-        return row["value"]
-    if key == "hermes_home":
-        return settings.hermes_home
-    if key == "hermes_bin":
-        return settings.hermes_bin
-    return DEFAULTS.get(key, "")
+        value = row["value"]
+    elif key == "hermes_home":
+        value = settings.hermes_home
+    elif key == "hermes_bin":
+        value = settings.hermes_bin
+    else:
+        value = DEFAULTS.get(key, "")
+    with _setting_lock:
+        _setting_cache[key] = (time.monotonic(), value)
+    return value
 
 
 def set_setting(key: str, value: str) -> None:
@@ -38,6 +64,8 @@ def set_setting(key: str, value: str) -> None:
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
+    with _setting_lock:
+        _setting_cache.pop(key, None)
 
 
 def all_settings() -> dict[str, str]:

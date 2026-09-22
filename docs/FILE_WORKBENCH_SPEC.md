@@ -150,3 +150,40 @@ chip 归属 / 媒体续播 / 注册表 / 扁平描述符 / XSS 转义 / 工厂�
 缓存语义：`/files/raw` 与 `/files/zip` 带 `Cache-Control: no-cache`
 （工作区文件可变，强制浏览器按 ETag 再验证，防止 viewer/缩略图拿到
 更新前的旧内容）。
+
+
+---
+
+## 修订 R3（v0.8.34）— 每请求开销上界（线上「文件一多就进不去」根治）
+
+症状：工作区文件上千后，`/files?cat=images&view=grid` 让整台服务不可用。逐层量
+下来（合成工作区 1500 图 + 6000 个 `node_modules` 文件，单进程）发现：没有任何
+单独一项是“慢查询”，**慢的是每请求固定开销全部没有上界**，乘在一起就塌了。
+
+| 开销项 | R2 之前 | R3 的界 |
+| --- | --- | --- |
+| 一次渲染遍历全树 | 4 遍（计数/位置/集合/巡检各一遍，且 `rglob` 先钻依赖目录再丢弃） | 1 遍：`_walk_files()` 单遍 scandir，聚合视图全部从 `_index()` 派生 |
+| 缓存到期时的并发重算 | N 个请求 = N 次全树重算（stampede） | single-flight：同键并发只算 1 次，其余等结果 |
+| 索引规模 | 无界 | `INDEX_LIMIT=50000` 硬上界；`WALK_PRUNE`（node_modules/`__pycache__`/.git/.venv/venv/.tox）+ 隐藏目录 + 软链不下钻 |
+| 一页条目数 | 全部（`COLLECTION_LIMIT=1000`） | `PAGE_SIZE=120` + `/files/more` 按 offset 增量 |
+| 首屏媒体请求 | 1000 个 `<img src>`（浏览器并发随意，每个首次都要服务端解码原图） | 一律 `data-src`，IntersectionObserver 进视口才挂，全页并发上限 4 |
+| 每请求 DB 写事务 | 2（session 滑动两条 UPDATE）+ 1 设置读 | 滑动限流 60s 一次且合并成 1 条；`get_setting` 进程内 5s TTL（写即失效） |
+| SSE `/files/watch` | 同步生成器，一条连接独占一个 worker 线程 30 分钟 | async 端点 + 每事件循环限流 `workbench_sse_max`（默认 6），满位推 `busy` 由前端 60s 退避；扫描走 `anyio.to_thread` |
+| 同步 worker 额度 | anyio 默认 40 | `worker_threads`（默认 64，`HERMES_CONSOLE_WORKER_THREADS`）在 lifespan 显式抬升 |
+
+实测（同一台机器、同一合成工作区）：冷启动首屏 729ms → 30ms；页面每请求 SQL
+18 条（含 3 次写）→ 3 条（1 次写：审计）；缩略图每请求 5.0 条 SQL（2.0 写）→
+2.0 条（0 写）；开一页引发的缩略图请求 1000 → ≤120 且并发 4。
+
+口径交换（明确接受的代价）：
+
+1. 绕过服务层直接写盘的文件，最多 `_COUNTS_TTL`（30s）后才出现在列表/集合/搜索；
+   服务层任何写操作（上传/改名/删除/移动/复制/新建）立即 `invalidate_caches()`。
+2. 盯盘签名变化时也会作废快照 —— 否则「推送了 changed 但页面还是旧 30s」，
+   两个机制各说各话。
+3. `location_counts` 口径随遍历边界收敛：依赖目录与隐藏目录不再计入位置总数。
+4. 排序加名字次级键：同一时间戳的条目不再随进盘顺序翻转。
+
+护栏：`tests/test_workbench_perf.py`（19 项）钉住“有上界”这件事本身 —— 走盘次数、
+合流、分页窗口、offset 保留、写事务节流、遍历边界、缩略图闸门、SSE 形态。这些
+用例失败意味着有人把某一头上界又拆掉了，而不是样式变了。

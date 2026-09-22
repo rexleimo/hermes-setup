@@ -34,6 +34,15 @@ SESSIONLESS_PREFIXES = ("/static", "/healthz", "/favicon")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    # 同步端点（页面/文件流）全部跑在 anyio 默认线程池，上限 40。文件工作台一个
+    # 页面就能 throw 上百个缩略图/流请求，池子一满，连登录页都进不去（线上表现：
+    # “文件多了整个服务无法使用”）。启动时按配置抬高，给静态文件流留余量。
+    import anyio
+
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    limiter.total_tokens = max(limiter.total_tokens, settings.worker_threads)
+    log.info("同步请求线程池：%d tokens", limiter.total_tokens)
+
     installer.reap_orphan_jobs()
     session_store.purge_expired()
     backup.run_due_backup()

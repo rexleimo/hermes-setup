@@ -1,0 +1,14 @@
+{% from "macros.html" import wbicon with context %}
+{# 文件工作台条目图标：网格卡片与详细列表行共用（0.8.34 从 _content.html 抽出，
+   因为「加载更多」片段 _more.html 要渲染同一份条目标记，不能有两套长相）。 #}
+{% macro typeicon(e) -%}
+  {%- if e.is_dir -%}{{ wbicon('folder') }}
+  {%- elif e.category == 'images' -%}{{ wbicon('image') }}
+  {%- elif e.category == 'videos' -%}{{ wbicon('video') }}
+  {%- elif e.category == 'audio' -%}{{ wbicon('audio') }}
+  {%- elif e.category == 'documents' -%}{{ wbicon('document') }}
+  {%- elif e.category == 'code' -%}{{ wbicon('code') }}
+  {%- elif e.category == 'archives' -%}{{ wbicon('archive') }}
+  {%- else -%}{{ wbicon('file') }}
+  {%- endif -%}
+{%- endmacro %}

@@ -890,6 +890,15 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 .e-fname { font-size:12px; line-height:1.3; text-align:center; max-height:2.6em; overflow:hidden;
   width:100%; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-all; }
 .e-empty { padding:40px; text-align:center; color:var(--e-text2); font-size:13px; grid-column:1/-1; }
+/* 分页“加载更多”占位行：必须是容器直属子元素（新卡片插在它前面），
+   所以网格用 div、列表用 tr，两套长相共用一个类 */
+.e-more-slot { grid-column:1/-1; display:flex; justify-content:center; padding:14px 0 4px; }
+tr.e-more-slot { display:table-row; padding:0; }
+tr.e-more-slot td { border-bottom:none; text-align:center; padding:12px 0 4px; }
+.e-more { font:inherit; font-size:12.5px; padding:6px 18px; cursor:pointer;
+  border:1px solid var(--e-line); border-radius:6px; background:#fff; color:var(--e-text2); }
+.e-more:hover:not(:disabled) { background:var(--e-hover); color:var(--e-text); }
+.e-more:disabled { opacity:.6; cursor:progress; }
 
 .e-table { width:100%; border-collapse:collapse; font-size:13px; }
 .e-table thead th { position:sticky; top:0; background:var(--e-chrome); text-align:left;

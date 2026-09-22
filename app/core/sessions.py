@@ -12,6 +12,8 @@ from app.core.security import new_session_id
 from app.core.settings import settings
 
 COOKIE_NAME = "hermes_console_session"
+# 滑动续期落库的最小间隔：活跃会话最多每 N 秒一次 UPDATE，而不是每个请求两条。
+_SLIDE_SECONDS = 60
 
 
 @dataclass
@@ -42,8 +44,26 @@ def create(user_id: int | None, ip: str = "", user_agent: str = "") -> Session:
     return Session(id=sid, user_id=user_id, two_fa_ok=False, ip=ip, user_agent=user_agent)
 
 
+def _slide(sid: str, expires: datetime, now: datetime) -> None:
+    """滑动续期：last_seen 与绝对过期一次写完（两条 UPDATE = 两个写事务）。"""
+    new_exp = min(
+        expires,
+        now + timedelta(minutes=settings.session_ttl_minutes),
+        now + timedelta(minutes=max(settings.idle_ttl_minutes, 1) * 12),
+    )
+    db.execute(
+        "UPDATE sessions SET last_seen_at = datetime('now'), expires_at = ? WHERE id = ?",
+        (new_exp.strftime("%Y-%m-%d %H:%M:%S"), sid),
+    )
+
+
 def get(sid: str) -> Session | None:
-    """读取会话并滑动续期（空闲过期）；匿名会话不续期。"""
+    """读取会话并按需滑动续期（空闲过期）；匆名会话不续期。
+
+    续期写入限流到每 _SLIDE_SECONDS 一次：/files 网格的每个缩略图都是一个带
+    cookie 的请求，以前每请求两条 UPDATE —— 一个照片页 = 几百次写事务在
+    SQLite 写锁上串行，是线上文件管理器打不开的直接原因之一。
+    """
     if not sid:
         return None
     row = db.query_one("SELECT * FROM sessions WHERE id = ?", (sid,))
@@ -55,23 +75,14 @@ def get(sid: str) -> Session | None:
     if now > expires:
         destroy(sid)
         return None
-    if row["user_id"] is not None and now - last_seen > timedelta(minutes=settings.idle_ttl_minutes):
+    if row["user_id"] is None:
+        return Session(id=sid, user_id=None, two_fa_ok=bool(row["two_fa_ok"]),
+                       ip=row["ip"], user_agent=row["user_agent"])
+    if now - last_seen > timedelta(minutes=settings.idle_ttl_minutes):
         destroy(sid)
         return None
-
-    if row["user_id"] is not None:
-        db.execute(
-            "UPDATE sessions SET last_seen_at = datetime('now') WHERE id = ?",
-            (sid,),
-        )
-        # 绝对过期时间随活跃顺延（不超过 session_ttl 的语义由 expires_at 兜底）
-        new_exp = min(
-            expires,
-            now + timedelta(minutes=settings.session_ttl_minutes),
-            now + timedelta(minutes=max(settings.idle_ttl_minutes, 1) * 12),
-        )
-        db.execute("UPDATE sessions SET expires_at = ? WHERE id = ?",
-                   (new_exp.strftime("%Y-%m-%d %H:%M:%S"), sid))
+    if now - last_seen > timedelta(seconds=_SLIDE_SECONDS):
+        _slide(sid, expires, now)
 
     return Session(
         id=sid,

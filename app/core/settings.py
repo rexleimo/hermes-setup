@@ -72,6 +72,15 @@ class Settings:
     )
     hermes_home: str = field(default_factory=lambda: _env("HERMES_HOME"))
     hermes_bin: str = field(default_factory=lambda: _env("HERMES_BIN"))
+    # 同步视图/文件流跑在 anyio 默认线程池（40）。文件工作台一个页面就能 throw
+    # 上百个缩略图请求，SSE 监听又长期占 worker —— 池子一满整台控制台都进不去
+    # （线上表现：“文件多了服务完全无法使用”）。给可配项，线上按机器调。
+    worker_threads: int = field(
+        default_factory=lambda: int(_env("HERMES_CONSOLE_WORKER_THREADS", "64")))
+    # 目录变更监听（SSE）的并发名额：每个连接每 3s 扫一次目录，
+    # 不设上限等于让标签页数量决定负载。超名额时服务端回 busy，前端退避重连。
+    workbench_sse_max: int = field(
+        default_factory=lambda: int(_env("HERMES_CONSOLE_SSE_MAX", "6")))
 
     @property
     def secret_key_persistent(self) -> bool:

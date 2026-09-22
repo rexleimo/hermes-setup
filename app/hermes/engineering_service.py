@@ -222,10 +222,11 @@ def save_settings(s: EngSettings) -> None:
 
     延迟导入避免与 workspace_service 形成模块级循环。
     """
-    from app.hermes.workspace_service import validate_root
+    from app.hermes.workspace_service import invalidate_root_cache, validate_root
 
     validate_root(s.workspace or DEFAULT_WORKSPACE)  # 不合法抛 WorkspaceError
     appsettings.set_setting(SETTING_KEY, s.to_json())
+    invalidate_root_cache()  # 工作区根换了：root() 的 5s 缓存必须跟着失效
 
 
 # ---------------------------------------------------------------------------

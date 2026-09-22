@@ -83,7 +83,18 @@ def test_thumb_requires_login(photo_workspace):
 def test_grid_template_uses_thumb_not_raw():
     from pathlib import Path
 
-    tpl = Path("app/web/templates/files/_content.html").read_text(encoding="utf-8")
-    assert "/files/thumb?path=" in tpl, "网格图片必须走缩略图端点"
-    # 原图只允许出现在视频 preload=metadata（浏览器只拉元数据）里
-    assert tpl.count("/files/raw?path=") == 1 and "preload=\"metadata\"" in tpl
+    # 0.8.34：条目标记从 _content.html 拆到 files/_item.html（首屏与「加载更多」共用
+    # 一份），断言要落在真正负责渲染媒体地址的模板上。
+    content = Path("app/web/templates/files/_content.html").read_text(encoding="utf-8")
+    item = Path("app/web/templates/files/_item.html").read_text(encoding="utf-8")
+    assert 'include "files/_item.html"' in content, "内容区必须复用同一份条目标记"
+    assert "/files/thumb?path=" in item, "网格图片必须走缩略图端点"
+    # 媒体地址一律 data-src：src 直接写上去 = 首屏 120 个缩略图同时发出，
+    # 而每个首次命中都要在服务端解码原图（线上就是这么被打穿）
+    assert 'data-src="/files/thumb?path=' in item
+    assert 'data-src="/files/raw?path=' in item, "视频预览也要受控加载"
+    assert 'preload="none"' in item
+    assert item.count("/files/raw?path=") == 1, "除视频预览外不得有整文件流"
+    # 首屏只渲染一页，剩下的走「加载更多」
+    assert 'data-total="{{ total }}"' in content
+    assert 'id="osfm-more"' in content and "/files/more?" in content

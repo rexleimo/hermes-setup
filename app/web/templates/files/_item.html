@@ -1,0 +1,49 @@
+{% from "files/_macros.html" import typeicon with context %}
+{# 单个条目：网格卡片（view=grid）或详细列表行（view=list）。
+
+   由 _content.html（首屏）与 _more.html（「加载更多」的后续页）include 同一份
+   标记 —— 两套长相会在增量翻页时露馅，所以只有一份。
+
+   性能口径（0.8.34）：图片/视频的媒体地址放 data-src，不写 src。首屏 120 张
+   卡片如果都带 src，浏览器会一次性把 120 个 /files/thumb 砸到服务端（每个首次
+   命中都要解码原图），线上小机器就是这么被自己拖死的。app.js 的
+   wbMediaObserve() 只给进入视口的元素挂 src，并且限制并发。 #}
+{% if view != 'list' %}
+<div class="osfm-card-item" tabindex="0" draggable="true"
+     data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}" data-name0="{{ e.name }}"
+     data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
+     data-cat="{{ e.category or 'file' }}"
+     data-type="{{ '文件夹' if e.is_dir else (e.category or '文件') }}{{ ' · ' ~ e.ext[1:]|upper if not e.is_dir and e.ext else '' }}"
+     data-size="{{ e.size_text }}" data-mtime="{{ e.mtime_text }}"
+     data-thumbable="{{ '1' if e.thumbable else '0' }}"
+     data-parent="{{ ws_root_name ~ '/' ~ (e.rel.rsplit('/', 1)[0] if '/' in e.rel else '') }}"
+     data-href="/files?path={{ e.rel }}&sort={{ sort }}&view={{ view }}"
+     title="{{ e.rel }}">
+  <div class="e-thumb">
+    {% if e.is_dir %}{{ typeicon(e) }}
+      {% if e.count is not none %}<em class="e-badge">{{ e.count }}</em>{% endif %}
+    {% elif e.thumbable %}<span class="e-ticon">{{ typeicon(e) }}</span><img data-src="/files/thumb?path={{ e.rel|urlencode }}&v={{ e.mtime | round(0) | int }}" loading="lazy" alt="" onerror="this.remove()">
+    {% elif e.category == 'videos' %}<span class="e-ticon">{{ typeicon(e) }}</span><video data-src="/files/raw?path={{ e.rel|urlencode }}#t=0.5" preload="none" muted playsinline></video><em class="e-badge e-badge-play">▶</em>
+    {% else %}{{ typeicon(e) }}{% endif %}
+  </div>
+  <div class="e-fname">{{ e.name }}</div>
+</div>
+{% else %}
+<tr class="osfm-card-item" tabindex="0" draggable="true"
+    data-rel="{{ e.rel }}" data-name="{{ e.name|lower }}" data-name0="{{ e.name }}"
+    data-dir="{{ '1' if e.is_dir else '0' }}" data-bucket="{{ '1' if e.is_bucket else '0' }}"
+    data-cat="{{ e.category or 'file' }}"
+    data-type="{{ '文件夹' if e.is_dir else (e.category or '文件') }}{{ ' · ' ~ e.ext[1:]|upper if not e.is_dir and e.ext else '' }}"
+    data-size="{{ e.size_text }}" data-mtime="{{ e.mtime_text }}"
+    data-thumbable="{{ '1' if e.thumbable else '0' }}"
+    data-parent="{{ ws_root_name ~ '/' ~ (e.rel.rsplit('/', 1)[0] if '/' in e.rel else '') }}"
+    data-href="/files?path={{ e.rel }}&sort={{ sort }}&view={{ view }}"
+    title="{{ e.rel }}">
+  <td><span class="e-temoji">{{ typeicon(e) }}</span>
+    <span class="e-tname">{{ e.name }}</span>
+    {% if e.is_bucket %}<span class="e-tchip">规范目录</span>{% endif %}</td>
+  <td class="e-tdnum">{{ e.mtime_text }}</td>
+  <td>{{ '文件夹' if e.is_dir else (e.ext[1:]|upper ~ ' 文件' if e.ext else '文件') }}</td>
+  <td class="e-tdnum">{{ e.size_text }}</td>
+</tr>
+{% endif %}

@@ -1,0 +1,3 @@
+{# 「加载更多」的响应体：只有条目本身，不含网格/表格容器 —— 前端把这段
+   insertAdjacentHTML 到占位行之前（见 app.js wbMore）。 #}
+{% for e in entries %}{% include "files/_item.html" %}{% endfor %}
