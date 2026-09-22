@@ -27,3 +27,11 @@ data/
 
 # README 截图原图（只入库 docs/assets 的 webp）
 shots/
+
+# 运行时启动产物（nohup 默认输出 / 后台进程垃圾文件）
+nohup.out
+
+# 运行期杂项（不入库，避免 git status 一直飘着）
+$null
+.rex-harness/
+docs/test-design/
