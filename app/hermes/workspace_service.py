@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import time
 import zipfile
 from dataclasses import dataclass
@@ -30,6 +31,11 @@ TEXT_EXTS = {".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".ini", ".log", "
 CODE_EXTS = {".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".sh", ".go",
              ".rs", ".java", ".sql", ".env"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif"}
+# 能生成位图缩略图的扩展名（svg 是矢量、avif 需解码器，两者不进网格缩略图）
+THUMB_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+# 全树遍历的剪枝目录：依赖/构建产物不是工作区内容，但它们动辄十万个文件，
+# 是「一开页就把服务器跑满」的头号诱因（rglob 会走进 node_modules 全扫一遍）。
+WALK_PRUNE = {"node_modules", "__pycache__", ".git", ".venv", "venv", ".tox"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv", ".flv", ".wmv"}
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".opus"}
 DOC_EXTS = {".md", ".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx",
@@ -48,6 +54,14 @@ CATEGORIES = (
 CATEGORY_MAP = {k: (label, emoji, exts) for k, label, emoji, exts in CATEGORIES}
 PREVIEW_LIMIT = 512 * 1024
 COLLECTION_LIMIT = 1000
+# 索引上限：异常工作区（把工作区挂在盘根之类）下限制内存与遍历时间。
+INDEX_LIMIT = 50000
+# 网格/列表单页条目数：以前一次渲染往浏览器里堆 1000 张卡片（= 1000 个
+# 缩略图请求），线上小机器直接被打穿。超出部分走「加载更多」增量拉取。
+PAGE_SIZE = 120
+# 缩略图跳过的原图上限（字节）：超大图解码一次要数百 ms CPU，宁可回退类型
+# 图标，也不让一张图吃掉半台机器。
+THUMB_SOURCE_MAX = 64 << 20
 UPLOAD_DEFAULT_MAX_MB = 50
 SCRATCH_STALE_DAYS = 14
 
@@ -68,9 +82,30 @@ class NotFound(WorkspaceError):
 # 根目录与 jail
 # ---------------------------------------------------------------------------
 
+_ROOT_TTL = 5.0
+_root_lock = threading.Lock()
+_root_cache: tuple[float, Path] | None = None
+
+
+def invalidate_root_cache() -> None:
+    global _root_cache
+    with _root_lock:
+        _root_cache = None
+
+
 def root() -> Path:
-    raw = (eng.load_settings().workspace or eng.DEFAULT_WORKSPACE).strip()
-    return validate_root(raw)
+    """工作区根（缓存 5s）：以前每个带 path 的请求都要读一次库 + 解一次
+    Path.resolve()，而网格页有几百个这样的请求 —— 纯开销。写设置（
+    engineering.save_settings）与服务层写操作都会主动失效。"""
+    global _root_cache
+    now = time.monotonic()
+    with _root_lock:
+        if _root_cache is not None and now - _root_cache[0] < _ROOT_TTL:
+            return _root_cache[1]
+    rp = validate_root((eng.load_settings().workspace or eng.DEFAULT_WORKSPACE).strip())
+    with _root_lock:
+        _root_cache = (time.monotonic(), rp)
+    return rp
 
 
 def validate_root(raw: str) -> Path:
@@ -140,6 +175,11 @@ class Entry:
         c = self.category
         return CATEGORY_MAP[c][1] if c else "📎"
 
+    @property
+    def thumbable(self) -> bool:
+        """网格能否走 /files/thumb（不可时模板回退类型图标，不发白请求）。"""
+        return (not self.is_dir) and self.ext in THUMB_EXTS
+
 
 def _entry(p: Path, base: Path) -> Entry:
     st = p.stat()
@@ -156,108 +196,201 @@ def category_of(filename: str) -> str | None:
 
 
 def _sort_entries(entries: list[Entry], sort: str) -> list[Entry]:
+    """视图排序。次级键一律名字：主键同值（同一秒连续写入、同大小）时
+    输出不再依赖进盘顺序，集合页不会刷新一次就换一套顶部。"""
     if sort == "time":
-        key = lambda e: (not e.is_dir, -e.mtime)
+        key = lambda e: (not e.is_dir, -e.mtime, e.name.lower())
     elif sort == "size":
-        key = lambda e: (not e.is_dir, -e.size)
+        key = lambda e: (not e.is_dir, -e.size, e.name.lower())
     else:
         key = lambda e: (not e.is_dir, e.name.lower())
     return sorted(entries, key=key)
 
 
 def _walk_files() -> list[Entry]:
-    base = root()
-    out = []
-    for p in base.rglob("*"):
+    """全工作区文件索引（一次遍历）。
+
+    用 os.scandir 而不是 Path.rglob，两个要紧的理由：
+    1. DirEntry 直接复用目录项里已有的元数据（Windows 上一次 readdir 就拿齐
+       name/属性），rglob + is_file() + stat() 是每条两三次系统调用；
+    2. 能在进入目录前剪枝：隐藏目录与 WALK_PRUNE（node_modules 等）根本不进栈。
+       rglob 会先把它们整个走完再丢弃，一个前端项目就能把工作区“扫”成十万条。
+
+    符号链接一律跳过（不跟随 = 既防环也防路径逸出 jail）。"""
+    base = str(root())
+    out: list[Entry] = []
+    stack: list[tuple[str, str]] = [(base, "")]
+    while stack:
+        cur, prefix = stack.pop()
         try:
-            parts = p.relative_to(base).parts
-            if p.is_file() and not any(part.startswith(".") for part in parts):
-                out.append(_entry(p, base))
+            it = os.scandir(cur)
         except OSError:
             continue
+        with it:
+            for de in it:
+                name = de.name
+                if name.startswith(".") or name in WALK_PRUNE:
+                    continue
+                try:
+                    if de.is_dir(follow_symlinks=False):
+                        stack.append((de.path, f"{prefix}{name}/"))
+                    elif de.is_file(follow_symlinks=False) and len(out) < INDEX_LIMIT:
+                        st = de.stat(follow_symlinks=False)
+                        out.append(Entry(name=name, rel=prefix + name, is_dir=False,
+                                         size=st.st_size, mtime=st.st_mtime))
+                except OSError:
+                    continue
+        if len(out) >= INDEX_LIMIT:
+            break               # 到上界就收工：剩下的目录不该再走盘
     return out
 
 
-def list_collection(cat: str, limit: int = COLLECTION_LIMIT) -> list[Entry]:
-    """智能集合：全工作区按类型聚合（虚拟视图，文件不动、不复制）。
+def _index() -> list[Entry]:
+    """工作区索引（TTL 缓存 + 单飞）：计数/集合/最近全部从它派生。
 
-    和侧栏计数一样走 TTL 缓存：全树 rglob 在 Windows 上是秒级，而集合视图
-    每次导航都渲染；写操作后主动失效，TTL 兜住 Agent 直接写盘的窗口。"""
+    0.8.33 之前一次 /files 渲染要跑 4 遍全树（category / location / collection /
+    inspect），而网格页本身又会因导航反复触发 —— 线上就是被这个吃死的。"""
+    return _cached_counts("index", _walk_files)
+
+
+def prefetch_index() -> None:
+    """后台预热全树索引（**非阻塞**）：首屏不等它，后续视图 / 集合再命中。
+
+    0.8.34 把 category / location 计数挪到首屏同步等全树，文件一多冷缓存时整个
+    页面卡在盘上 —— 本函数把预热放回后台线程，调用方立刻返回。计算本身仍走
+    _cached_counts 的单飞（同一 key 只跑一次全树），重复预热自动收敛。
+    """
+    threading.Thread(target=_index, daemon=True, name="wb-index-prefetch").start()
+
+
+def list_collection(cat: str, limit: int = COLLECTION_LIMIT,
+                    sort: str = "time") -> list[Entry]:
+    """智能集合：从工作区索引按类型聚合（虚拟视图，文件不动、不复制）。
+
+    过滤 + 排序是内存操作（索引已缓存），写操作后索引失效 → 视图跟着变。
+    `sort` 跟随地址栏：/files?cat=images&sort=name 以前拿到的是时间序，
+    因为集合自己写死了 time —— 视图排序语义不该由数据层决定。"""
     if cat not in CATEGORY_MAP:
         raise WorkspaceError(f"未知集合：{cat}")
     exts = CATEGORY_MAP[cat][2]
-
-    def _calc() -> list[Entry]:
-        files = [e for e in _walk_files() if e.ext in exts]
-        return _sort_entries(files, "time")[:limit]
-
-    return _cached_counts(f"collection:{cat}", _calc)
+    return _sort_entries([e for e in _index() if e.ext in exts], sort)[:limit]
 
 
 def list_recent(limit: int = 100) -> list[Entry]:
-    def _calc() -> list[Entry]:
-        return _sort_entries(_walk_files(), "time")[:limit]
-
-    return _cached_counts("recent", _calc)
+    return _sort_entries(_index(), "time")[:limit]
 
 
 # ---------------------------------------------------------------------------
-# 计数缓存（W6）：category/location/inspect 每次都是全工作区递归遍历，Windows
-# 上一转就是秒级，而它们在每次页面渲染、每次 boosted 导航都被调用。加进程内
-# TTL 缓存，写操作（上传/归档/重命名/删除/复制/新建/移动/保存）后主动失效。
+# 视图分页：一頁只送 PAGE_SIZE 条，剩下的用「加载更多」按 offset 增量拉。
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Page:
+    items: list[Entry]
+    total: int
+    offset: int
+
+    @property
+    def has_more(self) -> bool:
+        return self.offset + len(self.items) < self.total
+
+    @property
+    def next_offset(self) -> int:
+        return self.offset + len(self.items)
+
+
+def paginate(entries: list[Entry], offset: int = 0, size: int = PAGE_SIZE) -> Page:
+    offset = max(0, offset)
+    if offset >= len(entries) and entries:
+        offset = 0            # 写操作后集合变短：越界回到首页，不出空页
+    return Page(items=entries[offset: offset + size], total=len(entries), offset=offset)
+
+
+# ---------------------------------------------------------------------------
+# 计数/索引缓存（W6 + 0.8.34 单飞）：全树遍历结果按 TTL 复用，写操作（上传/
+# 归档/重命名/删除/复制/新建/移动/保存）后主动失效。
+#
+# 单飞：以前的 _cached_counts 无锁，缓存一过期时 N 个并发请求会同时重跑全树
+# （缓存雪崩）—— 网格页几百个请求同时到期就是 CPU 尖刺。现在同一 key 只有一
+# 个线程计算，其余线程等它，然后直接命中。不拿全局锁跨计算期，避免串行化。
 # ---------------------------------------------------------------------------
 
 _COUNTS_TTL = 30.0
-_counts_cache: dict[tuple[str, str], tuple[float, object]] = {}
+_counts_cache: dict[str, tuple[float, object]] = {}
+_cache_guard = threading.Lock()
+_cache_flight: dict[str, threading.Lock] = {}
 
 
 def invalidate_caches() -> None:
-    _counts_cache.clear()
+    global _cache_flight
+    with _cache_guard:
+        _counts_cache.clear()
+        _cache_flight = {}
+    invalidate_root_cache()
+
+
+def _cache_key(key: str) -> str:
+    return f"{root()}|{key}"
 
 
 def _cached_counts(key: str, fn):
-    k = (str(root()), key)
-    hit = _counts_cache.get(k)
-    if hit is not None and time.monotonic() - hit[0] < _COUNTS_TTL:
-        return hit[1]
-    val = fn()
-    _counts_cache[k] = (time.monotonic(), val)
+    k = _cache_key(key)
+    with _cache_guard:
+        hit = _counts_cache.get(k)
+        if hit is not None and time.monotonic() - hit[0] < _COUNTS_TTL:
+            return hit[1]
+        flight = _cache_flight.get(k)
+        mine = flight is None
+        if mine:
+            flight = _cache_flight[k] = threading.Lock()
+    if not mine:                      # 已有线程在算：等它完事再取结果
+        flight.acquire()
+        flight.release()
+        with _cache_guard:
+            hit = _counts_cache.get(k)
+            if hit is not None and time.monotonic() - hit[0] < _COUNTS_TTL:
+                return hit[1]
+        return _store(k, fn())        # 前车线程挂了：兜底自己算
+    with flight:
+        try:
+            return _store(k, fn())
+        finally:
+            with _cache_guard:
+                _cache_flight.pop(k, None)
+
+
+def _store(k: str, val):
+    with _cache_guard:
+        _counts_cache[k] = (time.monotonic(), val)
     return val
 
 
 def category_counts() -> list[tuple[str, str, str, int]]:
-    """[(key, 标签, emoji, 数量)]，侧栏用。"""
-    def _calc() -> list[tuple[str, str, str, int]]:
-        counts = {k: 0 for k, *_ in CATEGORIES}
-        for e in _walk_files():
-            c = e.category
-            if c:
-                counts[c] += 1
-        return [(k, CATEGORY_MAP[k][0], CATEGORY_MAP[k][1], counts[k]) for k in counts]
-    return _cached_counts("category", _calc)
+    """[(key, 标签, emoji, 数量)]，侧栏用（从索引派生，不再走盘）。"""
+    counts = {k: 0 for k, *_ in CATEGORIES}
+    for e in _index():
+        c = e.category
+        if c:
+            counts[c] += 1
+    return [(k, CATEGORY_MAP[k][0], CATEGORY_MAP[k][1], counts[k]) for k in counts]
 
 
 def location_counts() -> list[tuple[str, int]]:
-    """标准目录（位置）的文件总数，侧栏用。"""
-    def _calc() -> list[tuple[str, int]]:
-        base = root()
-        out = []
-        for d in BUCKETS:
-            p = base / d
-            n = sum(1 for f in p.rglob("*") if f.is_file()) if p.is_dir() else 0
-            out.append((d, n))
-        return out
-    return _cached_counts("location", _calc)
+    """标准目录（位置）的文件总数，侧栏用。
+
+    口径修正：和集合/计数同源，隐藏目录与依赖产物不计入（以前每个 bucket 再
+    rglob 一次，还把人家的 .git/node_modules 算进了计数）。"""
+    counts = {d: 0 for d in BUCKETS}
+    for e in _index():
+        head = e.rel.split("/", 1)[0]
+        if head in counts:
+            counts[head] += 1
+    return [(d, counts[d]) for d in BUCKETS]
 
 
-def list_dir(rel: str = "", sort: str = "name") -> list[Entry]:
-    target = resolve_rel(rel)
-    if not target.exists():
-        raise NotFound(f"目录不存在：{rel or '/'}")
-    if not target.is_dir():
-        raise WorkspaceError("不是目录")
-    entries = []
+def _scan_dir(target: Path) -> list[Entry]:
     base = root()
+    entries = []
     for p in target.iterdir():
         if p.name.startswith("."):
             continue
@@ -268,6 +401,22 @@ def list_dir(rel: str = "", sort: str = "name") -> list[Entry]:
             except OSError:
                 e.count = None
         entries.append(e)
+    return entries
+
+
+def list_dir(rel: str = "", sort: str = "name") -> list[Entry]:
+    """目录列表（结果与集合/计数同缓存，服务层写操作主动失效）。
+
+    以前每请求都 iterdir + 建满量 Entry：一个 5 万文件的目录就是秒级 +
+    几十 MB 内存，翻页、切排序、点进去又点回来各扫一次。缓存后同目录只扫
+    一次盘；排序是内存操作（返回新列表，不改动缓存）。
+    代价：绕过服务层直接写盘的文件最多 _COUNTS_TTL（30s）后才出现在列表。"""
+    target = resolve_rel(rel)          # 每请求都过 jail：缓存不得成为越权后门
+    if not target.exists():
+        raise NotFound(f"目录不存在：{rel or '/'}")
+    if not target.is_dir():
+        raise WorkspaceError("不是目录")
+    entries = _cached_counts(f"dir:{rel or '.'}", lambda: _scan_dir(target))
     return _sort_entries(entries, sort)
 
 
@@ -327,7 +476,7 @@ def read_preview(rel: str) -> dict:
     mode = preview_class(rel)
     if mode != "text":
         return {"mode": mode, "rel": rel}
-    data = path.read_bytes()[:PREVIEW_LIMIT]
+    data = read_prefix(path, PREVIEW_LIMIT)
     return {
         "mode": "text",
         "rel": rel,
@@ -373,6 +522,13 @@ def file_for_download(rel: str) -> Path:
     return path
 
 
+def read_prefix(path: Path, limit: int) -> bytes:
+    """只读前 limit 字节。以前预览走 read_bytes()[:limit]，对大文件是先全读
+    进内存再切片——一个 300MB 的日志能把小机器直接顶住。"""
+    with open(path, "rb") as fh:
+        return fh.read(limit)
+
+
 # ---------------------------------------------------------------------------
 # 缩略图：网格此前 <img src=/files/raw> 直接加载原图，开一个照片目录就是
 # 几百 MB 流量 + 秒级渲染（文件 OS 最后一个已知大慢点）。Pillow 生成最长边
@@ -381,7 +537,16 @@ def file_for_download(rel: str) -> Path:
 # ---------------------------------------------------------------------------
 
 THUMB_MAX = 320
-_THUMB_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+_THUMB_EXTS = THUMB_EXTS
+# 分片锁：同一个源图被并发请求（刷新/多标签）时只解一次，其余等结果。
+# 分片而不是 per-key 字典：内存有上界，不会随历史图片数无限增长。
+_THUMB_SHARDS = 16
+_thumb_locks = [threading.Lock() for _ in range(_THUMB_SHARDS)]
+
+
+def _thumb_lock(key: str) -> threading.Lock:
+    return _thumb_locks[int.from_bytes(hashlib.sha1(key.encode()).digest()[:4],
+                                       "big") % _THUMB_SHARDS]
 
 
 def thumb_for(rel: str) -> Path:
@@ -390,9 +555,11 @@ def thumb_for(rel: str) -> Path:
     src = resolve_rel(rel)
     if not src.is_file():
         raise NotFound(f"文件不存在：{rel}")
-    if src.suffix.lower() not in _THUMB_EXTS:
+    if src.suffix.lower() not in THUMB_EXTS:
         raise WorkspaceError("该类型不生成缩略图")
     st = src.stat()
+    if st.st_size > THUMB_SOURCE_MAX:
+        raise WorkspaceError(f"原图超过 {THUMB_SOURCE_MAX >> 20}MB，不生成缩略图")
     key = hashlib.sha1(
         f"{rel}|{st.st_mtime_ns}|{st.st_size}".encode("utf-8")).hexdigest()[:24]
     from app.core.settings import settings
@@ -402,23 +569,26 @@ def thumb_for(rel: str) -> Path:
     out = cache_dir / f"{key}.jpg"
     if out.exists():
         return out
-    with Image.open(src) as im:
-        im.draft("RGB", (THUMB_MAX * 2, THUMB_MAX * 2))  # JPEG 解码降采样，大图省内存
-        im = ImageOps.exif_transpose(im)                 # 手机照片按 EXIF 摆正
-        im.thumbnail((THUMB_MAX, THUMB_MAX))
-        rgb = im.convert("RGB")
-        # 先写临时文件再原子换名：并发首访同一文件不会让对方读到半张 JPEG
-        fd, tmp = tempfile.mkstemp(dir=cache_dir, suffix=".jpg")
-        try:
-            with os.fdopen(fd, "wb") as fh:
-                rgb.save(fh, "JPEG", quality=82)
-            Path(tmp).replace(out)
-        except BaseException:
+    with _thumb_lock(key):
+        if out.exists():                     # 等锁期间别人算好了
+            return out
+        with Image.open(src) as im:
+            im.draft("RGB", (THUMB_MAX * 2, THUMB_MAX * 2))  # JPEG 解码降采样，大图省内存
+            im = ImageOps.exif_transpose(im)                 # 手机照片按 EXIF 摆正
+            im.thumbnail((THUMB_MAX, THUMB_MAX))
+            rgb = im.convert("RGB")
+            # 先写临时文件再原子换名：并发首访同一文件不会让对方读到半张 JPEG
+            fd, tmp = tempfile.mkstemp(dir=cache_dir, suffix=".jpg")
             try:
-                os.remove(tmp)
-            except OSError:
-                pass
-            raise
+                with os.fdopen(fd, "wb") as fh:
+                    rgb.save(fh, "JPEG", quality=82)
+                Path(tmp).replace(out)
+            except BaseException:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise
     return out
 
 
@@ -670,29 +840,15 @@ def move_entry(rel: str, dest_rel: str) -> str:
 
 
 def search(query: str, limit: int = 500) -> list[Entry]:
-    """全局搜索：按文件名子串匹配整个工作区（隐藏目录/.trash 除外）。
+    """全局搜索：在缓存的工作区索引里按文件名子串匹配。
 
-    rglob 是惰性生成器，凑满 limit 即停，不强制全树扫完。"""
+    以前每查询一次重走一遍全树（索引未命中时是秒级），现在变成内存筛选。
+    代价：搜索视图和集合/计数一样受索引 TTL（默认 30s）约束，服务层写操作
+    会立即失效，只有绕过服务层直接写盘的文件需要等 TTL 才能被搜到。"""
     q = (query or "").strip().lower()
     if not q:
         return []
-    base = root()
-    out: list[Entry] = []
-    for p in base.rglob("*"):
-        if len(out) >= limit:
-            break
-        try:
-            parts = p.relative_to(base).parts
-        except OSError:
-            continue
-        if any(part.startswith(".") for part in parts):
-            continue
-        if q in p.name.lower():
-            try:
-                out.append(_entry(p, base))
-            except OSError:
-                continue
-    return out
+    return [e for e in _index() if q in e.name.lower()][:limit]
 
 
 # ---------------------------------------------------------------------------

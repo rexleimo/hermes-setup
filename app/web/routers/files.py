@@ -5,14 +5,19 @@
 """
 from __future__ import annotations
 
+import asyncio
 import mimetypes
+import os
+import time
 from pathlib import Path
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, quote
 
+import anyio
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from app.core import audit
+from app.core.settings import settings
 from app.hermes import engineering_service as eng
 from app.hermes import workspace_service as ws
 from app.hermes.paths import detect
@@ -57,13 +62,45 @@ def _side_oob(request: Request, cat: str, path: str, sort: str, view: str) -> by
             + side + b"</aside>")
 
 
+def _qs(path: str = "", cat: str = "", sort: str = "name", view: str = "grid",
+        offset: int = 0, q: str = "") -> str:
+    """查询串统一从这里出（页面链接 / 加载更多 / 写操作后重渲染共用一份口径）。"""
+    if q.strip():
+        head = f"q={quote(q.strip())}"
+    elif cat:
+        head = f"cat={cat}"
+    elif path:
+        head = f"path={quote(path)}"
+    else:
+        head = ""
+    parts = [p for p in (head, f"sort={sort}", f"view={view}",
+                         f"offset={offset}" if offset else "") if p]
+    return "&".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # 页面与片段
 # ---------------------------------------------------------------------------
 
+def _view_ctx(request: Request, user, path: str, cat: str, sort: str, view: str,
+              q: str = "", offset: int = 0):
+    """列表视图的部分上下文（页面/片段/增量页共用）。返回 (ctx, Page)。"""
+    page, crumbs = _listing(request, path, cat, sort, offset=offset, q=q)
+    ctx = {
+        "path": path, "cat": cat, "sort": sort, "view": view, "q": q,
+        "entries": page.items, "crumbs": crumbs,
+        "total": page.total, "offset": page.offset,
+        "has_more": page.has_more, "next_offset": page.next_offset,
+        "more_qs": _qs(path, cat, sort, view, page.next_offset, q),
+        "is_admin": user["role"] == "admin",
+        "ws_root_name": Path(ws.root()).name,
+    }
+    return ctx, page
+
+
 @router.get("")
 def files_page(request: Request, user: User, path: str = "", cat: str = "",
-               sort: str = "name", view: str = "grid", q: str = ""):
+               sort: str = "name", view: str = "grid", q: str = "", offset: int = 0):
     status = ws.workspace_status()
     ctx = {
         "nav_active": "workbench",
@@ -71,23 +108,26 @@ def files_page(request: Request, user: User, path: str = "", cat: str = "",
         "path": path, "cat": cat, "sort": sort, "view": view, "q": q,
         "crumbs": [], "entries": [], "inspect": None,
         "counts": [], "locs": [],
+        "total": 0, "offset": 0, "has_more": False, "next_offset": 0,
+        "more_qs": "", "here": "",
         "is_admin": user["role"] == "admin",
         "ws_root_name": Path(status.get("root", "") or "hermes-workspace").name,
     }
     if status.get("error") or not status.get("exists"):
         return render(request, "files.html", ctx)
     try:
-        if q.strip():
-            # 全局搜索（W15）：按名字子串匹配整个工作区，独立于 path/cat
-            ctx["entries"] = ws.search(q)
-            ctx["crumbs"] = [(f"搜索「{q.strip()}」", f"?q={q.strip()}")]
-        else:
-            ctx["entries"], ctx["crumbs"] = _listing(request, path, cat, sort)
+        view_ctx, _page = _view_ctx(request, user, path, cat, sort, view, q, offset)
     except ws.WorkspaceError as exc:
         _fail(request, exc, path or cat or "/")
         return render(request, "files.html", ctx)
-    ctx["counts"] = ws.category_counts()
-    ctx["locs"] = ws.location_counts()
+    ctx.update(view_ctx)
+    ctx["here"] = f"{request.url.path}?{_qs(path, cat, sort, view, ctx['offset'], q)}"
+    # 首屏延迟侧栏计数：链接恒在（buckets / 集合 key 是常量），数字经 /files/side
+    # 异步补 —— 不再等全树索引把首屏卡死（0.8.34 残留）。
+    ctx["locs"] = [(b, None) for b in ws.BUCKETS]
+    ctx["counts"] = [(k, lbl, emj, None)
+                     for k, (lbl, emj, _) in ws.CATEGORY_MAP.items()]
+    ws.prefetch_index()   # 后台预热全树索引：非阻塞，后续视图/集合命中
     ctx["inspect"] = ws.inspect_summary()
     audit.record("files_browse", username=user["username"],
                  target=f"{path or cat or '/'}" + (f"（搜索 {q.strip()}）" if q.strip() else ""),
@@ -95,35 +135,73 @@ def files_page(request: Request, user: User, path: str = "", cat: str = "",
     return render(request, "files.html", ctx)
 
 
-def _listing(request: Request, path: str, cat: str, sort: str):
-    """四种视图模式：目录 / 智能集合 / 最近 / 回收站。返回 (entries, crumbs)。"""
+def _listing(request: Request, path: str, cat: str, sort: str,
+             offset: int = 0, q: str = ""):
+    """五种视图模式：目录 / 智能集合 / 最近 / 回收站 / 搜索。返回 (Page, crumbs)。
+
+    单页只返 ws.PAGE_SIZE 条：卡片本身轻，但每张带图片的卡片都是一个缩略图
+    请求（首次还要服务端解码原图），一次送 1000 张就是把账单开给线上小机器。"""
+    if q.strip():
+        return (ws.paginate(ws.search(q), offset),
+                [(f"搜索「{q.strip()}」", f"?q={q.strip()}")])
     if cat == "recent":
-        return ws.list_recent(), [("最近使用", "?cat=recent")]
+        return ws.paginate(ws.list_recent(), offset), [("最近使用", "?cat=recent")]
     if cat == "trash":
-        return ws.trash_list(), [("回收站", "?cat=trash")]
+        return ws.paginate(ws.trash_list(), offset), [("回收站", "?cat=trash")]
     if cat:
         if cat not in ws.CATEGORY_MAP:
             raise ws.WorkspaceError(f"未知集合：{cat}")
         label = ws.CATEGORY_MAP[cat][0]
-        return ws.list_collection(cat), [(f"{label}（智能集合）", f"?cat={cat}")]
-    return ws.list_dir(path, sort), ws.breadcrumbs(path)
+        return (ws.paginate(ws.list_collection(cat, sort=sort), offset),
+                [(f"{label}（智能集合）", f"?cat={cat}")])
+    return ws.paginate(ws.list_dir(path, sort), offset), ws.breadcrumbs(path)
 
 
 @router.get("/list")
 def list_fragment(request: Request, user: User, path: str = "", cat: str = "",
-                  sort: str = "name", view: str = "grid"):
+                  sort: str = "name", view: str = "grid", q: str = "", offset: int = 0):
     """HTMX 片段（兼容保留）；页面导航主走 hx-boost 整页。"""
     try:
-        entries, crumbs = _listing(request, path, cat, sort)
+        ctx, _page = _view_ctx(request, user, path, cat, sort, view, q, offset)
     except ws.WorkspaceError as exc:
         _fail(request, exc, path or cat or "/")
         return
-    return render_partial(request, "files/_content.html", {
-        "entries": entries, "path": path, "cat": cat, "sort": sort,
-        "view": view, "crumbs": crumbs,
-        "is_admin": user["role"] == "admin",
-        "ws_root_name": Path(ws.root()).name,
+    return render_partial(request, "files/_content.html", ctx)
+
+
+@router.get("/side")
+def side_fragment(request: Request, user: User, path: str = "", cat: str = "",
+                  sort: str = "name", view: str = "grid"):
+    """侧栏片段：异步加载真实计数（首屏占位之后才补数）。
+
+    与首页不同，片段可以安心等待索引（单飞收敛）——它是次请求、可缺省，不会卡住
+    首屏。写操作后的 _side_oob 仍用它同款模板，计数实时刷新。
+    """
+    return render_partial(request, "files/_side.html", {
+        "cat": cat, "path": path, "sort": sort, "view": view,
+        "locs": ws.location_counts(), "counts": ws.category_counts(),
     })
+
+
+@router.get("/more")
+def more_fragment(request: Request, user: User, path: str = "", cat: str = "",
+                  sort: str = "name", view: str = "grid", q: str = "",
+                  offset: int = 0):
+    """「加载更多」的下一页卡片（纯条目片段，不含网格容器）。
+
+    前端 app.js wbMore() 用 fetch 拿这段 HTML 插到按钮前：响应可能有多个顶层
+    节点，交给 htmx 换 outerHTML 不稳当，自己插最确定。X-Osfm-More / X-Osfm-Offset
+    把翻页状态回给前端，前端不需要自己算。"""
+    try:
+        ctx, page = _view_ctx(request, user, path, cat, sort, view, q, offset)
+    except ws.WorkspaceError as exc:
+        _fail(request, exc, path or cat or "/")
+        return
+    body = render_partial(request, "files/_more.html", ctx).body
+    return Response(body, media_type="text/html; charset=utf-8",
+                    headers={"X-Osfm-More": "1" if page.has_more else "0",
+                             "X-Osfm-Offset": str(page.next_offset),
+                             "Cache-Control": "no-cache"})
 
 
 @router.get("/preview")
@@ -365,28 +443,37 @@ async def batch(request: Request, admin: Admin, here: str = Form("")):
 
 
 def _rerender(request: Request, here: str, message: str):
-    """写操作后的统一收尾：原地重渲染当前视图（条目即时消失/出现）+ 侧栏 OOB。"""
+    """写操作后的统一收尾：原地重渲染当前视图（条目即时消失/出现）+ 侧栏 OOB。
+
+    `here` 带上 offset（第几页），重渲染留在当前页；集合变短后越界的 offset
+    由 ws.paginate 钳回首页，不会给用户一个空页。"""
     q = dict(parse_qsl(here, keep_blank_values=True)) if here else {}
     v_path, v_cat, v_q = q.get("path", ""), q.get("cat", ""), q.get("q", "")
     v_sort = q.get("sort", "name")
     v_view = q.get("view", "grid")
+    try:
+        v_offset = max(0, int(q.get("offset") or 0))
+    except ValueError:
+        v_offset = 0
     if v_sort not in ("name", "time", "size"):
         v_sort = "name"
     if v_view not in ("grid", "list"):
         v_view = "grid"
+    admin = {"role": "admin"}
     try:
-        if v_q.strip():
-            entries, crumbs = ws.search(v_q), [(f"搜索「{v_q.strip()}」", f"?q={v_q.strip()}")]
-        else:
-            entries, crumbs = _listing(request, v_path, v_cat, v_sort)
+        ctx, _page = _view_ctx(request, admin, v_path, v_cat, v_sort, v_view, v_q, v_offset)
     except ws.WorkspaceError:
         parent = v_path.rsplit("/", 1)[0] if "/" in v_path else ""
-        entries, crumbs = _list_or_404(request, parent), ws.breadcrumbs(parent)
-    body = render_partial(request, "files/_content.html", {
-        "entries": entries, "path": v_path, "cat": v_cat, "sort": v_sort, "view": v_view,
-        "crumbs": crumbs, "is_admin": True,
-        "ws_root_name": Path(ws.root()).name,
-    }).body
+        page = ws.paginate(_list_or_404(request, parent), v_offset)
+        ctx = {
+            "entries": page.items, "path": parent, "cat": "", "sort": v_sort,
+            "view": v_view, "q": "", "crumbs": ws.breadcrumbs(parent),
+            "total": page.total, "offset": page.offset, "has_more": page.has_more,
+            "next_offset": page.next_offset,
+            "more_qs": _qs(parent, "", v_sort, v_view, page.next_offset),
+            "is_admin": True, "ws_root_name": Path(ws.root()).name,
+        }
+    body = render_partial(request, "files/_content.html", ctx).body
     resp = Response(body + _side_oob(request, v_cat, v_path, v_sort, v_view),
                     media_type="text/html; charset=utf-8")
     toast(resp, message)
@@ -426,14 +513,64 @@ def init_workspace(request: Request, admin: Admin):
 
 # ---------------------------------------------------------------------------
 # 目录变更监听（W16）：Agent 在另一头写文件时，打开中的目录自动刷新。
-# 轻量实现：SSE 每 2.5s 对当前目录做一次单层 (name, mtime) 签名对比，
-# 变化才发事件；智能集合/最近视图是全树聚合，不做监听（连接立即收尾）。
+#
+# 0.8.34 重写为 async：原来是同步端点，Starlette 会把同步生成器整个生命周期
+# 绑在一个 worker 线程上——一个页面开 30 分钟 = 占 1 个线程，几个标签页就把
+# 线程池耗光（线上表现：文件页一开，其他页面全部进不去）。现在只 sleep 不占
+# 线程，扫盘这种真正阻塞的动作走一个专用小线程池，并用令牌限制并发个数。
 # ---------------------------------------------------------------------------
 
+WATCH_INTERVAL = 3.0
+WATCH_MAX_SECONDS = 1800
+# 目录签名只取前 N 项（排序后）：超大目录靠“项数 + 头部指纹”就足以发现变化。
+WATCH_SIGNATURE_MAX = 2000
+_WATCH_SLOTS: dict = {}   # id(event loop) -> [当前占用数]，单线程读写，不需锁
+
+
+def _watch_slots() -> list:
+    """每个 event loop 一份 SSE 占用计数（多 worker 部署时各自限流）。"""
+    return _WATCH_SLOTS.setdefault(id(asyncio.get_running_loop()), [0])
+
+
+def watch_signature(path: str = "", cat: str = ""):
+    """目录签名（盯盘变更检测用），故意不走列表/索引缓存：盯的就是盘上真变化。
+
+    只用 scandir 的 (名字, 是否目录, mtime)，不建 Entry 也不算目录子项数；条目数
+    封顶 —— 盯一个 5 万文件的目录不该每 3 秒把全目录 stat 一遍。
+    返回 None 表示目录不可读（前端不重发，下一轮再看）。"""
+    if cat == "trash":
+        target = ws.root() / ws.TRASH_DIR
+    else:
+        try:
+            target = ws.resolve_rel(path)
+        except ws.WorkspaceError:
+            return None
+    if not target.is_dir():
+        return None
+    sig = []
+    try:
+        with os.scandir(target) as it:
+            for de in it:
+                if de.name.startswith("."):
+                    continue
+                try:
+                    mt = de.stat(follow_symlinks=False).st_mtime_ns
+                except OSError:
+                    mt = -1
+                try:
+                    is_dir = de.is_dir()
+                except OSError:
+                    is_dir = False
+                sig.append((de.name, is_dir, mt))
+    except OSError:
+        return None
+    sig.sort()
+    return (len(sig), sig[:WATCH_SIGNATURE_MAX])
+
+
 @router.get("/watch")
-def watch(request: Request, user: User, path: str = "", cat: str = ""):
+async def watch(request: Request, user: User, path: str = "", cat: str = ""):
     import json
-    import time as _time
 
     from fastapi.responses import StreamingResponse
 
@@ -446,42 +583,41 @@ def watch(request: Request, user: User, path: str = "", cat: str = ""):
                                  media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache"})
 
-    def _signature():
-        if cat == "trash":
-            items = ws.trash_list()
-        else:
-            target = ws.resolve_rel(path)
-            if not target.is_dir():
-                return None
-            base = ws.root()
-            items = []
-            for p in sorted(target.iterdir()):
-                if p.name.startswith("."):
-                    continue
-                try:
-                    items.append(ws._entry(p, base))
-                except OSError:
-                    continue
-        return sorted((e.name, round(e.mtime, 1), e.is_dir) for e in items)
+    slot = _watch_slots()
+    max_slots = max(1, settings.workbench_sse_max)
 
-    def _gen():
+    async def _agen():
+        if slot[0] >= max_slots:
+            # 监听名额满了：让前端退避重试（app.js 收到 busy 会 60s 后重接），
+            # 而不是每 3 秒重连一次把服务敲在尖上
+            yield _payload("busy", {"after": 60})
+            return
+        slot[0] += 1
         last = None
         first = True
-        deadline = _time.monotonic() + 1800
-        while _time.monotonic() < deadline:
-            try:
-                sig = _signature()
-            except ws.WorkspaceError:
-                sig = None
-            if first:
-                yield _payload("hello", {})
-                first = False
-            elif sig != last and last is not None:
-                yield _payload("changed", {})
-            last = sig
-            _time.sleep(2.5)
-        yield _payload("bye", {})
+        deadline = time.monotonic() + WATCH_MAX_SECONDS
+        try:
+            while time.monotonic() < deadline:
+                if await request.is_disconnected():
+                    break
+                try:
+                    sig = await anyio.to_thread.run_sync(lambda: watch_signature(path, cat))
+                except ws.WorkspaceError:
+                    sig = None
+                if first:
+                    yield _payload("hello", {})
+                    first = False
+                elif sig != last and last is not None:
+                    # 盘上变了 → 列表/索引缓存必须跟着作废：不然前端收到
+                    # changed 去重拉，拿到的还是最多 30s 前的旧快照（“活了但没变”）。
+                    ws.invalidate_caches()
+                    yield _payload("changed", {})
+                last = sig
+                await asyncio.sleep(WATCH_INTERVAL)
+            yield _payload("bye", {})
+        finally:
+            slot[0] -= 1
 
-    return StreamingResponse(_gen(), media_type="text/event-stream",
+    return StreamingResponse(_agen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",
                                       "X-Accel-Buffering": "no"})

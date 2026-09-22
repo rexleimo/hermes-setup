@@ -28,8 +28,9 @@
 {% else %}
 
 {%- set baseq = ('cat=' ~ cat if cat else 'path=' ~ path) -%}
-{%- set ns = baseq ~ '&view=' ~ view -%}
-{%- set here = request.path ~ '?' ~ (baseq ~ '&sort=' ~ sort ~ '&view=' ~ view if baseq else 'sort=' ~ sort ~ '&view=' ~ view) -%}
+{# `here`（写操作后回到哪个视图）由路由 _qs() 统一产出，含 offset：模板自己再拼
+   一遍就会与 /files/more 、重渲染的口径不一致（分页参数一丢就跳回首页）。 #}
+{%- set here = here or request.url.path ~ '?' ~ (baseq ~ '&sort=' ~ sort ~ '&view=' ~ view if baseq else 'sort=' ~ sort ~ '&view=' ~ view) -%}
 {# ============ Windows 11 资源管理器风格（铺满内容区，无窗框） ============ #}
 <div class="win11" id="osfm-root" data-admin="{{ '1' if is_admin else '0' }}"
      data-here="{{ here }}" hx-boost="true">
@@ -99,8 +100,11 @@
   </div>
 
   <div class="e-body">
-    {# 侧栏可被归档/上传响应 OOB 换入（id=osfm-side），内容见 files/_side.html #}
-    <aside class="e-side" id="osfm-side">{% include "files/_side.html" %}</aside>
+    {# 侧栏可被归档/上传响应 OOB 换入（id=osfm-side），内容见 files/_side.html。
+       首屏只渲染占位链接（数字为空）；hx-get 在页面加载时异步补真实计数，
+       不再等全树索引卡死首屏。 #}
+    <aside class="e-side" id="osfm-side" hx-get="/files/side" hx-trigger="load"
+           hx-swap="innerHTML">{% include "files/_side.html" %}</aside>
 
     <main class="e-content" id="osfm-content">{% include "files/_content.html" %}</main>
 

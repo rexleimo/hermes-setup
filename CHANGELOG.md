@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.8.35 — 2026-09-22（首屏不再等全树索引：侧栏计数改异步加载）
+
+继 0.8.34「给每请求开销加界」之后，这一版修掉一个它没碰的残留：0.8.34 把侧栏计数
+（`category_counts` / `location_counts`）从**首屏同步等全树索引**改成了**首屏先渲染、
+数字异步补**。文件很多时冷缓存进页面「空转很久」的根因，恰恰就是这步同步等待。
+
+| 项目 | 0.8.34 | 0.8.35 |
+| --- | --- | --- |
+| 首屏是否等全树索引 | 等（`category/locat/inspect` 同步走盘） | 不等，先出卡片 + 占位侧栏 |
+| 侧栏数字来源 | 首屏同步聚合 | `/files/side` 片段异步补（可等索引） |
+| 写入后侧栏刷新 | OOB | 不变（OOB 不回归） |
+
+### Fixed
+- **首屏解耦全树索引**（`web/routers/files.py::files_page`）：`/files` 不再同步调用
+  `category_counts()` / `location_counts()`。侧栏链接本身是常量（buckets / 集合
+  key 写死），所以首屏就能渲染完整导航，只有数字留空等异步片段。
+- **后台预热**（`workspace_service.prefetch_index`）：首屏触发一个后台线程预热索引，
+  调用方立即返回；计算仍走 `_cached_counts` 单飞，重复预热自动收敛。
+- **新片段 `/files/side`**：侧栏真实计数走它，可安心等待索引（次请求、可缺省，
+  不卡首屏）。
+
+### Changed
+- **模板 `files.html`**：侧栏 `<aside id="osfm-side">` 加 `hx-get="/files/side"`
+  `hx-trigger="load"` 首屏异步拉数；占位内容先渲染。
+- **测试**：`tests/test_workbench_perf.py` 新增 4 项——阻塞 `_walk_files` 时首屏仍
+  200、首屏不调聚合计数、`/files/side` 出数、`prefetch_index` 不阻塞；写入 OOB 不回归。
+
+
+线上症状：工作区文件一多，`/files?cat=images&view=grid` 把服务打到完全进不去。
+不是“某条查询慢”，而是一次页面开销的每一项都没有上界，乘法效应叠在一起：
+
+| 项目 | 0.8.33 | 0.8.34 |
+| --- | --- | --- |
+| 首屏渲染（1500 图 + 6000 依赖文件，冷缓存） | 729ms | 30ms |
+| 页面每请求 SQL | 18 条（3 次写事务） | 3 条（1 次写：审计） |
+| 首屏卡片数 | 1000（全部） | 120（一页）+「加载更多」 |
+| 缩略图每请求 SQL | 5.0 条（2.0 写） | 2.0 条（0 写） |
+| 开一页引发的服务端缩略图请求 | 1000（浏览器并发随意） | ≤120，且前端并发上限 4 |
+
+### Fixed
+- **全树只走一次**（`workspace_service`）：索引层重写为 `scandir` 单遍下行（边
+  走边判类型，不再先钻 `node_modules/.git/__pycache__` 再丢掉结果），侧栏计数 /
+  位置计数 / 集合 / 最近 / 搜索 / 健康检查全部从同一份 `_index()` 派生。以前一次
+  渲染要 `rglob` 四遍，目录越深越慢；现在走盘次数与视图个数无关。
+- **缓存到期不打群架**：TTL 缓存 + single-flight 合流，同键并发只算一次，其余等
+  结果（以前 30s 到期的瞬间，N 个标签页 = N 次全树重算）。
+- **目录列表也进缓存**（`list_dir`）：以前每请求 `iterdir` + 建满量 `Entry`，1500
+  文件的目录就是 100ms（翻页/切排序/返回上级各扫一遍）；现在同目录只扫一次，
+  排序在内存做。服务层写操作与盯盘变化均主动作废。
+- **每个带 cookie 的请求不再开写事务**（`sessions`）：滑动续期从“每请求两条
+  UPDATE”改为限流 60s 一次并合并成一条（一个照片页 = 几百次写事务在 SQLite 写锁
+  上串行，是直接死因）。`last_seen_at` 就是节流依据，不引入新状态。
+- **设置读取上进程内缓存**（`appsettings.get_setting` 5s TTL + 写入即失效）：工作区
+  根路径以前每个带 `path` 的请求都要解一次库，而网格页有几百个这样的请求。
+- **`/files/watch` 改 async**：同步 SSE 生成器会整段占住一个 worker 线程 30 分钟
+  （10 个标签页就能把线程池抽干）。现在不占线程，且每事件循环限流
+  `HERMES_CONSOLE_SSE_MAX`（默认 6），满了推 `busy` 让前端 60s 后退避；轮询扫描
+  走 `anyio.to_thread`，签名封顶 2000 项。
+- **线程池显式扩容**：`HERMES_CONSOLE_WORKER_THREADS`（默认 64）在 lifespan 里抬
+  anyio worker 额度，并把监听拆成不占额度的形式。
+
+### Added
+- **分页 + 增量端点**：`GET /files/more`（同源 `_listing`，返回裸卡片片段）按
+  `offset` 取一页，用 `X-Osfm-More` / `X-Osfm-Offset` 响应头告知还有没有下一页；
+  前端 `fetch` + `insertAdjacentHTML` 追加到占位按钮之前（多根节点片段不交给 htmx
+  换，不可靠）。`PAGE_SIZE=120`、`INDEX_LIMIT=50000`（索引硬上界）。
+- **媒体受控加载**（`app.js`）：网格图片/视频一律 `data-src`，IntersectionObserver
+  进入视口才挂 `src`，全页并发上限 4（`load`/`error`/20s 兜底释放名额）。以前 120
+  个 `<img src>` 同时发出，每个首次命中都要服务端解码原图。
+- 状态栏说清“共 N 项 · 已显示 M 项”（`data-total`），不让用户以为只剩这 120 个
+  文件；集合视图现在跟随地址栏 `sort`（以前 `cat=images` 永远拿到时间序）。
+- 模板拆分：`files/_item.html`（单条，网格/列表两种长相）+ `files/_macros.html`
+  （类型图标）+ `files/_more.html`（增量页）——首屏与增量页共用一份单条标记，
+  避免两套长相在翻页时露馅。
+
+### Tests
+- 新 `tests/test_workbench_perf.py` 19 项性能护栏：全树只走一次、TTL 内不重复扫盘、
+  到期合流（8 并发 = 1 次重算）、索引上界、分页窗口与 offset 钳位、重渲染保留
+  offset 窗口、集合跟随 URL 排序、会话写事务节流、依赖/隐藏目录与自指软链不进入
+  统计、缩略图类型与体积闸门、设置读取缓存、SSE 为 async 且满位限流、盯盘签名
+  语义、目录快照与服务层写操作不脱钩。
+- `test_collection_view_cached_and_invalidated` 修正：以前靠“进盘顺序碰运气”区分
+  时间序，现在显式 `utime` 拉开 mtime；`_sort_entries` 加名字次级键，同时间戳不再
+  随风翻转。
+
+约束遵守：零新依赖、无 DB 迁移、守卫不变（读=require_login/写=admin/CSRF/jail/审计）；
+新增的只是“每请求开销上界”。口径交换：绕过服务层直接写盘的文件，最多
+`_COUNTS_TTL`（30s）后出现在列表/集合/搜索中（服务层写操作立即作废）。
+
 ## 0.8.33 — 2026-09-21（图片缩略图：网格不再拉原图——文件 OS 最后一个已知大慢点）
 
 ### Added
