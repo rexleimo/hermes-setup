@@ -10,6 +10,8 @@
 # 说明：start.sh 末尾是 exec uv ... uvicorn，shell 会被替换，
 #       所以后台只剩 uvicorn app.main:app 一个进程，按它杀最准、不伤别的。
 # ============================================================
+# 用 sh 调用也会自动改用 bash：sh（dash）不支持 pipefail，这里先重跑一次。
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
 cd "$(dirname "$0")"
 PORT="${PORT:-${HERMES_CONSOLE_PORT:-8420}}"
