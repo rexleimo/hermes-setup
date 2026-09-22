@@ -66,6 +66,7 @@
           <h3>启用状态</h3>
           <div class="card-extra">
             <label class="switch" title="启用 / 停用该渠道">
+              <input type="hidden" name="enabled" value="off">
               <input type="checkbox" name="enabled" value="on" {% if c.enabled %}checked{% endif %}>
               <span class="switch-slider"></span>
             </label>

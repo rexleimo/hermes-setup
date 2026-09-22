@@ -256,6 +256,25 @@ def test_channel_save_via_web(admin):
     assert "已启用" in text
 
 
+def test_channel_disable_via_web_when_checkbox_omitted(admin):
+    """复现 bug：详情页「启用状态」开关未配 hidden-off 隐藏域——
+    取消勾选后 checkbox 不提交，表单缺 enabled 字段，后端按「不改动」处理，
+    导致启用后关不掉。修复后：省略 enabled 应真正停用该渠道。"""
+    login(admin, "admin", "Sup3rSecure!x")
+    token = csrf_of(admin)
+    # 1) 先启用
+    admin.post("/channels/email/save", data={"enabled": "on",
+                                             "env_EMAIL_ADDRESS": "a@a.cn",
+                                             "env_EMAIL_PASSWORD": "p",
+                                             "_csrf": token})
+    assert "已启用" in admin.get("/channels").text
+    # 2) 取消勾选再保存：有 hidden-off 后，未勾选的 checkbox 会提交 enabled=off
+    admin.post("/channels/email/save", data={"enabled": "off", "_csrf": token})
+    text = admin.get("/channels").text
+    assert "已启用" not in text
+    assert "未启用" in text
+
+
 def test_audit_records_actions(admin):
     login(admin, "admin", "Sup3rSecure!x")
     token = csrf_of(admin)
