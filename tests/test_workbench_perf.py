@@ -414,15 +414,17 @@ def test_watch_signature_detects_disk_changes(workspace):
 def test_watch_change_busts_the_listing_cache(logged_in):
     """盯盘发现变化 → 必须作废列表/索引快照（推送了但页面不变 = 这个钩子丢了）。
 
-    监听循环靠 TestClient 无法可靠流式驱动，这里钉接线：两个机制一旦脱钩，
-    本用例红。行为面另由 test_list_dir_cache_busts_on_service_write 兜住。"""
+    监听循环靠 TestClient 无法可靠流式驱动，这里钉接线：盯盘发现变化必须作废
+    「当前正在看的这个目录」的列表缓存（而不是 invalidate_caches 一把清全树——
+    那会把集合/最近/搜索也连带重算，正是「每次翻页都重算」的根因）。行为面另由
+    test_list_dir_cache_busts_on_service_write 兜住。"""
     import inspect
 
     from app.web.routers import files as files_router
 
     src = inspect.getsource(files_router.watch)
-    assert "changed" in src and "invalidate_caches" in src, \
-        "changed 事件没伴随缓存作废——盯盘推送会被 30s 列表缓存吞掉"
+    assert "changed" in src and "invalidate_dir_cache" in src, \
+        "changed 事件没伴随当前目录缓存作废——盯盘推送会被 30s 列表缓存吞掉"
     assert "yield _payload" in src, "监听循环得自己产出 SSE 事件"
 
 

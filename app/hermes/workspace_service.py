@@ -329,6 +329,26 @@ def invalidate_caches() -> None:
     invalidate_root_cache()
 
 
+def invalidate_dir_cache(rel: str = "") -> None:
+    """只作废单个目录的目录扫描缓存（watcher 按签名发现变更时使用）。
+
+    与 invalidate_caches 不同，这里不动全树索引 / 其他目录 / 根缓存：盯盘盯的是
+    当前这个目录的真变化，正在浏览的列表必须立刻反映；而集合 / 最近 / 搜索派生
+    自全树索引，由写操作与索引 TTL（30s）自己保证，不该被一个目录的变更连带打穿。
+    0.8.x 之前 watcher 一发现变化就 invalidate_caches 一把清全部 —— Agent 在另一
+    头写文件时，3 秒一轮把整页索引反复重算，就是「每次翻页都要重新获取计算」的头号
+    诱因。这里只清当前目录一份快照，其余视图继续吃热缓存。
+    """
+    with _cache_guard:
+        _counts_cache.pop(_cache_key(f"dir:{rel or '.'}"), None)
+
+
+def invalidate_bucket_cache(name: str) -> None:
+    """作废单个标准目录（bucket）的扫描缓存。"""
+    with _cache_guard:
+        _counts_cache.pop(_cache_key(f"dir:{name}"), None)
+
+
 def _cache_key(key: str) -> str:
     return f"{root()}|{key}"
 

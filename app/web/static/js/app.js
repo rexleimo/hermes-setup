@@ -421,6 +421,8 @@
     // 文件管理器换页后（boosted 导航 / 归档局部刷新）：清旧选中 + 重算状态栏
     // wbSelect 在文件工作台 IIFE 内，跨作用域经 window.__wbClearSel 调用。
     if (document.getElementById("osfm-items") && window.__wbClearSel) window.__wbClearSel();
+    // 「加载更多」已改为窗口化滚动：换页/写操作后由它接管 #osfm-items 重渲染。
+    if (window.__wbVirtInit) window.__wbVirtInit();
   });
 })();
 
@@ -667,6 +669,257 @@
   }
   // 供顶部通用 afterSwap 处理器调用（换页/局部刷新后清掉指向旧 DOM 的选中）
   window.__wbClearSel = function () { selMulti = []; wbSelect(null); };
+  // 「加载更多」改成窗口化滚动后，换页/写操作重渲染由它接管 #osfm-items。
+  window.__wbVirtInit = wbVirtInit;
+
+  // ------------------------------------------------------------------
+  // 窗口化滚动（虚拟化渲染，0.8.x）
+  // 「加载更多」无限制追加 DOM：翻几百页就是几千卡片，选中/状态栏每次扫全量，
+  // 越翻越卡。改为资源管理器式的窗口化：只渲染可视区附近的一小批页（+ 缓冲），
+  // 滚出视口的块丢弃、滚回再取（已加载即免重取）。行高统一（见 .e-fname 单行省略）
+  // → 单页高度固定 = 每页条数 × 行高，凭 scrollTop ÷ 页高度就能算出可视区落在哪几页，
+  // 无需逐元素测量。块用绝对定位，故翻页/丢块不跳滚动条。网格与列表都启用：
+  // 列表的 <table> 不能承载绝对定位块，故换成带粘滞表头的外壳，块内放 e-table。
+  var wbVirt = null;
+
+  function wbVirtDestroy() {
+    if (!wbVirt) return;
+    var c = wbVirt.container;
+    if (c) {
+      if (wbVirt.scroller) wbVirt.scroller.removeEventListener("scroll", wbVirtOnScroll);
+      c.classList.remove("wb-virt");
+      c.style.height = "";
+    }
+    if (wbVirtResizeT) { clearTimeout(wbVirtResizeT); wbVirtResizeT = null; }
+    window.removeEventListener("resize", wbVirtOnResize);
+    wbVirt = null;
+  }
+
+  function wbVirtBlock(page, nodes) {
+    var b = document.createElement("div");
+    b.className = "wb-pblock";
+    b.dataset.page = String(page);
+    // 列表块从表头下方开始（offsetTop），网格从容器顶部开始（offsetTop=0）。
+    b.style.top = ((wbVirt ? wbVirt.offsetTop + page * wbVirt.blockH : 0)) + "px";
+    if (wbVirt && wbVirt.view === "list") {
+      // <tr> 不能直接放 div 里：块内放一个 e-table>tbody，卡片 tr 在 tbody 中。
+      b.className = "wb-pblock wb-pblock-list";
+      var tbl = document.createElement("table");
+      tbl.className = "e-table";
+      var tb = document.createElement("tbody");
+      for (var i = 0; i < nodes.length; i++) tb.appendChild(nodes[i]);
+      tbl.appendChild(tb);
+      b.appendChild(tbl);
+    } else {
+      for (var j = 0; j < nodes.length; j++) b.appendChild(nodes[j]);
+    }
+    return b;
+  }
+
+  function wbVirtBaseQs(container) {
+    var here = wbHere();
+    var p = new URLSearchParams(here || "");
+    p.delete("offset");
+    p.set("view", container.dataset.view || "grid");
+    return p.toString();
+  }
+
+  function wbVirtFetchPage(page, qs, done) {
+    fetch("/files/more?" + qs + "&offset=" + (page * wbVirt.pageSize))
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); })
+      .then(function (html) { done(html.trim() ? html : "") })
+      .catch(function () { done(""); });
+  }
+
+  function wbVirtPaint() {
+    if (!wbVirt) return;
+    var W = wbVirt, container = W.container;
+    var blockH = W.blockH;
+    var lastPage = Math.ceil(W.total / W.pageSize) - 1;
+    if (lastPage < 0) lastPage = 0;
+    var st = W.scroller.scrollTop, ch = W.scroller.clientHeight;
+    var fp = Math.min(lastPage, Math.floor(st / blockH));
+    var lp = Math.min(lastPage, Math.floor((st + ch) / blockH));
+    var lo = Math.max(0, fp - W.behind), hi = Math.min(lastPage, lp + W.ahead);
+
+    // 把窗口内已加载的块挂回容器（顺序 = 页号序），窗口外（含越界）的块丢弃。
+    var keep = new Set();
+    for (var p = lo; p <= hi; p++) {
+      var n = W.blocks[p];
+      if (n && W.loaded.has(p) && !n.parentNode) container.appendChild(n);
+      if (n && n.parentNode) keep.add(String(p));   // W.blocks 的 key 是字符串，这里也必须转字符串，否则删除判断（下面 for..in 用字符串 key）永远匹配不上，把窗口内块误删
+    }
+    for (var k in W.blocks) {
+      if (!keep.has(k) && W.blocks[k].parentNode) {
+        W.blocks[k].parentNode.removeChild(W.blocks[k]);
+        delete W.blocks[k];          // 连内存一起回收，滚回再取 —— 总内存随窗口固定
+        W.loaded.delete(k);
+      }
+    }
+    // 每次稳定布局后都激活新挂出卡片的缩略图 + 刷新状态栏（首屏页 0 也立即激活）。
+    wbVirtFinished();
+
+    // 缺的块异步去取（窗口很小，拉完再重铺一次）。
+    var miss = [];
+    for (var m = lo; m <= hi; m++) if (!W.loaded.has(m) && !W.fetching.has(m)) miss.push(m);
+    if (!miss.length) { return; }
+
+    var done = 0;
+    function all() { if (++done === miss.length) { wbVirtPaint(); } }
+    miss.forEach(function (pg) {
+      if (pg > lastPage) { W.fetching.add(pg); return all(); }   // 已到末尾页，无更多
+      W.fetching.add(pg);
+      wbVirtFetchPage(pg, W.qs, function (html) {
+        W.fetching.delete(pg);
+        if (!html) { W.loaded.add(pg); return all(); }  // 服务器无更多内容：标记为已兑换，不再重复请求（否则 miss 永远命中）
+        var frag = document.createRange().createContextualFragment(html);
+        var nodes = [];
+        var ch2 = frag.childNodes;
+        for (var i = 0; i < ch2.length; i++) if (ch2[i].nodeType === 1) nodes.push(ch2[i]);
+        if (!nodes.length) { W.loaded.add(pg); return all(); }  // 解析不出卡片：同样记作已兑换
+        var b = wbVirtBlock(pg, nodes);
+        W.blocks[pg] = b;
+        W.loaded.add(pg);
+        all();
+      });
+    });
+  }
+
+  function wbVirtFinished() {
+    if (!wbVirt) return;
+    mediaScan(wbVirt.container);   // 新挂出的卡片才激活 data-src 缩略图
+    wbStatus();
+  }
+
+  function wbVirtInit() {
+    var container = $id("osfm-items");
+    if (!container) { wbVirtDestroy(); return; }
+    var view = container.dataset.view || "grid";
+    if (view !== "grid" && view !== "list") { wbVirtDestroy(); return; }  // 仅网格/列表虚拟化
+    if (wbVirt && wbVirt.container === container && wbVirtBaseQs(container) === wbVirt._qs)
+      return;                          // 视图未变，不重开
+    wbVirtDestroy();
+
+    var total = parseInt(container.dataset.total || "0", 10) || 0;
+    if (!total) { wbVirtDestroy(); return; }   // 空视图：交给既有占位文案
+
+    // 清掉「加载更多」按钮与占位行（网格是 div.e-more-slot，列表是 tr.e-more-slot）。
+    var more = $id("osfm-more");
+    if (more && more.parentNode) more.parentNode.removeChild(more);
+    container.querySelectorAll(".e-more-slot").forEach(function (el) { el.remove(); });
+
+    // 抽首屏一页卡片 + 确定承载外壳。
+    var shell, page0;
+    if (view === "list") {
+      var res = wbVirtListShell(container);
+      if (!res) { wbVirtDestroy(); return; }
+      shell = res.shell; page0 = res.rows;
+    } else {
+      page0 = [];
+      var s = container.querySelectorAll(":scope > .osfm-card-item");
+      for (var i = 0; i < s.length; i++) page0.push(s[i]);
+      if (!page0.length) { wbVirtDestroy(); return; }
+      shell = container;   // 网格容器本身就是 div，直接复用
+    }
+
+    var W = {
+      container: shell, total: total, pageSize: page0.length, view: view,
+      qs: wbVirtBaseQs(shell), _qs: wbVirtBaseQs(shell),
+      behind: 1, ahead: 1, blockH: 0, offsetTop: 0,
+      blocks: {}, loaded: new Set(), fetching: new Set()
+    };
+
+    // 块 0 先挂进外壳以便测量高度（列表外壳已带表头，用 appendChild 而非 replaceChildren）。
+    W.blocks[0] = wbVirtBlock(0, page0);
+    shell.appendChild(W.blocks[0]);
+    W.blockH = W.blocks[0].offsetHeight || (page0.length * 40);
+    if (view === "list") W.offsetTop = res.head.offsetHeight;
+    shell.classList.add("wb-virt");
+    shell.style.height = (W.offsetTop + Math.ceil(total / W.pageSize) * W.blockH + 24) + "px";
+
+    // 滚动容器是 #osfm-content（.e-content{overflow:auto} 在 grid 单元格内），
+    // 不是外壳自己：读错元素会算出「全高窗口」把全部页面都拉下来。
+    W.scroller = wbVirtScroller(shell);
+    wbVirt = W;
+    W.scroller.addEventListener("scroll", wbVirtOnScroll, { passive: true });
+    window.addEventListener("resize", wbVirtOnResize);
+    wbVirtPaint();
+  }
+
+  // 列表视图：把服务端 <table id=osfm-items> 换成可承载绝对定位块的外壳。
+  // 表格不能可靠地作为绝对定位块 containing block，故抽走表头（粘滞）与卡片 <tr>，
+  // 每个块是一个内部带 <tbody> 的 <table> —— 复用全部表格样式/选中，无需改单元格。
+  function wbVirtListShell(container) {
+    var table = container;
+    var thead = table.querySelector("thead");
+    var cardRows = [];
+    var tbody = table.querySelector("tbody");
+    if (tbody) {
+      var cs = tbody.querySelectorAll(":scope > .osfm-card-item");
+      for (var i = 0; i < cs.length; i++) cardRows.push(cs[i]);
+    }
+    if (!cardRows.length) return null;
+
+    var shell = document.createElement("div");
+    shell.className = "osfm-list-shell";
+    shell.setAttribute("id", "osfm-items");
+    shell.dataset.total = table.dataset.total || String(table.dataset.total || 0);
+    shell.dataset.view = "list";
+    var head = thead ? document.createElement("div") : null;
+    if (head) head.className = "osfm-list-head";
+    if (head && thead) head.appendChild(thead.cloneNode(true));
+    if (head) shell.appendChild(head);
+
+    table.parentNode.replaceChild(shell, table);   // 外壳取代表格，保持 id=osfm-items
+    return { shell: shell, head: head, rows: cardRows };
+  }
+
+  // 向上找最近的滚动容器（overflow 含 scroll/auto）：块在其内部绝对定位，
+  // 由此容器的 scrollTop/clientHeight 算可视区落在哪几页。
+  function wbVirtScroller(el) {
+    var p = el.parentElement;
+    while (p) {
+      var s = getComputedStyle(p);
+      if (/(auto|scroll)/.test(s.overflowY) || /(auto|scroll)/.test(s.overflowX)) return p;
+      p = p.parentElement;
+    }
+    return el;
+  }
+
+  function wbVirtOnScroll() {
+    if (wbVirtRAF) return;
+    wbVirtRAF = window.requestAnimationFrame(function () {
+      wbVirtRAF = null;
+      if (wbVirt) wbVirtPaint();
+    });
+  }
+  function wbVirtOnResize() {
+    if (wbVirtResizeT) return;
+    wbVirtResizeT = setTimeout(function () {
+      wbVirtResizeT = null;
+      if (!wbVirt) return;
+      // 列表外壳的第一个子是粘滞表头，不是块 0：统一用 .wb-pblock 找块（网格也一样）
+      var b0 = wbVirt.container.querySelector(":scope > .wb-pblock");
+      var nh = b0 ? b0.offsetHeight : wbVirt.pageSize * 40;
+      var hd = wbVirt.view === "list" ? wbVirt.container.querySelector(":scope > .osfm-list-head") : null;
+      var nt = hd ? hd.offsetHeight : 0;
+      if (nh && nh !== wbVirt.blockH) {   // 列数随宽度变 → 块高变，全量重定位
+        wbVirt.blockH = nh;
+        if (hd) wbVirt.offsetTop = nt;
+        wbVirt.container.style.height = (wbVirt.offsetTop + Math.ceil(wbVirt.total / wbVirt.pageSize) * nh + 24) + "px";
+        for (var k in wbVirt.blocks) if (wbVirt.blocks[k].parentNode)
+          wbVirt.blocks[k].style.top = (wbVirt.offsetTop + k * nh) + "px";
+        wbVirtPaint();
+      } else if (hd && nt !== wbVirt.offsetTop) {  // 块高没变但表头高变了：块一起平移
+        wbVirt.offsetTop = nt;
+        for (var k in wbVirt.blocks) if (wbVirt.blocks[k].parentNode)
+          wbVirt.blocks[k].style.top = (nt + k * wbVirt.blockH) + "px";
+        wbVirtPaint();
+      }
+    }, 120);
+  }
+  var wbVirtRAF = null, wbVirtResizeT = null;
+
 
   document.addEventListener("click", function (ev) {
     if (wbMenu && !ev.target.closest(".osfm-menu")) wbHideMenu();
@@ -994,7 +1247,7 @@
     var to = ev.detail && ev.detail.to;
     if (to) wbNav(to);
   });
-  // 初次渲染：状态栏
-  document.addEventListener("DOMContentLoaded", wbStatus);
-  if (document.readyState !== "loading") wbStatus();
+  // 初次渲染：状态栏 + 窗口化接管
+  document.addEventListener("DOMContentLoaded", function () { wbStatus(); if (window.__wbVirtInit) window.__wbVirtInit(); });
+  if (document.readyState !== "loading") { wbStatus(); if (window.__wbVirtInit) window.__wbVirtInit(); }
   })();

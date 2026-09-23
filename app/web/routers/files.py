@@ -608,9 +608,13 @@ async def watch(request: Request, user: User, path: str = "", cat: str = ""):
                     yield _payload("hello", {})
                     first = False
                 elif sig != last and last is not None:
-                    # 盘上变了 → 列表/索引缓存必须跟着作废：不然前端收到
+                    # 盘上变了 → 当前目录列表缓存必须跟着作废：不然前端收到
                     # changed 去重拉，拿到的还是最多 30s 前的旧快照（“活了但没变”）。
-                    ws.invalidate_caches()
+                    # 只作废这一个目录的快照（不是 invalidate_caches 一把清全部）：
+                    # 集合/最近/搜索派生自全树索引，由写操作与索引 TTL 保证，
+                    # 不该被一个目录的变更连带重算（0.8.x 的整页重算根因）。
+                    # trash 视图本身每读都走盘（不走 dir 缓存），传 cat 对应的 rel 即可。
+                    ws.invalidate_dir_cache(path)
                     yield _payload("changed", {})
                 last = sig
                 await asyncio.sleep(WATCH_INTERVAL)

@@ -887,8 +887,12 @@ button.e-cmd:disabled { opacity:.4; cursor:default; }
 .e-badge { position:absolute; top:2px; right:4px; font-style:normal; font-size:10.5px;
   background:#fff; border:1px solid #ddd; border-radius:999px; padding:0 6px; color:#444; }
 .e-badge-play { background:rgba(0,0,0,.55); color:#fff; border-color:transparent; }
-.e-fname { font-size:12px; line-height:1.3; text-align:center; max-height:2.6em; overflow:hidden;
-  width:100%; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-all; }
+.e-fname { font-size:12px; line-height:1.3; text-align:center; overflow:hidden;
+  width:100%; white-space:nowrap; text-overflow:ellipsis; word-break:break-all;
+  /* 单行省略：让网格卡片高度统一（缩略图 92px + 固定内边距 + 单行名字）。
+     行高一致是「窗口化滚动」的前提——渲染器凭「页高度 = 每页条数 × 行高」
+     就能算出可视区落在哪几页，无需逐元素测量。名字过长用省略号而非换行。 */
+}
 .e-empty { padding:40px; text-align:center; color:var(--e-text2); font-size:13px; grid-column:1/-1; }
 /* 分页“加载更多”占位行：必须是容器直属子元素（新卡片插在它前面），
    所以网格用 div、列表用 tr，两套长相共用一个类 */
@@ -899,6 +903,21 @@ tr.e-more-slot td { border-bottom:none; text-align:center; padding:12px 0 4px; }
   border:1px solid var(--e-line); border-radius:6px; background:#fff; color:var(--e-text2); }
 .e-more:hover:not(:disabled) { background:var(--e-hover); color:var(--e-text); }
 .e-more:disabled { opacity:.6; cursor:progress; }
+
+/* 窗口化滚动（虚拟化渲染）：每页块绝对定位，只挂可视区附近的块。
+   #osfm-items.wb-virt 覆盖 .e-grid 的 display:grid，改回块级容器承载绝对定位块。
+   容器高度=总页数×页高度，制造完整滚动范围（子块被绝对定位，不自撑高度）。 */
+.wb-pblock { position:absolute; left:3px; right:3px; display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(116px,1fr)); gap:2px; }
+#osfm-items.wb-virt { display:block; position:relative; padding:10px; box-sizing:border-box; }
+
+/* 列表视图窗口化：块内放 e-table 承载卡片 <tr>（覆盖 .wb-pblock 的 grid，让块变块级盒）；
+   表头单独粘滞、块从表头下方开始（客户端 offsetTop）；外壳仅留左右内边距。 */
+.wb-pblock.wb-pblock-list { display:block; left:0; right:0; width:auto; }
+.osfm-list-shell.wb-virt { padding:0 12px; }
+.osfm-list-head { position:sticky; top:0; z-index:2; background:var(--e-chrome); }
+.osfm-list-head .e-table { width:100%; }
+.osfm-list-head .e-table thead th { position:static; }
 
 .e-table { width:100%; border-collapse:collapse; font-size:13px; }
 .e-table thead th { position:sticky; top:0; background:var(--e-chrome); text-align:left;
