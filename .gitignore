@@ -34,6 +34,10 @@ nohup.out
 # lock 文件不入库（避免依赖环境差异污染版本）
 uv.lock
 
+# JS 验证用依赖（jsdom 等，不入库）
+node_modules/
+package-lock.json
+
 # 运行期杂项（不入库，避免 git status 一直飘着）
 $null
 .rex-harness/
