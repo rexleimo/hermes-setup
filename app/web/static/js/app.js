@@ -2,6 +2,13 @@
 (function () {
   "use strict";
 
+  // htmx 换页后会把「响应里自带的 class/style」回填到同 id 的元素上，而回填排在
+  // htmx:afterSwap 之后 —— 也就是发生在 wbVirtInit() 之后。结果 .wb-virt 和内联 height
+  // 刚加上就被抹掉，容器退回 static：绝对定位的 .wb-pblock 失去相对父级，整页卡片直接
+  // 盖住侧栏/顶栏（点左侧「位置/智能集合」看到的布局全乱）。项目没有 .htmx-settling
+  // 过渡样式，回填关掉没有视觉代价。
+  if (window.htmx && window.htmx.config) window.htmx.config.attributesToSettle = [];
+
   // ------------------------------------------------------------------
   // Toast
   // ------------------------------------------------------------------
@@ -687,6 +694,7 @@
     var c = wbVirt.container;
     if (c) {
       if (wbVirt.scroller) wbVirt.scroller.removeEventListener("scroll", wbVirtOnScroll);
+      window.removeEventListener("scroll", wbVirtOnScroll);
       if (c.classList.contains("wb-virt")) c.classList.remove("wb-virt");
       c.style.height = "";
       // 清掉旧虚拟块，避免换目录 / boost 换 body 时残留卡片浮到顶部。
@@ -739,7 +747,7 @@
     var blockH = W.blockH;
     var lastPage = Math.ceil(W.total / W.pageSize) - 1;
     if (lastPage < 0) lastPage = 0;
-    var st = W.scroller.scrollTop, ch = W.scroller.clientHeight;
+    var band = wbVirtBand(W), st = band[0], ch = band[1];
     var fp = Math.min(lastPage, Math.floor(st / blockH));
     var lp = Math.min(lastPage, Math.floor((st + ch) / blockH));
     var lo = Math.max(0, fp - W.behind), hi = Math.min(lastPage, lp + W.ahead);
@@ -774,10 +782,7 @@
       wbVirtFetchPage(pg, W.qs, function (html) {
         W.fetching.delete(pg);
         if (!html) { W.loaded.add(pg); return all(); }  // 服务器无更多内容：标记为已兑换，不再重复请求（否则 miss 永远命中）
-        var frag = document.createRange().createContextualFragment(html);
-        var nodes = [];
-        var ch2 = frag.childNodes;
-        for (var i = 0; i < ch2.length; i++) if (ch2[i].nodeType === 1) nodes.push(ch2[i]);
+        var nodes = wbVirtNodes(html, W.view);
         if (!nodes.length) { W.loaded.add(pg); return all(); }  // 解析不出卡片：同样记作已兑换
         var b = wbVirtBlock(pg, nodes);
         W.blocks[pg] = b;
@@ -785,6 +790,15 @@
         all();
       });
     });
+  }
+
+  // 分页片段 → 元素节点。列表视图必须用 <tbody> 当解析宿主：createContextualFragment
+  // 按 body 插入模式解析，会把 <tr>/<td> 的标记整个丢掉（只剩里面的内容），
+  // 于是第 2 页起拿到的是 120 个 div 硬塞进 tbody —— 详细信息视图一滚动就整页散架。
+  function wbVirtNodes(html, view) {
+    var host = document.createElement(view === "list" ? "tbody" : "div");
+    host.innerHTML = html;
+    return [].slice.call(host.children);
   }
 
   function wbVirtFinished() {
@@ -841,17 +855,26 @@
     // 否则块 0 创建时 wbVirt 还是 null，列表首块会被建成网格样式的 .wb-pblock（缺 .wb-pblock-list，
     // 表头下方第一排会用 grid 窄幅渲染，与后续列表块错开——列表视图首屏布局错乱的根因）。
     wbVirt = W;
+    // 先落定外壳的最终布局态再挂载并测量：.wb-virt 才给 position:relative 且改回块级盒，
+    // 块是绝对定位的，外壳仍是 .e-grid（static + grid）时量到的高度和之后真正的高度不一致，
+    // 块会互相重叠。表头高度同样要在这一状态下读（块 0 的 top 由它决定）。
+    shell.classList.add("wb-virt");
+    if (view === "list") W.offsetTop = res.head.offsetHeight;
     W.blocks[0] = wbVirtBlock(0, page0);
     shell.appendChild(W.blocks[0]);
+    // 块 0 就是服务端首屏那批条目，本身就是已加载态：不标记的话每次 paint 都把它当缺块，
+    // 再发一次 offset=0 把首页重取一遍（/files/more?offset=0 返回的就是首屏那 120 条），
+    // 新块覆盖 W.blocks[0] 后旧节点没人引用、也就没人摘除，首屏会出现重叠的两批卡片。
+    W.loaded.add(0);
     W.blockH = W.blocks[0].offsetHeight || (page0.length * 40);
-    if (view === "list") W.offsetTop = res.head.offsetHeight;
-    shell.classList.add("wb-virt");
     shell.style.height = (W.offsetTop + Math.ceil(total / W.pageSize) * W.blockH + 24) + "px";
 
     // 滚动容器是 #osfm-content（.e-content{overflow:auto} 在 grid 单元格内），
     // 不是外壳自己：读错元素会算出「全高窗口」把全部页面都拉下来。
+    // 它也未必真的可滚（见 wbVirtBand），所以文档滚动也要监听，两边都由 rAF 合并。
     W.scroller = wbVirtScroller(shell);
     W.scroller.addEventListener("scroll", wbVirtOnScroll, { passive: true });
+    window.addEventListener("scroll", wbVirtOnScroll, { passive: true });
     window.addEventListener("resize", wbVirtOnResize);
     wbVirtPaint();
   }
@@ -894,6 +917,23 @@
       p = p.parentElement;
     }
     return el;
+  }
+
+  // 可视区换算到容器内坐标，返回 [已滚过的容器高度, 可视高度]。
+  // 「最近的 overflow 父级」不一定真在滚：本页面从 body 到 .e-content 整条 flex/grid 链
+  // 只有 min-height，外壳的内联高度会把 .e-content 撑到 clientHeight == scrollHeight，
+  // 滚动条其实在文档上。把它当滚动者会让窗口 == 全高，一次把所有分页都拉下来画完，
+  // 窗口化形同不存在 —— 所以先验证它确实可滚，否则退回视口坐标。
+  function wbVirtBand(W) {
+    var sc = W.scroller;
+    if (sc && sc !== W.container && sc.scrollHeight > sc.clientHeight + 1) {
+      return [sc.scrollTop, sc.clientHeight];
+    }
+    var r = W.container.getBoundingClientRect();
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    var lo = Math.max(0, -r.top);
+    var hi = Math.min(r.height, vh - r.top);
+    return [lo, Math.max(0, hi - lo)];
   }
 
   function wbVirtOnScroll() {

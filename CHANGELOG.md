@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.8.39 — 2026-09-23（点侧栏「位置/智能集合」后整页布局错乱）
+
+### 症状
+点左侧「主文件夹 / 项目 / 草稿 / 回收站 / 智能集合…」任意一项，整页卡片直接糊到侧栏、
+顶栏和详情面板上。反过来**直接刷新到同一个 URL 是正常的** —— 说明服务端渲染没问题，
+是 boost 换页之后客户端状态被破坏了。
+
+### 根因一：htmx 换页后的属性回填抹掉窗口化状态（`app.js`）
+htmx 换 body 时会对「同 id + 同标签」的元素做属性保留：交换时把旧元素的 class/style
+抄给新元素，并把回填任务排进 settle —— 而 settle 永远排在 `htmx:afterSwap` **之后**。
+`wbVirtInit()` 正是在 afterSwap 里跑的，于是它刚给 `#osfm-items` 加上 `.wb-virt` 和内联
+`height`，就被响应自带的 `class="e-grid"` + 空 style 覆盖回去。
+
+`.wb-virt` 是 `#osfm-items` 唯一的 `position:relative` 来源（`admin.css` 里
+`#osfm-items.wb-virt{display:block;position:relative}`）。它一掉，JS 造出来的
+`.wb-pblock`（`position:absolute`）就改为相对初始包含块定位，几百张卡片按整页坐标平铺，
+压住侧栏/顶栏/详情面板 = 用户看到的「整页乱」。
+
+修复：`htmx.config.attributesToSettle = []`。项目里只有 `.htmx-swapping`、没有任何
+`.htmx-settling` 过渡样式，关掉回填没有视觉代价。
+
+### 根因二：块高在容器定稿之前测量（`app.js`）
+`W.blockH = W.blocks[0].offsetHeight` 发生在 `shell.classList.add("wb-virt")` 之前，
+此时外壳还是 `.e-grid`（static + grid），块按「没有相对父级」的宽度被测出高度，
+和之后的真实块高不一致（实测 3926 vs 15709）→ 块与块互相重叠。同一行代码顺序还让
+列表的 `W.offsetTop`（表头高）在块 0 建好之后才赋值，块 0 的 `top:0` 压在粘滞表头下面。
+修复：先落 `.wb-virt`、再量表头高、再建块 0。
+
+### 根因三：列表分页片段按非表格上下文解析（`app.js`）
+`document.createRange().createContextualFragment(html)` 走 body 插入模式，`<tr>`/`<td>`
+的开始标记会被整个丢掉、只剩里面的内容 → 列表视图翻到第 2 页时，块里的 `tbody` 塞的是
+120 个非 `tr` 节点（真机实测 `tr.osfm-card-item = 0`）。修复：按视图选解析宿主，
+列表用 `<tbody>`（新增 `wbVirtNodes()`）。jsdom 与 Chrome 在这里行为一致，已钉成回归项。
+
+### 根因四：首屏页被当成缺块反复重取（`app.js`）
+块 0 没进 `W.loaded`，于是每次 paint 都重发 `/files/more?...&offset=0`（服务端返回的正是
+首屏那 120 条）。新块覆盖 `W.blocks[0]` 后，旧节点没人引用、也就没人摘除 → 首屏两套卡片
+重叠（真机实测：块数 3、`p0@0px` 出现两次、120 个重复 `data-rel`）。修复：建好块 0 即
+`W.loaded.add(0)`。
+
+### 根因五：窗口按「其实不可滚的滚动容器」算 → 窗口化形同不存在（`app.js`）
+`#osfm-content` 写着 `overflow:auto`，但本页从 body 到它整条 flex/grid 链只有 `min-height`，
+外壳的内联高度会把它撑到 `clientHeight == scrollHeight`（实测 20964/20964），滚动条其实在
+文档上。按它算可视窗口就等于全高 → 一次把所有分页都拉下来画完。修复：新增 `wbVirtBand()`，
+先验证就近容器真的可滚，否则退回视口坐标（`getBoundingClientRect` + `innerHeight`），
+并补上 window 的 scroll 监听。试过在 CSS 侧给 `.content-full .win11`、`.e-body` 定高，
+但链路上 `.app-shell`/`.main-wrap` 也全是 auto 高度，要钉死得改全站布局骨架，故留在 JS 侧。
+
+### 验证
+- **真机 + 真后端**（`_repro/realapp.py`：隔离数据目录起真实 app，450/150 条种子文件，
+  浏览器真实点击）：把 `app.js` 换成 0.8.38 版本后点「文档 documents」，卡片整片糊到侧栏/
+  顶栏/详情面板上，状态栏显示「共 156 个项目 已显示 276」（276 = 首屏块被重取了一遍，
+  即根因四）；换回修复版同一操作，侧栏干净、状态栏「156 个项目」、
+  `position:relative`、块不重叠、无重复 `data-rel`。截图：
+  `_repro/shot-real-broken.png` vs `_repro/shot-real-fixed-wide.png`。
+- 网格/列表两种视图、6 个侧栏入口逐个点（含 753 条的「文档」智能集合）、回收站空目录、
+  直接刷新与 boost 点击两条路径都过；列表视图滚到第 2 页后块内 `tbody` 全是 `TR`
+  （修复前是 120 个非 `tr` 节点）；滚到 12000px 后 DOM 只剩 3 块、只多取 1 页
+  （修复前一次拉满 4 页 —— 根因五）。
+- `tests/js/wb-virt-test.js` 新增 S1/P1 共 5 条断言，其中 3 条在 0.8.38 上是红的（回填未关、
+  offset=0 重取、`<tr>` 解析丢失），修复后 16 条全绿；`uv run pytest` 全套通过。
+
 ## 0.8.38 — 2026-09-23（列表视图首块缺 `.wb-pblock-list` 致首屏布局错乱）
 
 0.8.37 把窗口化扩展到列表视图，但用 jsdom 实际加载 `app.js` 时发现一个会让

@@ -53,7 +53,9 @@ function mount(jsSrc) {
   const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body></body></html>`,
     { url: "http://localhost/", runScripts: "outside-only" });
   const w = dom.window;
-  w.htmx = w.htmx || {};
+  // 真实 htmx 一定带 config；这里放一个「默认会回填 class/style」的 htmx，
+  // 好让 S1 能断言 app.js 真的把回填关掉了。
+  w.htmx = { config: { attributesToSettle: ["class", "style", "width", "height"] } };
   // fetch 一律返回空（不触发异步取块），保证断言只针对已渲染首屏，结果确定。
   w.fetch = () => Promise.resolve({ ok: true, text: () => Promise.resolve("") });
   w.requestAnimationFrame = (cb) => cb();
@@ -124,7 +126,52 @@ const firstBlock = (w) => {
     w.document.querySelectorAll("#osfm-items .osfm-card-item").length === 4);
 })();
 
+// ---------- S1 关掉 htmx 换页后的 class/style 回填 ----------
+// 回填发生在 htmx:afterSwap 之后，会把 wbVirtInit 刚加上的 .wb-virt / 内联 height 抹掉，
+// 容器退回 static → 绝对定位的块失去父级，整页卡片盖住侧栏（点左侧位置就「布局全乱」）。
+(function settle() {
+  const w = mount(APP_SRC);
+  check("S1 app.js 关闭 attributesToSettle 回填",
+    Array.isArray(w.htmx.config.attributesToSettle) && w.htmx.config.attributesToSettle.length === 0,
+    JSON.stringify(w.htmx.config.attributesToSettle));
+})();
+
+// ---------- P1 分页片段解析 + 首屏不重取 ----------
+// 两条都是真机里复现过的缺陷，jsdom 与 Chrome 行为一致，能在这里钉住：
+//   a) <tr> 片段用 createContextualFragment 解析会整行丢掉标记（列表翻到第 2 页就散架）；
+//   b) 块 0 不标记为已加载 → 每次都重发 offset=0，新块覆盖旧块，首屏两套卡片重叠。
+const pending = [];
+pending.push((async function paging() {
+  const w = mount(APP_SRC);
+  const asked = [];
+  w.fetch = (url) => {
+    asked.push(String(url));
+    const off = parseInt(String(url).split("offset=")[1], 10) || 0;
+    let body = "";
+    for (let i = 0; i < 6; i++)
+      body += `<tr class="osfm-card-item" data-rel="p${off + i}"><td>p${off + i}</td></tr>`;
+    return Promise.resolve({ ok: true, text: () => Promise.resolve(body) });
+  };
+  setContent(w, listContent(30, 6));    // 30 条 / 每页 6 → 窗口 0..1，只会去取 offset=6
+  fire(w);
+  for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
+
+  check("P1 不重复请求首屏(offset=0)", !asked.some((u) => /offset=0$/.test(u)), asked.join(","));
+  check("P1 去取了窗口内下一页", asked.some((u) => /offset=6$/.test(u)), asked.join(","));
+  const items = w.document.getElementById("osfm-items");
+  const blocks = [...items.querySelectorAll(":scope > .wb-pblock")];
+  check("P1 每页只有一个块", new Set(blocks.map((b) => b.dataset.page)).size === blocks.length,
+    blocks.map((b) => b.dataset.page + "@" + b.style.top).join(","));
+  const p1 = blocks.find((b) => b.dataset.page === "1");
+  const rows = p1 ? [...p1.querySelectorAll("tbody > *")] : [];
+  check("P1 分页片段解析成 <tr> 行", rows.length === 6 && rows.every((n) => n.tagName === "TR"),
+    rows.map((n) => n.tagName).join(","));
+})());
+
 // ---------- 结果 ----------
-console.log(`${PASS} passed, ${FAIL} failed`);
-if (FAIL) { console.log("FAILURES:"); FAILS.forEach((f) => console.log("  - " + f)); }
-process.exit(FAIL ? 1 : 0);
+function report() {
+  console.log(`${PASS} passed, ${FAIL} failed`);
+  if (FAIL) { console.log("FAILURES:"); FAILS.forEach((f) => console.log("  - " + f)); }
+  process.exit(FAIL ? 1 : 0);
+}
+Promise.all(pending).then(report, report);
