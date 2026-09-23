@@ -687,8 +687,10 @@
     var c = wbVirt.container;
     if (c) {
       if (wbVirt.scroller) wbVirt.scroller.removeEventListener("scroll", wbVirtOnScroll);
-      c.classList.remove("wb-virt");
+      if (c.classList.contains("wb-virt")) c.classList.remove("wb-virt");
       c.style.height = "";
+      // 清掉旧虚拟块，避免换目录 / boost 换 body 时残留卡片浮到顶部。
+      if (c.querySelectorAll) c.querySelectorAll(".wb-pblock").forEach(function (el) { el.remove(); });
     }
     if (wbVirtResizeT) { clearTimeout(wbVirtResizeT); wbVirtResizeT = null; }
     window.removeEventListener("resize", wbVirtOnResize);
@@ -796,9 +798,14 @@
     if (!container) { wbVirtDestroy(); return; }
     var view = container.dataset.view || "grid";
     if (view !== "grid" && view !== "list") { wbVirtDestroy(); return; }  // 仅网格/列表虚拟化
+    // 陈旧句柄：wbVirt 引用了已不在文档里的旧容器（boost 换 body 的典型情况），须重建。
+    if (wbVirt && !document.contains(wbVirt.container)) { wbVirtDestroy(); }
     if (wbVirt && wbVirt.container === container && wbVirtBaseQs(container) === wbVirt._qs)
-      return;                          // 视图未变，不重开
+      return;                          // 视图与查询未变，不重开
     wbVirtDestroy();
+    // 构建前清掉当前容器残留的旧虚拟块（boost 若为 innerHTML 追加会留下上一目录的块）；
+    // 绝对定位 .wb-pblock 在无相对父级时会落在视口左上，叠加旧块会让卡片错位/重复。
+    if (container.querySelectorAll) container.querySelectorAll(".wb-pblock").forEach(function (el) { el.remove(); });
 
     var total = parseInt(container.dataset.total || "0", 10) || 0;
     if (!total) { wbVirtDestroy(); return; }   // 空视图：交给既有占位文案
@@ -830,6 +837,10 @@
     };
 
     // 块 0 先挂进外壳以便测量高度（列表外壳已带表头，用 appendChild 而非 replaceChildren）。
+    // 必须在构建块 0 之前先 assign wbVirt = W：wbVirtBlock 靠全局 wbVirt.view 决定列表块.className。
+    // 否则块 0 创建时 wbVirt 还是 null，列表首块会被建成网格样式的 .wb-pblock（缺 .wb-pblock-list，
+    // 表头下方第一排会用 grid 窄幅渲染，与后续列表块错开——列表视图首屏布局错乱的根因）。
+    wbVirt = W;
     W.blocks[0] = wbVirtBlock(0, page0);
     shell.appendChild(W.blocks[0]);
     W.blockH = W.blocks[0].offsetHeight || (page0.length * 40);
@@ -840,7 +851,6 @@
     // 滚动容器是 #osfm-content（.e-content{overflow:auto} 在 grid 单元格内），
     // 不是外壳自己：读错元素会算出「全高窗口」把全部页面都拉下来。
     W.scroller = wbVirtScroller(shell);
-    wbVirt = W;
     W.scroller.addEventListener("scroll", wbVirtOnScroll, { passive: true });
     window.addEventListener("resize", wbVirtOnResize);
     wbVirtPaint();

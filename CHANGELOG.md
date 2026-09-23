@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.8.38 — 2026-09-23（列表视图首块缺 `.wb-pblock-list` 致首屏布局错乱）
+
+0.8.37 把窗口化扩展到列表视图，但用 jsdom 实际加载 `app.js` 时发现一个会让
+列表首屏排版错开的客户端 bug（网格不受影响，故 0.8.36/0.8.37 的浏览器验证没暴露）。
+
+### 问题
+`wbVirtInit` 里 `W.blocks[0] = wbVirtBlock(0, page0)` 发生在
+`wbVirt = W` 之前。而 `wbVirtBlock` 靠**全局 `wbVirt.view`** 判断列表/网格块样式：
+
+```js
+if (wbVirt && wbVirt.view === "list") {
+  b.className = "wb-pblock wb-pblock-list";
+}
+```
+
+块 0 创建时全局 `wbVirt` 仍是 `null`，条件不成立 → **列表第 0 页块被建成网格
+样式的 `.wb-pblock`**（`display:grid; left/right:3px`），而不是列表样式
+`.wb-pblock.wb-pblock-list`（`display:block; left:0; right:0; width:auto`，块内
+`<table class=e-table>` 要全宽块级盒）。
+
+效果：列表视图第一排用网格窄幅渲染，与下方所有列表块（全宽表）错开 = 首屏
+「布局错乱」。往下翻后新取的块（此时 `wbVirt` 已赋值）样式又正确，所以只在
+首屏偶发、极易被误认为随机。
+
+### 修复（`app/web/static/js/app.js`）
+把 `wbVirt = W;` 提前到构建块 0 之前。块 0 的 `top = offsetTop + 0*blockH` 不受
+影响（`blockH` 后续才测），块 0 现在正确带上 `.wb-pblock-list`，与后续块一致。
+
+### 验证
+`_repro/list_view.js`（真实 jsdom + 真实 app.js）：修复前列表首块 `count(.wb-pblock-list)=0`、
+卡片未挂出；修复后 `count(.wb-pblock-list)=1`、6 张卡片全部正确包入块内。
+网格视图、boost 换页竞态、异步取块竞态回归均无退步（303 个 Python 测试全绿）。
+
 ## 0.8.37 — 2026-09-23（列表视图窗口化 + 窗口化关键修正）
 
 0.8.36 的窗口化只覆盖了网格，且客户端逻辑未经浏览器验证。
