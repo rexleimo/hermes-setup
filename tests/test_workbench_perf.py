@@ -482,11 +482,13 @@ def test_first_page_does_not_wait_for_index(workspace, logged_in, monkeypatch):
 
 
 def test_first_page_side_fragment_link_present_without_numbers(workspace, logged_in):
-    """首屏 HTML 含 hx-get=/files/side 与 e-loc 链接，但不强制 e-n 数字。"""
+    """首屏 HTML 含 hx-get=/files/side…（0.8.40 起带 cat/path/sort/view）与 e-loc 链接，
+    但不强制 e-n 数字。"""
     r = logged_in.get("/files")
     assert r.status_code == 200
     body = r.text
-    assert 'hx-get="/files/side"' in body
+    assert "/files/side?" in body    # 异步计数请求在（带当前视图参数，见 0.8.40）
+    assert "hx-get=" in body
     assert "e-loc" in body                       # 侧栏链接在
     assert "主文件夹" in body
     # 占位侧栏：链接的数字为空（n is None 不渲染数字），但链接仍可点。

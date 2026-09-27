@@ -10,6 +10,27 @@
   if (window.htmx && window.htmx.config) window.htmx.config.attributesToSettle = [];
 
   // ------------------------------------------------------------------
+  // boost 导航双击防抖：同一链接 800ms 内的第二次点击直接丢弃请求。
+  // 双击会产生两次背靠背的整 body swap，htmx 1.9.12 在这种连发后可能丢掉
+  // 换入内容的 boost 绑定 —— 用户下一次点击侧栏链接就退化成原生整页跳转
+  // （白屏闪烁，WebOS 窗口层全部丢失）。双击在语义上就不该换页两次，
+  // 从请求源头掐掉第二发，两次 swap 的竞态根本不会发生。
+  // ------------------------------------------------------------------
+  var lastBoostAt = {};
+  document.body.addEventListener("htmx:beforeRequest", function (ev) {
+    var elt = ev.detail && ev.detail.elt;
+    if (!elt || !elt.closest || !elt.closest("[hx-boost]")) return;   // 只管 boost 导航
+    var path = (ev.detail.pathInfo && ev.detail.pathInfo.requestPath) || "";
+    var now = Date.now();
+    // 按路径分别记账：换页后 #osfm-side 的 hx-get 计数刷新与导航链接互不干扰
+    if (lastBoostAt[path] && now - lastBoostAt[path] < 800) {
+      ev.preventDefault();
+      return;
+    }
+    lastBoostAt[path] = now;
+  });
+
+  // ------------------------------------------------------------------
   // Toast
   // ------------------------------------------------------------------
   var ICONS = {

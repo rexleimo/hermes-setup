@@ -19,6 +19,13 @@
 (function () {
   "use strict";
 
+  // 本脚本经 files.html 的 scripts 块落在 body 末尾，htmx boost 换页会把换入内容里的
+  // <script> 原样再执行一遍。不设防的话每次换页都会造出一个全新 WM 闭包：旧闭包的
+  // afterSwap 监听还在把自己的 #wm-root 挂回 body，旧窗口还贴在屏幕上，而 window.WM
+  // 却指向 wins 为空的新闭包 —— 窗口/任务条随换页次数层层叠加（双击菜单 = 两次换页，
+  // 叠得更快），就是「双击后整页布局错乱」。窗口层全站只允许初始化一次。
+  if (window.WM) return;
+
   var wins = {};        // id -> 窗口指针（最小化后仍保留，内容已销毁）
   var nextId = 1;
   var zTop = 100;

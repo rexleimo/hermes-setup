@@ -102,8 +102,12 @@
   <div class="e-body">
     {# 侧栏可被归档/上传响应 OOB 换入（id=osfm-side），内容见 files/_side.html。
        首屏只渲染占位链接（数字为空）；hx-get 在页面加载时异步补真实计数，
-       不再等全树索引卡死首屏。 #}
-    <aside class="e-side" id="osfm-side" hx-get="/files/side" hx-trigger="load"
+       不再等全树索引卡死首屏。请求必须带上当前 cat/path/sort/view：
+       端点默认 view=grid，不带参数时异步刷新后的侧栏链接会把 list 视图
+       用户指回 grid，当前位置的高亮也会丢。 #}
+    <aside class="e-side" id="osfm-side"
+           hx-get="/files/side?{% if cat %}cat={{ cat }}{% else %}path={{ path|urlencode }}{% endif %}&sort={{ sort }}&view={{ view }}"
+           hx-trigger="load"
            hx-swap="innerHTML">{% include "files/_side.html" %}</aside>
 
     <main class="e-content" id="osfm-content">{% include "files/_content.html" %}</main>

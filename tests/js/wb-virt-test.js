@@ -30,8 +30,9 @@ if (!fs.existsSync(APP_JS)) { console.log("FAIL(app.js missing): " + APP_JS); pr
 const APP_SRC = fs.readFileSync(APP_JS, "utf8");
 
 // 镜像 files.html 内容区的 workbench 外壳（含 #osfm-root data-here、#osfm-content）。
+// hx-boost 与真实模板一致：D1 的防抖只作用于 boost 容器内的请求。
 function win11(inner) {
-  return `<div class="win11" id="osfm-root" data-here="view=grid" data-admin="0">
+  return `<div class="win11" id="osfm-root" data-here="view=grid" data-admin="0" hx-boost="true">
     <div class="e-content" id="osfm-content">${inner}</div>
   </div>`;
 }
@@ -134,6 +135,38 @@ const firstBlock = (w) => {
   check("S1 app.js 关闭 attributesToSettle 回填",
     Array.isArray(w.htmx.config.attributesToSettle) && w.htmx.config.attributesToSettle.length === 0,
     JSON.stringify(w.htmx.config.attributesToSettle));
+})();
+
+// ---------- D1 boost 导航双击防抖 ----------
+// 同一链接 800ms 内的第二发 htmx:beforeRequest 必须被 preventDefault：
+// 双击产生两次背靠背整 body swap，会踩中 htmx 1.9.12「连发 swap 后丢 boost 绑定」，
+// 用户下一次点击退化为原生整页跳转（白屏 + WebOS 窗口层全丢）。
+(function debounce() {
+  const w = mount(APP_SRC);
+  setContent(w, gridContent(30, 3));
+  const root = w.document.getElementById("osfm-root");
+  function fire(path, elt) {
+    const ev = new w.CustomEvent("htmx:beforeRequest",
+      { bubbles: true, cancelable: true,
+        detail: { elt: elt || root, pathInfo: { requestPath: path } } });
+    w.document.body.dispatchEvent(ev);
+    return ev.defaultPrevented;
+  }
+  const p = "/files?path=documents&view=grid";
+  check("D1 首发请求放行", fire(p) === false);
+  // 真机踩过的坑：换页后 #osfm-side 的 hx-get 计数刷新紧随而来（也在 boost 容器内），
+  // 若按「单条记录」记账会把导航记录覆写掉，双击的第二发就拦不住了 —— 必须按路径记账
+  check("D1 侧栏计数刷新放行", fire("/files/side?path=documents&view=grid") === false);
+  check("D1 侧栏刷新不覆写导航记录（第二发仍拦截）", fire(p) === true);
+  check("D1 双击第二发被丢弃", (() => {
+    // 上一步已拦截过一次；换一条路径验证完整链路：首发放行 → 同路径二发拦截
+    const p2 = "/files?path=projects&view=grid";
+    return fire(p2) === false && fire(p2) === true;
+  })());
+  // 非 boost 容器里的请求（如 topbar pill、局部片段）完全不受防抖影响
+  const loose = w.document.createElement("div");
+  w.document.body.appendChild(loose);
+  check("D1 非 boost 请求不受影响", fire("/service/pill", loose) === false);
 })();
 
 // ---------- P1 分页片段解析 + 首屏不重取 ----------

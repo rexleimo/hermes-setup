@@ -633,6 +633,41 @@ async function main() {
     WM.close(w.id);
   }
 
+  // N. htmx 换页会重复执行 body 末尾的本脚本：不得重建 WM、不得丢已开窗口、
+  //    不得出现第二份 #wm-root（0.8.40「双击菜单后整页布局错乱」根因）。
+  //    旧行为：二次执行造出新闭包 → window.WM 指向 wins 为空的实例，屏幕上的
+  //    窗口变幽灵，再开文件就任务栏/窗口层层叠加。
+  {
+    const doc = makeDocument();
+    const win = makeWindow();
+    win.fetch = () => Promise.resolve({ ok: true, status: 200, json: () => ({}) });
+    const WM1 = loadWM(doc, win, win.fetch);
+    openText(WM1);
+    eq(wmState(WM1).length, 1, "重复执行: 前置——窗口已开");
+
+    // boost 换页：旧 body 连同 #wm-root 一起被换下
+    const root = doc.body.children.find((c) => c.id === "wm-root");
+    root.remove();
+    // htmx 把换入内容里的 <script> 原样再执行一遍
+    const code2 = fs.readFileSync(
+      path.join(__dirname, "..", "..", "app", "web", "static", "js", "window-manager.js"),
+      "utf8");
+    new Function("window", "document", "fetch", "CustomEvent", code2)(
+      win, doc, win.fetch, CustomEventStub);
+    // 换页后的 afterSwap：唯一的 root 重挂路径
+    doc.fire("htmx:afterSwap", {});
+
+    ok(win.WM === WM1, "重复执行: window.WM 仍是首个闭包（不被重建）");
+    eq(wmState(win.WM).length, 1, "重复执行: 已开窗口记录不丢");
+    const roots = doc.body.children.filter((c) => c.id === "wm-root");
+    eq(roots.length, 1, "重复执行: #wm-root 只有一份");
+    ok(roots[0] === root && root.parentNode === doc.body,
+      "重复执行: 挂回的是同一份 root（窗口跨页存活）");
+    // 旧窗口句柄仍有效：能正常关闭，不留幽灵窗口
+    win.WM.close(wmState(win.WM)[0].id);
+    eq(wmState(win.WM).length, 0, "重复执行: 旧窗口句柄仍可关闭");
+  }
+
   console.log(passed + " passed, " + failed.length + " failed");
   process.exit(failed.length ? 1 : 0);
 }
