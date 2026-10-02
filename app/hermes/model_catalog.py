@@ -19,6 +19,34 @@ class ModelCatalogError(Exception):
     pass
 
 
+def _describe_network_error(exc: Exception) -> str:
+    """把 httpx 异常翻成可执行的中文原因。
+
+    此前统一报「网络错误：ConnectError」，运维看不出到底是 DNS 不通、
+    连接被拒还是超时——排查 502 全靠猜。这里按异常类型分诊，并统一
+    带上 endpoint，让「服务器连不上供应商」这类问题一眼可判。
+    """
+    detail = str(exc)
+    if isinstance(exc, httpx.ConnectTimeout):
+        return "连接超时（6s）：服务器到该供应商网络不通——通常是出网被限制或需走代理"
+    if isinstance(exc, httpx.ReadTimeout):
+        return "响应超时（15s）：供应商端点无响应，请核对 base_url 是否指向正确的 API 根路径"
+    if isinstance(exc, httpx.ProxyError):
+        return f"代理连接失败：{detail[:150]}"
+    if isinstance(exc, httpx.TooManyRedirects):
+        return f"重定向次数过多：{detail[:150]}"
+    if isinstance(exc, httpx.ConnectError):
+        low = detail.lower()
+        if "name or service not known" in low or "nodename" in low or "getaddrinfo" in low:
+            return "域名解析失败（DNS）：服务器无法解析该 base_url 域名，请检查拼写与服务器 DNS"
+        if "refused" in low:
+            return "连接被拒绝：目标端口未开放或服务未监听"
+        if "certificate" in low or "ssl" in low:
+            return f"TLS/证书错误：{detail[:150]}"
+        return f"连接失败：{detail[:150]}"
+    return f"请求失败（{exc.__class__.__name__}）：{detail[:150]}"
+
+
 @dataclass(frozen=True)
 class ModelInfo:
     id: str
@@ -47,9 +75,9 @@ async def list_models_openai(base_url: str, api_key: str) -> list[ModelInfo]:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             resp = await client.get(url, headers=headers)
     except httpx.HTTPError as exc:
-        raise ModelCatalogError(f"网络错误：{exc.__class__.__name__}") from exc
+        raise ModelCatalogError(f"{_describe_network_error(exc)}｜目标：{url}") from exc
     if resp.status_code != 200:
-        raise ModelCatalogError(f"HTTP {resp.status_code}：{resp.text[:200]}")
+        raise ModelCatalogError(f"HTTP {resp.status_code}：{resp.text[:200]}｜目标：{url}")
     try:
         data = resp.json().get("data", [])
     except ValueError as exc:
@@ -64,9 +92,9 @@ async def list_models_anthropic(base_url: str, api_key: str) -> list[ModelInfo]:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             resp = await client.get(url, headers=headers)
     except httpx.HTTPError as exc:
-        raise ModelCatalogError(f"网络错误：{exc.__class__.__name__}") from exc
+        raise ModelCatalogError(f"{_describe_network_error(exc)}｜目标：{url}") from exc
     if resp.status_code != 200:
-        raise ModelCatalogError(f"HTTP {resp.status_code}：{resp.text[:200]}")
+        raise ModelCatalogError(f"HTTP {resp.status_code}：{resp.text[:200]}｜目标：{url}")
     data = resp.json().get("data", [])
     return [
         ModelInfo(id=m.get("id", ""), display_name=m.get("display_name"))
@@ -82,9 +110,9 @@ async def list_models_gemini(api_key: str) -> list[ModelInfo]:
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             resp = await client.get(url, params={"key": api_key}, headers={"User-Agent": UA})
     except httpx.HTTPError as exc:
-        raise ModelCatalogError(f"网络错误：{exc.__class__.__name__}") from exc
+        raise ModelCatalogError(f"{_describe_network_error(exc)}｜目标：{url}") from exc
     if resp.status_code != 200:
-        raise ModelCatalogError(f"HTTP {resp.status_code}：{resp.text[:200]}")
+        raise ModelCatalogError(f"HTTP {resp.status_code}：{resp.text[:200]}｜目标：{url}")
     out: list[ModelInfo] = []
     for m in resp.json().get("models", []):
         raw = m.get("name", "")

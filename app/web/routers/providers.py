@@ -181,9 +181,12 @@ async def fetch_models(request: Request, user: Admin, pid: str):
         remote = await svc.fetch_remote_models(pid)
     except Exception as exc:  # ModelCatalogError / ProviderError
         if is_htmx(request):
+            # 关键：上游供应商拉取失败是「业务结果」，不是「本次 HTTP 请求失败」。
+            # 此前返回 502，而 htmx 对非 2xx 默认不swap —— _fetch_result.html
+            # 里的真实原因（DNS/超时/401）压根没进页面，用户只看到一个光秃秃的
+            # 502，还容易被误判成网关故障。改成 200，让错误片段正常渲染出来。
             return render_partial(request, "providers/_fetch_result.html",
-                                  {"error": str(exc), "remote": [], "pid": pid},
-                                  status_code=502)
+                                  {"error": str(exc), "remote": [], "pid": pid})
         return _reject(request, str(exc), code=502)
     audit.record("provider_fetch_models", username=user["username"], target=pid,
                  detail=f"拉取到 {len(remote)} 个模型", ip=client_ip(request))
@@ -276,7 +279,7 @@ async def test_connection(request: Request, user: Admin, pid: str):
                  ip=client_ip(request))
     return render_partial(request, "providers/_test_result.html", {
         "ok": ok, "message": message, "sample": sample, "pid": pid,
-    }, status_code=200 if ok else 502)
+    })
 
 
 # ---------------------------------------------------------------------------
