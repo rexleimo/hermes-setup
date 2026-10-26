@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.42 — 2026-10-26（线上更新后网关起不来：缺 clang 被 120s 超时掩掉）
+
+### 症状
+`hermes update` 拉了新代码后点「重启 Gateway」：120 秒超时，屏上一堆 pilk 构建
+乱码，网关彻底起不来。根因：`hermes-agent[silk]`（微信语音）依赖的 `pilk==0.2.4`
+在 PyPI 只发 Windows wheel，Linux 必须源码编译且要求 `clang`，服务器没装 → restart
+原地重试依赖编译，撞死在控制台的 120s 硬超时上。
+
+### 修复（均在 `app/hermes/`）
+- `supervisor.py`：`gateway start/restart` 超时 120s → 300s（含依赖重试的重启路径
+  不再被掩掉）；`_GUARD_HINTS` 新增构建失败/缺 clang、gcc 解读（附可直接执行的
+  apt 命令），并在超时携带的部分输出上也生效（拆出 `_failure_hint` 供两条路径复用）。
+- 顺序修复：泛化提示「找不到启动文件」（`no such file or directory`）会误伤
+  `No such file or directory: 'clang'`，编译器类提示排在它之前优先命中。
+- `installer.py`：浏览器组件任务的 apt 前置清单补上 `clang`（build-essential 已有），
+  从安装阶段就消除这个编译环境缺口。
+- 测试：`tests/test_supervisor.py` 新增超时附带工具链解读、clang 不被误判两条回归。
+
 ## 0.8.41 — 2026-10-02（模型供应商页“拉取/测试连接”失败报裸 502，真实原因被吞）
 
 ### 症状

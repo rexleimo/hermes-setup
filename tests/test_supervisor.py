@@ -154,8 +154,42 @@ def test_timeout_message_includes_partial_output(tmp_path, monkeypatch):
     assert "Enabled linger" in msg and "Installing systemd service" in msg
 
 
+def test_timeout_on_build_failure_gets_toolchain_hint(tmp_path, monkeypatch):
+    """超时卡在依赖编译（缺 clang）时，不能只截一屏乱码：必须附人话解读。
+    线上实机：pilk 源码编译报 No such file or directory: 'clang'。"""
+    import subprocess as _sp
+
+    def fake_run(cmd, **kw):
+        raise _sp.TimeoutExpired(
+            cmd, 300,
+            output=b"error: [Errno 2] No such file or directory: 'clang'\n"
+                   b"hint: Build failures usually indicate a problem "
+                   b"with the package or the build environment",
+            stderr=b"")
+
+    monkeypatch.setattr(supervisor.subprocess, "run", fake_run)
+    import pytest
+    with pytest.raises(supervisor.SupervisorError) as ei:
+        supervisor._run_cli(_stub_paths(tmp_path), "gateway", "restart")
+    msg = str(ei.value)
+    assert "clang build-essential" in msg, "应给出装编译器的可执行指引"
+    assert "hermes update" in msg
+
+
+def test_clang_failure_not_explained_as_missing_startup_file():
+    """回归：泛化解读「找不到启动文件」曾误伤 clang 缺失报错——
+    编译器类提示必须优先命中。"""
+    out = ("error: [Errno 2] No such file or directory: 'clang'\n"
+           "hint: `pilk` (v0.2.4) was included because `hermes-agent[silk]` depends on `pilk`")
+    explained = supervisor._explain_failure(out)
+    assert "找不到启动文件" not in explained
+    assert "clang build-essential" in explained
+    assert "【控制台解读】" in explained
+
+
 def test_slow_commands_get_longer_timeout(tmp_path, monkeypatch):
-    """install 用 180 秒、start 用 120 秒；状态查询仍是 20 秒；stdin 必须断开。"""
+    """install 用 180 秒、start/restart 用 300 秒（重启可能原地重试依赖编译）；
+    状态查询仍是 20 秒；stdin 必须断开。"""
     import subprocess as _sp
 
     captured = {}
@@ -175,7 +209,9 @@ def test_slow_commands_get_longer_timeout(tmp_path, monkeypatch):
     supervisor._run_cli(paths, "gateway", "status")
     assert captured["timeout"] == supervisor.CLI_TIMEOUT
     supervisor._run_cli(paths, "gateway", "start")
-    assert captured["timeout"] == 120
+    assert captured["timeout"] == 300
+    supervisor._run_cli(paths, "gateway", "restart")
+    assert captured["timeout"] == 300
     supervisor._run_cli(paths, "gateway", "install")
     assert captured["timeout"] == 180
     # stdin 断开：TTY 继承会让 hermes CLI 弹 [Y/n] 提问卡死

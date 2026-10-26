@@ -21,9 +21,12 @@ CLI_TIMEOUT = 20
 # 用状态查询那套 20 秒硬限制会把"正在进行"误判成"卡死"（实机踩过）。
 _CLI_TIMEOUTS: dict[tuple[str, ...], int] = {
     ("gateway", "install"): 180,
-    ("gateway", "start"): 120,
     ("gateway", "stop"): 120,
-    ("gateway", "restart"): 120,
+    # start/restart 单独放宽到 300s：更新后依赖没装齐时，网关起会先原地重试
+    # 依赖编译（实机：pilk 源码编译缺 clang 几分钟），120s 硬超时会把「正在补
+    # 依赖」掐死在半程，用户看到的是彻底起不来（比慢更糟）。
+    ("gateway", "start"): 300,
+    ("gateway", "restart"): 300,
     ("update",): 300,
 }
 
@@ -86,6 +89,9 @@ def _run_cli(paths: HermesPaths, *args: str) -> tuple[int, str]:
         # 超时要带出已捕获的输出：用户和我们都得知道它当时"在做什么"
         partial = _decode_partial(exc).strip()
         tail = f"\n已捕获输出（截尾）：\n{partial[-600:]}" if partial else "\n（该命令未输出任何内容）"
+        hint = _failure_hint(partial)
+        if hint:
+            tail += f"\n\n【控制台解读】{hint}"
         raise SupervisorError(
             f"命令超时：hermes {' '.join(args)}（{timeout} 秒内未完成）{tail}") from exc
     except OSError as exc:
@@ -299,19 +305,39 @@ def start(paths: HermesPaths | None = None) -> str:
     return out or "网关启动指令已下发"
 
 
+_BUILD_TOOLCHAIN_HINT = (
+    "更新后的新依赖需要在服务器上本地编译，但缺 C 编译器（clang/gcc）。"
+    "在服务器终端执行：sudo apt-get install -y clang build-essential，"
+    "再跑一次 hermes update 把依赖补齐，然后重新点「重启 Gateway」。"
+    "若不需要微信语音(silk)组件，也可在更新时去掉该扩展以跳过这个编译。")
+
+# 顺序即优先级：先具体后泛化——"no such file or directory" 的泛化解读会误伤
+# "No such file or directory: 'clang'"（缺编译器），编译器类必须排在它前面。
 _GUARD_HINTS = (
     ("refusing to start", "渠道安全护栏拦截了启动：某个渠道白名单为空但策略是 open。"
      "微信渠道重新扫一次码即可自动修复（接入助手会自动把号主写进白名单）；"
      "其他渠道请在渠道页配好白名单后重试。"),
+    # uv 构建失败的固定提示（"Build failures usually indicate..."）
+    ("build failures", _BUILD_TOOLCHAIN_HINT),
+    ("directory: 'clang'", _BUILD_TOOLCHAIN_HINT),
+    ("directory: 'gcc'", _BUILD_TOOLCHAIN_HINT),
     ("no such file or directory", "找不到启动文件，建议到「安装与更新」重新安装。"),
 )
 
 
-def _explain_failure(out: str) -> str:
+def _failure_hint(out: str) -> str:
+    """原始 CLI 输出 → 人话解读（无匹配返回空串）。超时路径与失败退出码共用。"""
     low = (out or "").lower()
     for key, hint in _GUARD_HINTS:
         if key in low:
-            return f"{out}\n\n【控制台解读】{hint}" if out else hint
+            return hint
+    return ""
+
+
+def _explain_failure(out: str) -> str:
+    hint = _failure_hint(out)
+    if hint:
+        return f"{out}\n\n【控制台解读】{hint}" if out else hint
     return out or ""
 
 

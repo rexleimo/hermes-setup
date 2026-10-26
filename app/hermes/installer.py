@@ -270,11 +270,13 @@ fi
 DEPS=""
 if [ "$(id -u)" -eq 0 ] || run_sudo true; then
   DEPS="--with-deps"
-  # 国内镜像脚本省掉的系统件（编译器/搜索/音频工具），apt 走服务器自带国内镜像
-  echo "[console] 安装系统依赖（build-essential / ripgrep / ffmpeg，best-effort）..."
+  # 国内镜像脚本省掉的系统件（编译器/搜索/音频工具），apt 走服务器自带国内镜像。
+  # clang 必列：hermes-agent[silk]（微信语音 pilk）在 Linux 只有源码包，
+  # 缺 clang 会让 hermes update / gateway restart 卡在依赖编译直到超时（线上实机踩过）。
+  echo "[console] 安装系统依赖（build-essential / clang / ripgrep / ffmpeg，best-effort）..."
   run_sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
   if run_sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-       build-essential ripgrep ffmpeg >/dev/null 2>&1; then
+       build-essential clang ripgrep ffmpeg >/dev/null 2>&1; then
     echo "[console] 系统依赖就绪"
   else
     echo "[console] 系统依赖安装跳过/失败（非致命）"
